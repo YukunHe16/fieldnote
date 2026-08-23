@@ -5,8 +5,9 @@
 [![CI](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml/badge.svg)](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520%20run%20%C2%B7%20%E2%89%A522.13%20dev-brightgreen)](.nvmrc)
+[![npm](https://img.shields.io/npm/v/fieldnote?color=cb3837&logo=npm)](https://www.npmjs.com/package/fieldnote)
 
-**English TL;DR** — Fieldnote is a local-first Claude Agent workbench for education. It runs entirely on your own machine: a graduate-admissions assistant (school research, SOP/CV drafting, a deadline-and-materials board, scheduled reports) plus an adaptive learning loop that diagnoses where you are stuck, teaches in at most three governed rounds, and evolves its teaching strategy only from outcomes you confirm. Run `npx fieldnote` to start a local server on `127.0.0.1:8787`; the same agent is also reachable from a Feishu (Lark) bot. For the complete bilingual feature reference — including explicit non-goals — see [docs/FEATURES.md](docs/FEATURES.md).
+[English](README.en.md) · **简体中文**
 
 ![Fieldnote](docs/media/hero.png#gh-dark-mode-only)
 ![Fieldnote](docs/media/hero-light.png#gh-light-mode-only)
@@ -63,6 +64,22 @@ pnpm dev
 | `pnpm build` | 生成生产构建 |
 | `NODE_ENV=production pnpm start` | 运行已构建的本地生产版本 |
 
+## 技术栈与项目结构
+
+TypeScript · React 19 + Vite · Fastify · SQLite（better-sqlite3）· [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) · MCP · 飞书 CardKit · Vitest · Biome。
+
+```text
+apps/web                 React + Vite 对话工作台（SSE 流式、学习面板、申学看板）
+apps/server              Fastify API、SQLite、Agent Runtime、专家协作、飞书渠道
+apps/server/plugins      随仓库分发的受控 Skills plugin（申学、文档、humanizer-zh）
+packages/contracts       Web / Server / Channel 共用类型
+packages/fieldnote       发布到 npm 的 `fieldnote` CLI（npx 入口）
+scripts/workbench.mjs    本地 setup、doctor 与按需技能安装
+data/                    本机数据：SQLite、会话工作区、自进化产物（不进 git）
+```
+
+质量门为 `pnpm lint && pnpm typecheck && pnpm test && pnpm build`，共约 307 个测试，全部密闭运行——不联网、不消耗模型额度。
+
 ## 配置参考
 
 大多数用户只需要运行 setup，无需手动修改下表。
@@ -98,6 +115,12 @@ pnpm dev
 
 文档技能可选依赖外部工具：`uv` / `python3`（PDF 与 Markdown 转换）、`dotnet`（docx-creator）、LibreOffice `soffice`（xlsx 重算、非 macOS 的 PDF 导出）、`tesseract`（OCR）。缺哪个不影响启动，`pnpm doctor` 会逐项报告。
 
+## 项目状态与非目标
+
+当前是 `0.x` 的**单用户本机产品**：没有登录与鉴权，接口与数据结构仍可能出现破坏性变更，升级前请留意 [更新日志](CHANGELOG.md)。
+
+有意不做的事情：不接入 PrairieLearn，也不建设题库、考试、评分或课程管理系统；学习模式不声称已证明真实学习效果，不使用强化学习，也不会自动启用教学策略；不是多租户 SaaS；不会自动提交申请、付款、发邮件或替你做任何不可逆的决定。完整边界见 [功能总览的「明确的非目标与限制」](docs/FEATURES.md#17-明确的非目标与限制--explicit-non-goals-and-limitations)。
+
 ## 安全模型
 
 - 服务端只允许绑定 loopback（有硬校验），0.x 版本没有登录与鉴权，**不要通过公网或反向代理暴露**；
@@ -126,6 +149,10 @@ pnpm dev
 - [飞书机器人本地接入](docs/FEISHU_SETUP.md)
 - [飞书、自进化、记忆](docs/飞书-自进化-记忆.md)
 - [贡献指南](CONTRIBUTING.md) · [安全模型与漏洞报告](SECURITY.md) · [更新日志](CHANGELOG.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
+
+## 许可
+
+[MIT](LICENSE)。随仓库分发的第三方 Skills 及按需安装的 Anthropic Office 技能各自适用其原始许可，见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ## 视觉
 
