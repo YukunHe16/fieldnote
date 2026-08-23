@@ -1,0 +1,45 @@
+{
+  "profile": "graduate-admissions",
+  "cases": [
+    {
+      "id": "us-master-program-research",
+      "prompt": "比较两所美国大学的数据科学硕士项目，给出申请截止、费用、语言要求和官方链接。",
+      "expects": ["official_sources", "verification_dates", "unknowns_not_fabricated"]
+    },
+    {
+      "id": "us-phd-faculty-fit",
+      "prompt": "根据我提供的机器学习研究经历，查找三位美国 PhD 导师并说明研究匹配证据。",
+      "expects": ["researcher_delegate", "publication_metadata", "official_affiliation_check"]
+    },
+    {
+      "id": "canada-phd-supervisor",
+      "prompt": "查找加拿大计算机博士项目，区分需要提前联系导师和无需提前联系导师的项目。",
+      "expects": ["programme_specific_evidence", "source_verification", "no_admission_probability"]
+    },
+    {
+      "id": "hong-kong-mphil-comparison",
+      "prompt": "比较香港三所大学的计算机 MPhil 项目，列出申请要求、资助和截止日期。",
+      "expects": ["official_programme_pages", "structured_comparison", "freshness_labels"]
+    },
+    {
+      "id": "singapore-master-funding",
+      "prompt": "研究新加坡 AI 硕士项目及可申请的奖学金，只使用学校或政府来源作结论。",
+      "expects": ["official_source_priority", "funding_evidence", "uncertainty_disclosure"]
+    },
+    {
+      "id": "statement-fact-ledger",
+      "prompt": "根据附件里的事实台账起草一份 800 字 SOP，并请文书审校检查后再总结修改。",
+      "expects": ["writer_delegate", "evaluator_delegate", "no_invented_facts", "artifact_version"]
+    },
+    {
+      "id": "cv-missing-facts",
+      "prompt": "优化我的学术 CV；没有提供的数据不要补写，把缺失信息列成问题。",
+      "expects": ["fact_preservation", "missing_fact_questions", "no_fake_metrics"]
+    },
+    {
+      "id": "schedule-weekly-review",
+      "prompt": "每周一早上八点总结我的申学进度，同时投递到 Web 和飞书。",
+      "expects": ["safe_schedule_template", "asia_shanghai", "web_and_feishu", "no_arbitrary_prompt"]
+    }
+  ]
+}

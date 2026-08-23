@@ -1,0 +1,131 @@
+# Adaptive Learning Conversation Loop v1
+
+## 目标
+
+在现有聊天工作台中增加会话级学习模式。它保持对话为主界面，通过结构化的诊断、干预、验证和受控策略演进，展示可迁移到不同 computing-education 主题的 educational on-call 能力。
+
+V1 不接入 PrairieLearn，不建设题库、课程管理或正式答题系统，不声称改善了真实学生的学习效果。
+
+当前实现状态由 [IMPLEMENTATION_PROGRESS.md](./IMPLEMENTATION_PROGRESS.md) 统一记录。本文件保留产品与状态机规范，不作为完成度清单。
+
+## 产品行为
+
+- Web Composer 旁提供“学习模式”按钮；开启时填写学习目标和可选 topic。
+- 支持暂停、继续和结束；普通对话不受影响。
+- paused session 继续允许用户确认已经提出的 outcome，但 Runtime 不能再新增 incident、intervention、verification、system outcome 或 escalation。
+- 后台只能建议开启，不能自动开启。建议要求置信度至少 `0.75`，并存在明确困惑信号或连续两个教育意图回合。
+- 每个会话最多一个 learning session，每个 session 同时最多一个未结束 incident。
+- 每个 incident 最多自动尝试三轮干预，仍未解决时进入 escalated。
+- 系统依据验证证据提出 outcome，用户确认“理解了 / 部分理解 / 仍未解决”；用户结论覆盖系统结论，但两者都保存。
+- verification 记录请求它的 Run / assistant message；系统 outcome 必须来自学习者回答后的后续 Run，并绑定提出 outcome 的新 assistant message。
+- 学习面板包含“当前回路 / 历史 / 教学策略”三个页签。
+- 学生可见对话只包含学科材料、逐步讲解、练习问题和自然反馈；incident、diagnosis、confidence、strategy、rubric、policy、synthetic experience、自进化和工具状态只能出现在学习面板或内部工具调用中。
+
+## 状态与数据
+
+学习数据独立于普通记忆和 `evolved_artifacts`：
+
+- `learning_sessions`
+  - status：`suggested | active | paused | completed | dismissed`
+  - datasetKind：`live | demo | replay`
+  - goal、topicKey、profileId
+- `learning_incidents`
+  - difficultyType：`planning_gap | conceptual_misconception | procedural_gap | feedback_uncertainty | prerequisite_gap | other`
+  - hypothesis、confidence、severity、证据消息和关闭快照
+- `learning_interventions`
+  - strategy：`socratic_question | conceptual_hint | contrastive_example | worked_example | analogical_example | direct_explanation | evidence_check | abstain_escalate`
+  - rationale、expectedSignal、policy revision、run/message 引用
+- `learning_verifications`
+  - method：`self_explanation | transfer_example | prediction | comparison | user_report`
+  - prompt、rubric、系统 verdict/confidence、用户 verdict、final verdict
+- `learning_experiences`
+  - 只从用户确认的 verification 生成
+  - demo、live、replay 严格隔离
+  - 每条 experience 保存当时的 incident 快照，供无模型重跑的策略预览使用
+- `learning_policy_revisions`
+  - 按 profile/topic/difficulty 隔离
+  - status：`pending | enabled | rejected | disabled`
+
+删除 conversation 时级联删除学习数据。Retry 或编辑替换旧 Run 时，Run 写入 `superseded_at`，关联 incident 标记 superseded/abandoned，旧 experience 排除统计，依赖旧证据的 pending policy 自动拒绝。
+
+## Agent 接口
+
+Active session 才加载 `learning` MCP，并注入只读 `<learning_context>`。
+
+工具：
+
+- `open_learning_incident`
+- `record_learning_intervention`
+- `request_learning_verification`
+- `propose_learning_outcome`
+- `escalate_learning_incident`
+
+宿主在 context 中提供精确的当前 user/assistant message ID，并校验状态转换、run/message 归属、验证与 outcome 的跨轮顺序和干预轮次。模型不能确认最终 outcome、启用 policy 或直接写 strategy stats；Runtime 明确禁止模型把学习框架元数据复述到学生可见正文。
+
+## 受控策略演进
+
+- 少于三条匹配 confirmed experience 时使用 enabled policy 的默认顺序。
+- 三条及以上时使用 Beta posterior：resolved 计成功 1，partial 对成功/失败各计 0.5，unresolved 计失败 1。
+- 同一 incident 已失败的策略额外降权。
+- 至少五条 confirmed experience，且最佳策略与当前首选不同、posterior 优势至少 `0.10` 时生成 pending revision。
+- Demo 只读取 demo experiences；Live 只读取 live experiences；Replay 不进入统计。
+- Preview 在冻结 incident snapshots 上比较当前与候选策略，不重新运行模型。
+- Policy 必须人工启用，支持拒绝和回滚；首次候选会自动建立同 scope 的默认策略 baseline，因此第一条修订也能回滚。
+
+## Web 与 Demo
+
+- Composer 显示学习模式入口、状态 pill 和建议卡。
+- 对应 assistant message 与学习面板显示 outcome 确认按钮。
+- Assistant 完成一条尚未回答的 verification 后，Composer 复用 `AskUserQuestion` 的自由文本渲染显示简洁回答框；提交内容必须成为新的普通 user message / Run，不能作为同一 Run 的工具返回值。带 options 的普通选择问题继续由现有 `AskUserQuestion` 选择器渲染。
+- “仍未解决，换种讲法”记录 unresolved，自动提交一条真实后续消息，并进入下一种策略。
+- 教学策略在学习面板独立审核，不与普通 Skill/子代理混合。
+- 学习面板承载诊断假设、置信度、教学策略、内部检查标准、系统 verdict/confidence、用户确认、合成经验和策略修订；这些信息不依赖对话正文展示。
+- 三个固定案例均为自包含、可直接作答的微型案例：
+  1. 带失败输入的递归 `flatten` 代码，用出口、递归缩小和组合规则诊断计划缺失；
+  2. 带原题、学生答案、rubric 和两份评分的反馈冲突核验；
+  3. 带具体 cache 配置和访问序列的 conflict/capacity miss 迁移验证。
+- 每个固定案例提供两个明确入口：
+  - **稳定演示**：`executionMode=deterministic`，由 `LearningCoordinator` 确定性创建 diagnosis/intervention/verification，并按案例关键证据提出 outcome；
+  - **真实 Agent**：`executionMode=agent`，由真实 Claude Agent + Learning MCP 自主创建和推进同一学习回路，结果可能变化并产生模型调用；无 Claude runtime 时入口禁用且 API 拒绝启动，不静默降级。
+- 两种入口都创建 `local-operator` Web 对话并使用独立 `datasetKind=demo` 命名空间，最终 outcome 仍由用户确认；预置合成经验在 UI 中聚合说明，不冒充学习者历史。
+- 两种入口都不进入普通记忆或通用能力自进化。真实 Agent 演示只为固定小题单独使用 low effort，普通学习模式及其他 Agent 任务继续使用全局配置。
+- Learning MCP 活动块属于学习框架元数据，只在学习看板呈现，不在学生消息正文中显示。
+- 三个案例的学生正文必须先用原题做逐步示范，再给带脚手架的迁移问题；不得用术语摘要代替教学过程，也不得把 Store 中为看板规范化的单行文本回填为学生正文。
+
+## API 与事件
+
+API：
+
+- `GET/POST/PATCH /api/conversations/:id/learning-session`
+- `POST /api/learning/verifications/:id/confirm`
+- `GET /api/learning/policies`
+- `POST /api/learning/policies/:id/review`
+- `POST /api/learning/policies/:id/rollback`
+- `GET /api/learning/demo-scenarios`
+- `POST /api/learning/demo-scenarios/:id/start`
+
+事件：
+
+- `learning.suggested`
+- `learning.session.updated`
+- `learning.incident.updated`
+- `learning.policy.updated`
+
+`ConversationDetailDto` 增加可选 `learningSession`。普通历史列表不携带完整学习记录。
+
+## Replay 与共享基础
+
+- Replay 按值冻结原输入与补充、learning session、incident、policy context 与输入附件 Manifest。
+- Replay conversation 使用 `datasetKind=replay`，不得产生 live experience 或 policy proposal。
+- frozen learning context 在 Runtime 中是无可调用 ID 的只读历史；Replay 新 incident 的 evidence 只能引用 Replay 当前 conversation 的消息 ID。
+- 学习模式与专家协作使用独立 MCP、表和事件；同一 Run 可同时启用，但专家结果不能自动成为学习 outcome。
+- 输入文件统一由宿主 Manifest 校验和注入，学习证据只引用 message/run/file，不复制文件内容。
+
+## 验收
+
+- 学习模式关闭时现有申学、文件、记忆和自进化行为无变化。
+- 三个 Demo 均能完成 diagnosis → intervention → verification → confirmation。
+- unresolved 后不会重复已失败策略。
+- Demo/live/replay 数据严格隔离。
+- Policy proposal、preview、review、enable 和 rollback 可解释且可测试。
+- `pnpm typecheck`、`pnpm test`、`pnpm build` 和 `git diff --check` 全部通过。

@@ -1,0 +1,40 @@
+{
+  "name": "fieldnote-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "workbench:setup": "node scripts/workbench.mjs setup",
+    "setup": "node scripts/workbench.mjs setup",
+    "workbench:doctor": "node scripts/workbench.mjs doctor",
+    "doctor": "node scripts/workbench.mjs doctor",
+    "run:local": "node scripts/workbench.mjs run-local",
+    "dev": "pnpm --filter @fieldnote/contracts build && concurrently -n api,web -c green,cyan \"pnpm --filter @fieldnote/server dev\" \"pnpm --filter @fieldnote/web dev\"",
+    "build": "pnpm --filter @fieldnote/contracts build && pnpm --filter @fieldnote/server build && pnpm --filter @fieldnote/web build",
+    "test": "pnpm --filter @fieldnote/contracts build && pnpm --filter @fieldnote/server test && pnpm --filter @fieldnote/web test",
+    "typecheck": "pnpm --filter @fieldnote/contracts build && pnpm --filter @fieldnote/server typecheck && pnpm --filter @fieldnote/web typecheck",
+    "start": "pnpm --filter @fieldnote/server start",
+    "skills:office": "node scripts/workbench.mjs install-office-skills",
+    "pack:cli": "pnpm build && pnpm -C packages/fieldnote pack",
+    "publish:cli": "pnpm build && pnpm -C packages/fieldnote publish --access public --no-git-checks",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  },
+  "description": "Fieldnote — local-first Claude Agent workbench for education: graduate admissions assistant and adaptive learning loop / 本地优先的 Claude Agent 教育工作台",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YukunHe16/fieldnote.git"
+  }
+}

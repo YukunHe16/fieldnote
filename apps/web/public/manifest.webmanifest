@@ -1,0 +1,16 @@
+{
+  "name": "Fieldnote",
+  "short_name": "Fieldnote",
+  "description": "A private workspace for learning, research, and graduate applications.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ]
+}

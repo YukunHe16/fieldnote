@@ -1,0 +1,129 @@
+name: Bug 报告 / Bug report
+description: 报告一个可复现的问题 / Report a reproducible problem
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！中文或英文都可以 / Chinese or English are both fine.
+
+        ⚠️ **安全漏洞请不要在这里报告**，走 [SECURITY.md](https://github.com/YukunHe16/fieldnote/blob/HEAD/SECURITY.md) 里的私密报告流程。
+        ⚠️ **不要粘贴任何密钥、token、App Secret 或个人申请材料。**
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题简述 / Summary
+      description: 一两句话说明发生了什么。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统 / OS
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL)
+        - Windows (原生 / native)
+        - 其他 / Other
+    validations:
+      required: true
+
+  - type: input
+    id: os_version
+    attributes:
+      label: 系统版本 / OS version
+      placeholder: "例如 macOS 15.2 / Ubuntu 24.04"
+    validations:
+      required: false
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js 版本 / Node version
+      description: "`node -v` 的输出。"
+      placeholder: "v24.x.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式 / Install method
+      options:
+        - npx fieldnote
+        - 从源码运行 / from source (pnpm dev)
+        - 从源码构建后运行 / from source (pnpm build + pnpm start)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: AGENT_RUNTIME
+      options:
+        - auto
+        - claude
+        - demo
+        - 不确定 / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 请尽量写成可以照做的步骤。
+      placeholder: |
+        1. 运行 `npx fieldnote`
+        2. 打开申学看板
+        3. 点击“加入看板”
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 / Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果 / Actual behavior
+      description: 有报错信息或截图请一并附上。
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor 输出 / Doctor output
+      description: |
+        粘贴 `pnpm doctor`（源码运行）或 `npx fieldnote doctor` 的完整输出。
+        doctor 本身不会打印密钥值，但请在提交前再检查一遍，**不要粘贴任何密钥、token 或 Base URL 中的凭据**。
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息 / Additional context
+      description: 相关日志片段（已脱敏）、飞书/学习模式/申学看板等特定场景说明。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认 / Confirmation
+      options:
+        - label: 我已确认这不是安全漏洞（安全问题走 SECURITY.md 的私密流程）。
+          required: true
+        - label: 我已检查粘贴的内容中不包含密钥、token 或个人隐私数据。
+          required: true

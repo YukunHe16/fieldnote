@@ -1,0 +1,172 @@
+# 使用指南
+
+本文承接 [README](../README.md) 的快速开始，覆盖 Fieldnote 日常使用的完整语义：对话管理、Agent 控制、对话式学习模式、内置申学助手、跨对话记忆、临时对话、文件与工作区，以及本地 Claude 配置复用和飞书接入。
+
+功能的完整中英对照、产品边界与非目标见 [项目完整功能总览 / Complete Feature Guide](FEATURES.md)。
+
+## 对话管理
+
+- 右上角“选择助手”可以在申学助手与本地助手之间切换；切换会创建一段新对话，旧对话仍保留原 Profile；
+- 左侧“创建对话”会沿用当前助手快速新建，旁边的小菜单用于临时对话；
+- `⌘/Ctrl + N` 新建对话；
+- `⌘/Ctrl + K` 搜索标题和完整消息内容；
+- 支持重命名、置顶、归档、取消归档和永久删除；
+- 首轮回答完成后会用当前模型生成简短标题；手动重命名后不再自动覆盖；
+- 编辑旧消息或 Retry 会保留原历史，并用新的回答替换当前版本；
+- 编辑消息不会回滚工作区中已经发生的文件修改。
+
+## 控制 Agent
+
+- 回复过程中点击“停止”，已生成内容会保留；
+- 回复过程中继续发送会默认加入队列，不会打断当前任务；
+- 在输入框上方的队列中点击“引导当前”，才会把该消息补充进正在进行的任务；
+- Web 会折叠展示并在本机保存 SDK 提供的 Thinking/Reasoning 流；当前不保证该内容已经摘要或脱敏，也不应把它视为模型完整 chain-of-thought。处理敏感任务前请理解这一边界。
+
+## 对话式学习模式（Web）
+
+- 点击 Composer 旁的学习模式按钮，填写必填学习目标和可选主题；可以暂停、继续或结束，不影响普通对话；
+- 助手会在对话中记录诊断、最多三轮教学干预和迁移/解释式验证；系统只能提出 outcome，最终由用户确认“理解了 / 部分理解 / 仍未解决”；
+- “仍未解决，换种讲法”会记录本轮失败并自动发起下一轮，已失败策略会降权；
+- 教学策略只根据用户确认的结果生成待审修订，先在冻结的历史 incident 快照上做确定性预览，再由用户启用、拒绝或回滚；
+- 三个固定案例都是带完整材料和 rubric 的可作答微型案例：递归 `flatten` 失败代码、二分查找冲突评分、以及具体 cache 访问序列。每个案例可选“稳定演示”或“真实 Agent”：前者确定性运行，后者由 Claude + Learning MCP 实时 diagnosis/intervention/verification；两者都写入隔离的 demo 数据集，不进入普通记忆或通用能力自进化；
+- 学生看到的对话只包含题目、逐步讲解、练习和自然反馈；诊断、置信度、教学策略、检查标准、系统判断、合成经验与自进化信息统一放在学习面板；
+- 等待学习者回答 verification 时，输入框上方会出现 AskUserQuestion 风格的简洁回答框；提交后作为新的学生消息进入下一轮，不会在同一 Run 内自问自答；
+- 系统可能在检测到明确困惑或连续教育意图后建议开启，但不会自动开启；建议只在 Web 出现。
+
+这是一条可迁移到多个 computing-education topic 的对话式学习回路，不接入 PrairieLearn，不建设正式答题系统，也不把合成演示声称为真实学习效果。
+
+## 内置申学助手
+
+- 项目与院校调研、选校策略、导师/实验室匹配；
+- CV、Resume、SOP、PS、Research Statement、套磁和面试准备；
+- 申请周期、目标项目、材料、任务、证据来源和截止日期看板；
+- 每日申请计划与每周申请回顾；
+- Markdown 源文件可由受管 Artifact 工具导出为真实 DOCX/PDF。
+
+申学助手不是固定工作流。主 Agent 会根据任务自行决定直接回答、读取 Skill、调用 MCP 或委派项目研究员、资料核验员、文书写作、文书审校。复杂文书通常由 Writer 与 Evaluator 协作，短润色不会为了形式强行派 worker。
+
+主 Agent 文本按 token 流式；内置专家使用应用托管的独立 Agent SDK Query，因此专家卡片也是实际 delta，而不是前端逐字播放。运行中的专家卡默认展开，完成后收起；Skill、MCP、Cron 和子 Agent 显示友好业务名称，展开可查看技术名称、耗时和脱敏参数。
+
+专家协作以真实执行为准：每个任务绑定当前 Run 和 assistant message，保存 `queued → running → completed / failed / interrupted` 生命周期。专家通过受控工具提交摘要、已确认/冲突/待确认 findings、HTTP(S) 来源和后续问题；没有可追溯来源的“已确认”项会降级为待确认。需要复核时，`sourceTaskId` 会启动第二次真实 Child Query，并把源任务、结构化结果（若有，否则为脱敏摘要）、未解决问题和已校验附件传给目标角色。
+
+Web 会在对应回复下显示可折叠的“协作与核验”，飞书只显示人数和已确认/冲突/待确认摘要。旧版伪 Mailbox 已停止读写和展示；写一封内部信不会被当成专家执行。详细边界见 [专家协作功能说明与改造计划](internal/专家协作改造计划.md)。
+
+“申学看板”和“计划任务与报告”位于对话右上角的辅助资料入口，作为浮层出现，不会把产品变成独立 dashboard。详细资料源、隐私和能力边界见 [申学助手说明](ADMISSIONS_ASSISTANT.md)。
+
+首次打开申学看板时，先填写目标学位、入学季、专业方向和目标地区；系统会创建申请周期与申请档案。之后可以在看板中直接更新项目、任务和材料状态，打开逐条官方来源，或在带有调研证据的回答下点击“加入看板”。候选链接由 Claude Agent SDK 内置 WebSearch 发现；官方页面正文由应用托管的安全读取器获取，前端渲染页面会尽量抽出元数据、嵌入 JSON 和同站候选链接。内置搜索不可用时才会回退到应用托管搜索。
+
+## 跨对话记忆
+
+- 打开“个人工作区 → 记忆”可以暂停记忆、关闭自动整理或关闭历史任务检索；
+- 长期记忆分为个人资料、偏好、目标和项目，历史任务只在确有需要时通过本地检索召回；
+- 用户明确说“记住……”或“忘记……”时会立即更新，并在 Web 端提供 10 分钟撤销入口；
+- 有历史任务或事实被召回时，Web 回答下方会显示“已参考 N 条记忆”，可以查看摘要和来源对话；
+- 自动整理从升级后的新任务开始，不会回溯处理数据库中已有的旧对话；
+- 只有产生可复用项目进展、决策、计划、成果或调查结论的任务才会进入历史；“记住/忘记”、纯回忆查询、闲聊和一次性问答不会生成任务记忆；
+- 每新增 50 条自动任务记忆，或距离上次整理满 7 天，系统会在后台执行一次精炼；先满足的条件立即触发；
+- 每次精炼都会由 LLM 重新评估优先级、规范措辞、识别重复项、合并同一项目，并把低价值自动条目软标记为已替代；
+- 精炼只修改自动生成且未置顶的记忆，旧条目保留来源；手动添加、明确要求记住和置顶内容仅供去重参考，绝不会被 LLM 修改或删除；
+- 记忆面板会显示新增任务计数、整理状态和上次完成时间；自动整理不回溯旧内容，点击“立即整理”则会明确检查现有全部记忆；
+- 删除对话不会删除已经整理出的记忆；需要在记忆面板中单独删除或清空；
+- 访问令牌、密钥、密码、完整工具输出和敏感个人信息不会写入记忆。
+
+每段对话仍使用自己的 Claude Session。跨对话信息由应用管理的 SQLite 记忆层提供，不会把多个 SDK Session 合并，也不会启用 Claude Code 位于 `~/.claude` 下的 Auto Memory。
+
+## 临时对话
+
+- 点击“创建对话”右侧的菜单可以开始“临时对话”；
+- 临时对话不读取或生成跨对话记忆，也不会进入侧栏、搜索和历史；
+- 切换到其他对话或主动结束时，会删除其消息、附件、工作区与 SessionStore transcript；
+- 为支持刷新和异常恢复，运行中的临时数据会暂存在本机，异常退出的残留最长 24 小时并由服务端定期清理；
+- 临时对话首版只在 Web 提供，飞书对话始终是持久对话。
+
+## 文件与工作区
+
+- 可以点击、拖放或粘贴图片和文档；
+- 每段对话拥有独立目录：`data/workspaces/<conversation-id>`；
+- Agent 的文件修改和 Bash 写入被限制在该会话工作区；
+- Run 开始前会校验附件归属、ready 状态、普通文件、路径边界、20 MB 上限和 SHA-256；图片既以内嵌内容提供，也进入统一 InputFileManifest；
+- 用户输入附件在 Agent 沙箱中只读，生成文件不能复用或覆盖输入路径；
+- 补充消息、历史发现、专家交接、新对话分支和 Replay 使用同一份 Manifest 语义；跨 conversation 附件 ID 会被拒绝，不会静默变成空消息；
+- SQLite 数据默认保存在 `data/agent.db`。
+- 申学 Artifact 保存在 `data/workspaces/.admissions-artifacts`，只允许由当前会话工作区内的文件注册或导出。
+
+## 沿用本地 Claude 配置
+
+默认设置：
+
+```dotenv
+AGENT_RUNTIME=auto
+CLAUDE_SETTINGS_MODE=auto
+AGENT_MODEL=sonnet
+```
+
+`auto` 会依次检查进程认证和 `~/.claude/settings.json`。通用本地助手可以继续继承可信本机的 user settings；申学助手固定使用受控本地 Plugin、显式 Skills 白名单和宿主提供的 MCP，不会加载未知的用户 Skill/MCP。没有认证时自动进入 demo runtime。
+
+如果 Claude CLI 使用 `ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL` 和自定义模型映射，只要 CLI 已验证可用，本项目会让 Agent SDK 子进程走同一套配置。
+
+也可以在网页的“个人工作区 → 模型服务”中覆盖运行配置。访问令牌仅写入本机 SQLite，不会由配置接口返回给页面；请不要共享 `data/agent.db`。保存不会打断当前任务，新的 runtime 会从下一条消息开始使用。
+
+强制继承使用 `CLAUDE_SETTINGS_MODE=inherit-user`；完全隔离个人设置使用 `CLAUDE_SETTINGS_MODE=isolated`。CI、部署或未来多用户运行必须使用 `isolated`。
+
+## 接入飞书机器人
+
+1. 在飞书开放平台创建企业自建应用并启用机器人；
+2. 配置长连接事件 `im.message.receive_v1`；
+3. 打开网页中的“个人工作区 → 飞书”，填写 App ID、App Secret 和允许使用者 Open ID；
+4. 点击“保存并连接”，页面会立即测试并建立本地长连接。
+
+配置成功后会保存在本机 SQLite；App Secret 只由服务端读取，配置 API 和页面都不会返回明文。也可以继续使用 `.env` 作为首次启动配置：
+
+```dotenv
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=xxx
+FEISHU_ALLOWED_OPEN_IDS=ou_xxx
+WEB_APP_URL=http://127.0.0.1:5173
+```
+
+单聊直接响应；群聊只有明确 @机器人 才会响应。群主会话共用一段上下文，已有话题各自隔离；机器人只在入站消息本来就在话题内时继续回到该话题，不会为群主会话里的每次 @ 自动新建话题。本地长连接不需要公网 IP、域名或内网穿透。完整权限、发布与排查步骤见 [飞书接入指南](FEISHU_SETUP.md)。
+
+机器人会先用表情确认已收到请求，再通过带动态 `Thinking`、停止按钮和完成操作区的卡片回复。要启用卡片按钮，需在飞书后台添加 `card.action.trigger` 回调。
+
+飞书命令：`/new` 或 `/clear` 用当前助手新建对话，`/agent` 选择申学助手或本地助手，另支持 `/stop`、`/continue`、`/guide 文本`、`/help`。完成卡片也可直接点击“新对话”或“切换助手”。
+
+飞书会把当前 Skill、资料核验或专家活动显示在流式 CardKit 卡片中；Web 保留完整嵌套专家流，飞书只保留最新片段和完成摘要。回复卡片始终使用 `WEB_APP_URL` 生成“去往网页端”；默认 loopback 地址通常只在运行服务的本机可达，手机端能否打开取决于它是否能访问该地址。能力待审卡片的“启用前 / 后回放”链接是例外：loopback 地址下会隐藏，请到网页能力页操作。
+
+Web 与飞书使用同一套本机个人记忆；`/new` 和 `/clear` 只更换当前对话，不会清空记忆。首版仍是单用户产品，如果配置多个 `FEISHU_ALLOWED_OPEN_IDS`，这些身份会共享同一记忆空间，不应把它开放给其他人使用。
+
+## 项目结构与运行架构
+
+```text
+apps/web                 React + Vite 对话工作台
+apps/server              Fastify API、SQLite、Agent runtime、飞书渠道
+apps/server/plugins      内置 Profile 的受控 Skills plugin
+packages/contracts       Web / Server / Channel 公共类型
+scripts/workbench.mjs    本地 setup 与 doctor
+data/workspaces          每段会话的可写工作区
+```
+
+```text
+Web / Feishu
+      │
+      ▼
+Channel Adapter ──► Run Orchestrator ──► Profile-aware Claude / Demo Runtime
+      │                    │                         │
+      └──────────── SQLite Event Log / SessionStore ◄┘
+                           │              │
+                           │              ├──► Streaming specialist queries
+                           │              ├──► Admissions / Academic MCP
+                           │              └──► Memory RAG tools
+                           ├──► Structured Memory / FTS5
+                           ├──► Admissions Tracker / Artifacts
+                           ├──► Durable Cron / Reports
+                           └──► SSE Replay / Feishu Card Stream
+```
+
+## 相关文档
+
+- [项目完整功能总览 / Complete Feature Guide](FEATURES.md)
+- [申学助手：资料源、隐私与能力边界](ADMISSIONS_ASSISTANT.md)
+- [飞书机器人本地接入](FEISHU_SETUP.md)
+- [飞书、自进化、记忆](飞书-自进化-记忆.md)
+- [安全模型与漏洞报告](../SECURITY.md)

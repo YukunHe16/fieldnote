@@ -1,0 +1,4 @@
+# Build outputs copied in by scripts/assemble.mjs during `prepack`.
+/server/
+/web/
+*.tgz
