@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml/badge.svg)](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](.nvmrc)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520%20run%20%C2%B7%20%E2%89%A522.13%20dev-brightgreen)](.nvmrc)
 
 **English TL;DR** — Fieldnote is a local-first Claude Agent workbench for education. It runs entirely on your own machine: a graduate-admissions assistant (school research, SOP/CV drafting, a deadline-and-materials board, scheduled reports) plus an adaptive learning loop that diagnoses where you are stuck, teaches in at most three governed rounds, and evolves its teaching strategy only from outcomes you confirm. Run `npx fieldnote` to start a local server on `127.0.0.1:8787`; the same agent is also reachable from a Feishu (Lark) bot. For the complete bilingual feature reference — including explicit non-goals — see [docs/FEATURES.md](docs/FEATURES.md).
 
@@ -48,7 +48,7 @@ pnpm dev
 
 打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)（API 在 `127.0.0.1:8787`，健康检查 `/api/health`）。
 
-`pnpm setup` 会检查 Node.js 与 pnpm，在缺少依赖时运行 `pnpm install`，创建 `.env` 和 `data/workspaces`（绝不覆盖已有 `.env`），检测本地 Claude 认证、兼容 Base URL、plugins 与 MCP，并且只告诉你配置是否可用，不打印任何密钥值。源码模式下数据保存在仓库内的 `data/`。
+源码开发需要 Node ≥ 22.13（pnpm 11 的要求；`npx fieldnote` 运行只需 Node ≥ 20）。`pnpm setup` 会检查 Node.js 与 pnpm，在缺少依赖时运行 `pnpm install`，创建 `.env` 和 `data/workspaces`（绝不覆盖已有 `.env`），检测本地 Claude 认证、兼容 Base URL、plugins 与 MCP，并且只告诉你配置是否可用，不打印任何密钥值。源码模式下数据保存在仓库内的 `data/`。
 
 ## 常用命令
 

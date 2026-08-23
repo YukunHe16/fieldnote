@@ -4,7 +4,7 @@
 
 ## 开发环境
 
-Node.js 版本以仓库根目录的 [`.nvmrc`](.nvmrc) 为准（当前 `24`），最低要求 **Node ≥ 20**。
+Node.js 版本以仓库根目录的 [`.nvmrc`](.nvmrc) 为准（当前 `24`）。源码开发最低要求 **Node ≥ 22.13**（pnpm 11 的要求）；`npx fieldnote` 终端用户仍支持 Node ≥ 20。
 
 ```bash
 nvm use                      # 或用其他版本管理器读取 .nvmrc
