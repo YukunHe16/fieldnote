@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { probeExternalTools, type ExternalToolStatus } from "./capability-probe.js";
 import { documentSkillsInstallPath, installedExternalSkillBlurbs } from "./document-skills.js";
+import { systemSchedulerTimeZone } from "./scheduler-time.js";
 
 export type AgentProfileId = "local-operator" | "graduate-admissions";
 export type AgentChannel = "web" | "feishu";
@@ -40,7 +41,7 @@ export interface ScheduleTemplate {
   name: string;
   description: string;
   cron: string;
-  timezone: "Asia/Shanghai";
+  timezone: string;
   enabledByDefault: false;
   catchUpPolicy: ScheduleCatchUpPolicy;
   allowedChannels: readonly AgentChannel[];
@@ -353,7 +354,7 @@ export const AGENT_PROFILE_REGISTRY: Readonly<Record<AgentProfileId, AgentProfil
         name: "每周申请回顾",
         description: "汇总本周完成项、卡点、未来七天前三项和临近截止日期。",
         cron: "0 8 * * 1",
-        timezone: "Asia/Shanghai",
+        timezone: systemSchedulerTimeZone(),
         enabledByDefault: false,
         catchUpPolicy: "merge-on-startup",
         allowedChannels: ["web", "feishu"]
@@ -363,7 +364,7 @@ export const AGENT_PROFILE_REGISTRY: Readonly<Record<AgentProfileId, AgentProfil
         name: "每日申请计划",
         description: "在有活跃申请季时汇总未来 30 天截止日期、材料缺口和当天行动项。",
         cron: "0 8 * * *",
-        timezone: "Asia/Shanghai",
+        timezone: systemSchedulerTimeZone(),
         enabledByDefault: false,
         catchUpPolicy: "merge-on-startup",
         allowedChannels: ["web", "feishu"]

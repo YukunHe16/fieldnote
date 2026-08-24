@@ -1,4 +1,15 @@
-export const SCHEDULER_TIME_ZONE = "Asia/Shanghai" as const;
+const FALLBACK_TIME_ZONE = "Asia/Shanghai";
+
+/** The host's own IANA zone; scheduled jobs default here instead of a hardcoded region. */
+export function systemSchedulerTimeZone(): string {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zone && isSupportedTimeZone(zone)) return zone;
+  } catch {
+    // fall through to the fixed fallback
+  }
+  return FALLBACK_TIME_ZONE;
+}
 export const SCHEDULE_TEMPLATE_IDS = ["weekly-application-review", "daily-application-plan"] as const;
 
 export type ScheduleTemplateId = (typeof SCHEDULE_TEMPLATE_IDS)[number];
@@ -44,7 +55,7 @@ export function assertSupportedTimeZone(value: unknown): string {
 
 /** Persisted rows are never trusted to keep the scheduler loop alive on a bad zone. */
 function resolveTimeZone(value: unknown): string {
-  return isSupportedTimeZone(value) ? value : SCHEDULER_TIME_ZONE;
+  return isSupportedTimeZone(value) ? value : systemSchedulerTimeZone();
 }
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
@@ -173,7 +184,7 @@ export function zonedLatest(templateId: ScheduleTemplateId, at: number, timeZone
 export function nextScheduledAt(
   templateId: ScheduleTemplateId,
   after: number,
-  timeZone: string = SCHEDULER_TIME_ZONE
+  timeZone: string = systemSchedulerTimeZone()
 ): number {
   return zonedNext(templateId, after, timeZone);
 }
@@ -183,7 +194,7 @@ export function latestScheduledAt(
   templateId: ScheduleTemplateId,
   firstScheduledAt: number,
   at: number,
-  timeZone: string = SCHEDULER_TIME_ZONE
+  timeZone: string = systemSchedulerTimeZone()
 ): number | null {
   if (firstScheduledAt > at) return null;
   return zonedLatest(templateId, at, timeZone);

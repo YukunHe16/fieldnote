@@ -212,6 +212,44 @@ export interface DemoLearningExperienceSeed {
   count: number;
 }
 
+export type LearningReviewStatus = "pending" | "fired" | "completed" | "cancelled";
+
+/** A spaced-review revisit booked when a live on-call incident resolves. */
+export interface LearningReviewTask {
+  id: string;
+  incidentId: string;
+  sessionId: string;
+  conversationId: string;
+  profileId: string;
+  round: 1 | 2;
+  dueAt: number;
+  status: LearningReviewStatus;
+}
+
+interface ReviewTaskRow {
+  id: string;
+  incident_id: string;
+  session_id: string;
+  conversation_id: string;
+  profile_id: string;
+  round: number;
+  due_at: number;
+  status: string;
+}
+
+function toReviewTask(row: ReviewTaskRow): LearningReviewTask {
+  return {
+    id: row.id,
+    incidentId: row.incident_id,
+    sessionId: row.session_id,
+    conversationId: row.conversation_id,
+    profileId: row.profile_id,
+    round: row.round === 2 ? 2 : 1,
+    dueAt: row.due_at,
+    status: (["pending", "fired", "completed", "cancelled"] as const).find((item) => item === row.status) ?? "cancelled"
+  };
+}
+
 const LEARNING_SESSIONS_TABLE = (name: string) => `
 CREATE TABLE IF NOT EXISTS ${name} (
   id TEXT PRIMARY KEY,
@@ -318,6 +356,20 @@ CREATE TABLE IF NOT EXISTS learning_policy_revisions (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_learning_policy_scope ON learning_policy_revisions(profile_id, topic_key, difficulty_type, dataset_kind, status, created_at DESC);
+CREATE TABLE IF NOT EXISTS learning_review_tasks (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES learning_sessions(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  round INTEGER NOT NULL CHECK (round IN (1, 2)),
+  due_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'fired', 'completed', 'cancelled')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learning_review_due ON learning_review_tasks(status, due_at);
+CREATE INDEX IF NOT EXISTS idx_learning_review_session ON learning_review_tasks(session_id, status);
 `;
 
 const DEFAULT_STRATEGIES: readonly LearningInterventionStrategy[] = [
@@ -331,6 +383,11 @@ const DEFAULT_STRATEGIES: readonly LearningInterventionStrategy[] = [
   "abstain_escalate"
 ];
 const TERMINAL_INCIDENTS = new Set<LearningIncidentStatus>(["resolved", "unresolved", "escalated", "abandoned"]);
+const DAY_MS = 24 * 60 * 60 * 1_000;
+/** Spaced review: first revisit two days after a live on-call resolution... */
+const REVIEW_ROUND1_DELAY_MS = 2 * DAY_MS;
+/** ...second revisit five days after the first one is confirmed (≈ a week after the original fix). */
+const REVIEW_ROUND2_DELAY_MS = 5 * DAY_MS;
 const has = <T extends readonly string[]>(values: T, value: string): value is T[number] =>
   values.includes(value as T[number]);
 const iso = (value: number | null): string | null => (value === null ? null : new Date(value).toISOString());
@@ -915,6 +972,27 @@ export class LearningStore {
           TERMINAL_INCIDENTS.has(incidentStatus) ? JSON.stringify(closedSnapshot) : null,
           incident.id
         );
+      // Spaced review: a live on-call resolution earns a +2d revisit. The revisit's own
+      // confirmation completes the fired task and, when the learner still resolved it,
+      // books the second revisit (+5d, ≈ a week after the original fix). A non-resolved
+      // revisit books nothing: the loop re-teaches in-conversation and a fresh resolution
+      // re-enters the cycle from round one.
+      if (session.datasetKind === "live" && session.condition !== "one-shot") {
+        const fired = this.database
+          .prepare(
+            "SELECT id, incident_id, round FROM learning_review_tasks WHERE session_id = ? AND status = 'fired' ORDER BY created_at DESC LIMIT 1"
+          )
+          .get(session.id) as { id: string; incident_id: string; round: number } | undefined;
+        if (fired) {
+          this.database
+            .prepare("UPDATE learning_review_tasks SET status = 'completed', updated_at = ? WHERE id = ?")
+            .run(now, fired.id);
+          if (fired.round === 1 && verdict === "resolved")
+            this.insertReviewTask(session, fired.incident_id, 2, now + REVIEW_ROUND2_DELAY_MS, now);
+        } else if (incidentStatus === "resolved") {
+          this.insertReviewTask(session, incident.id, 1, now + REVIEW_ROUND1_DELAY_MS, now);
+        }
+      }
       // Experiences exist solely to feed strategy evolution: replay must not write live statistics,
       // eval runs must stay order-independent, and the one-shot baseline never adapted a strategy.
       if (session.datasetKind !== "replay" && session.datasetKind !== "eval" && session.condition !== "one-shot") {
@@ -940,6 +1018,44 @@ export class LearningStore {
       }
     })();
     return this.requireVerification(id);
+  }
+
+  private insertReviewTask(
+    session: LearningSessionDto,
+    incidentId: string,
+    round: 1 | 2,
+    dueAt: number,
+    now: number
+  ): void {
+    this.database
+      .prepare(
+        `INSERT INTO learning_review_tasks
+         (id, incident_id, session_id, conversation_id, profile_id, round, due_at, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+      )
+      .run(randomUUID(), incidentId, session.id, session.conversationId, session.profileId, round, dueAt, now, now);
+  }
+
+  dueReviewTasks(now = this.clock(), limit = 10): LearningReviewTask[] {
+    const rows = this.database
+      .prepare(
+        "SELECT * FROM learning_review_tasks WHERE status = 'pending' AND due_at <= ? ORDER BY due_at ASC LIMIT ?"
+      )
+      .all(now, Math.max(1, Math.min(50, limit))) as ReviewTaskRow[];
+    return rows.map(toReviewTask);
+  }
+
+  listReviewTasks(sessionId: string): LearningReviewTask[] {
+    const rows = this.database
+      .prepare("SELECT * FROM learning_review_tasks WHERE session_id = ? ORDER BY created_at ASC")
+      .all(sessionId) as ReviewTaskRow[];
+    return rows.map(toReviewTask);
+  }
+
+  markReviewTask(id: string, status: "fired" | "completed" | "cancelled"): void {
+    this.database
+      .prepare("UPDATE learning_review_tasks SET status = ?, updated_at = ? WHERE id = ?")
+      .run(status, this.clock(), id);
   }
 
   selectStrategy(input: {

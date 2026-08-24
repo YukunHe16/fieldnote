@@ -24,6 +24,7 @@ import { sweepExpiredTemporaryConversations } from "./temporary-conversations.js
 import { AdmissionsStore } from "./admissions-store.js";
 import { SchedulerStore } from "./scheduler-store.js";
 import { ScheduledJobRunner } from "./scheduler.js";
+import { LearningReviewRunner } from "./learning-review.js";
 import { EvolutionStore } from "./evolution-store.js";
 import { EvolutionCoordinator } from "./evolution-coordinator.js";
 import { DeliveryShelf } from "./delivery-shelf.js";
@@ -212,7 +213,12 @@ const memoryMaintenanceTimer = setInterval(() => {
 memoryMaintenanceTimer.unref();
 
 runner.tick();
-const scheduledJobTimer = setInterval(() => runner.tick(), 60_000);
+const learningReviews = new LearningReviewRunner(learning, store, orchestrator);
+learningReviews.tick();
+const scheduledJobTimer = setInterval(() => {
+  runner.tick();
+  learningReviews.tick();
+}, 60_000);
 scheduledJobTimer.unref();
 
 let closing = false;

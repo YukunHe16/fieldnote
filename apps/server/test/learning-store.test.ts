@@ -898,4 +898,66 @@ describe("LearningStore", () => {
     expect(exported.verifications).toHaveLength(5);
     database.close();
   });
+
+  it("books a two-day spaced-review revisit only for live on-call resolutions", () => {
+    const day = 24 * 60 * 60 * 1_000;
+    const live = fixture();
+    complete(live.learning, incident(live.learning, live.session.id).id, "direct_explanation", "resolved");
+    const tasks = live.learning.listReviewTasks(live.session.id);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ round: 1, status: "pending" });
+    expect(tasks[0]!.dueAt - Date.now()).toBeGreaterThan(1.9 * day);
+    expect(tasks[0]!.dueAt - Date.now()).toBeLessThan(2.1 * day);
+    live.database.close();
+
+    const unresolvedLive = fixture();
+    complete(
+      unresolvedLive.learning,
+      incident(unresolvedLive.learning, unresolvedLive.session.id).id,
+      "conceptual_hint",
+      "unresolved"
+    );
+    expect(unresolvedLive.learning.listReviewTasks(unresolvedLive.session.id)).toHaveLength(0);
+    unresolvedLive.database.close();
+
+    for (const [datasetKind, condition] of [
+      ["eval", "on-call"],
+      ["replay", "on-call"],
+      ["demo", "on-call"],
+      ["live", "one-shot"]
+    ] as const) {
+      const synthetic = fixture(datasetKind, condition);
+      complete(
+        synthetic.learning,
+        incident(synthetic.learning, synthetic.session.id).id,
+        "direct_explanation",
+        "resolved"
+      );
+      expect(synthetic.learning.listReviewTasks(synthetic.session.id)).toHaveLength(0);
+      synthetic.database.close();
+    }
+  });
+
+  it("completes a fired revisit on the next confirmation and books round two only after a resolved revisit", () => {
+    const day = 24 * 60 * 60 * 1_000;
+    const { database, learning, session } = fixture();
+    complete(learning, incident(learning, session.id).id, "direct_explanation", "resolved");
+    const [round1] = learning.listReviewTasks(session.id);
+    learning.markReviewTask(round1!.id, "fired");
+
+    complete(learning, incident(learning, session.id).id, "worked_example", "resolved");
+    const afterResolved = learning.listReviewTasks(session.id);
+    expect(afterResolved.find((task) => task.id === round1!.id)?.status).toBe("completed");
+    const round2 = afterResolved.find((task) => task.round === 2);
+    expect(round2).toMatchObject({ status: "pending", incidentId: round1!.incidentId });
+    expect(round2!.dueAt - Date.now()).toBeGreaterThan(4.9 * day);
+
+    learning.markReviewTask(round2!.id, "fired");
+    complete(learning, incident(learning, session.id).id, "contrastive_example", "partial");
+    const afterPartial = learning.listReviewTasks(session.id);
+    expect(afterPartial.find((task) => task.id === round2!.id)?.status).toBe("completed");
+    // A round-two revisit is the end of the chain; a partial one books nothing new either.
+    expect(afterPartial.filter((task) => task.status === "pending")).toHaveLength(0);
+    database.close();
+  });
 });

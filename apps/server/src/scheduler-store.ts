@@ -3,13 +3,14 @@ import { getAgentProfile, isAgentProfileId } from "./agent-profiles.js";
 import type { SqliteDatabase } from "./database.js";
 import {
   SCHEDULE_TEMPLATE_CRONS,
-  SCHEDULER_TIME_ZONE,
   type ScheduleTemplateId,
   assertSupportedTimeZone,
   isScheduleTemplateId,
+  isSupportedTimeZone,
   latestScheduledAt,
   mergedScheduleCount,
-  nextScheduledAt
+  nextScheduledAt,
+  systemSchedulerTimeZone
 } from "./scheduler-time.js";
 
 export const SCHEDULE_DESTINATIONS = ["web", "feishu"] as const;
@@ -530,7 +531,7 @@ export class SchedulerStore {
     const profile = getAgentProfile(profileId);
     const template = profile.scheduleTemplates.find((item) => item.id === templateId);
     if (!template) throw new Error(`Schedule template ${templateId} is not registered for profile ${profileId}`);
-    if (template.cron !== SCHEDULE_TEMPLATE_CRONS[templateId] || template.timezone !== SCHEDULER_TIME_ZONE) {
+    if (template.cron !== SCHEDULE_TEMPLATE_CRONS[templateId] || !isSupportedTimeZone(template.timezone)) {
       throw new Error(`Unsupported scheduler template: ${templateId}`);
     }
     return template;
@@ -566,7 +567,7 @@ export class SchedulerStore {
       profileId: row.profile_id,
       templateId: row.template_id,
       cron: row.cron,
-      timezone: row.timezone || SCHEDULER_TIME_ZONE,
+      timezone: row.timezone || systemSchedulerTimeZone(),
       enabled: Boolean(row.enabled),
       destinations: parseDestinations(row.destinations_json),
       nextRunAt: iso(row.next_run_at),

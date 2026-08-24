@@ -659,7 +659,7 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 
 **中文**
 
-- 当前模板服务申学方向：每周一 08:00 周报，以及每日 08:00 当日计划；默认关闭，时区为 Asia/Shanghai。
+- 当前模板服务申学方向：每周一 08:00 周报，以及每日 08:00 当日计划；默认关闭，时区默认取服务器所在系统时区，可按任务改为任意 IANA 时区。
 - 用户可启用/停用、立即运行、查看运行历史、活动和最终报告，并选择 Web 或飞书投递。
 - 飞书投递需要已有私聊绑定；定时任务不会自动创建新飞书会话。
 - 错过的计划时间在服务恢复时合并处理，并按 scheduled time 做幂等；失败最多重试 3 次，延迟约 1、5、30 分钟。
@@ -668,7 +668,7 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 
 **English**
 
-- Current templates serve admissions: a Monday 08:00 weekly report and a daily 08:00 plan. Both are disabled by default and use Asia/Shanghai.
+- Current templates serve admissions: a Monday 08:00 weekly report and a daily 08:00 plan. Both are disabled by default; jobs default to the host system's time zone and accept any IANA zone per job.
 - Users can enable/disable, run now, inspect run history, activity, and final reports, and choose Web or Feishu delivery.
 - Feishu delivery requires an existing direct-message binding; scheduled jobs do not create a new Feishu conversation automatically.
 - Missed schedules are coalesced when the service recovers and are idempotent by scheduled time. Failures retry at roughly 1, 5, and 30 minutes, up to three retries.

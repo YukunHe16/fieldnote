@@ -1019,7 +1019,24 @@ export function scheduleTimezoneOptions(current: string, system = systemTimezone
 }
 
 export function jobTimezone(job: ScheduledJob): string {
-  return typeof job.timezone === "string" && job.timezone ? job.timezone : "Asia/Shanghai";
+  return typeof job.timezone === "string" && job.timezone ? job.timezone : systemTimezone();
+}
+
+/** Next-run label rendered in the job's own zone, so it matches the timezone selector below it. */
+function zonedRunLabel(value: string, timeZone: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  try {
+    return date.toLocaleString(localeTag(), {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone
+    });
+  } catch {
+    return dateLabel(value);
+  }
 }
 
 function ScheduledJobsPanel({ scheduledRunId }: { scheduledRunId?: string }) {
@@ -1154,7 +1171,7 @@ function ScheduledJobsPanel({ scheduledRunId }: { scheduledRunId?: string }) {
               <small>
                 {job.schedule ?? t("scheduledRun")} ·{" "}
                 {job.nextRunAt
-                  ? t("nextRun", { date: dateLabel(job.nextRunAt) })
+                  ? t("nextRun", { date: zonedRunLabel(job.nextRunAt, jobTimezone(job)) })
                   : job.enabled === false
                     ? t("paused")
                     : t("waitingRun")}

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/database.js";
 import { MAX_SCHEDULE_RETRIES, SCHEDULER_SCHEMA, SchedulerStore } from "../src/scheduler-store.js";
-import { isSupportedTimeZone, latestScheduledAt, nextScheduledAt } from "../src/scheduler-time.js";
+import {
+  isSupportedTimeZone,
+  latestScheduledAt,
+  nextScheduledAt,
+  systemSchedulerTimeZone
+} from "../src/scheduler-time.js";
 
 const day = 24 * 60 * 60 * 1_000;
 const hour = 60 * 60 * 1_000;
@@ -30,26 +35,29 @@ function fixture(now = monday - day) {
 }
 
 describe("scheduler time", () => {
-  it("calculates only the two registered 08:00 Asia/Shanghai templates", () => {
-    expect(nextScheduledAt("daily-application-plan", monday - 1)).toBe(monday);
-    expect(nextScheduledAt("daily-application-plan", monday)).toBe(monday + day);
-    expect(nextScheduledAt("weekly-application-review", monday - 1)).toBe(monday);
-    expect(nextScheduledAt("weekly-application-review", monday)).toBe(monday + 7 * day);
-    expect(latestScheduledAt("weekly-application-review", monday, monday + 10 * day)).toBe(monday + 7 * day);
+  it("calculates the two registered 08:00 templates in an explicit zone", () => {
+    expect(nextScheduledAt("daily-application-plan", monday - 1, "Asia/Shanghai")).toBe(monday);
+    expect(nextScheduledAt("daily-application-plan", monday, "Asia/Shanghai")).toBe(monday + day);
+    expect(nextScheduledAt("weekly-application-review", monday - 1, "Asia/Shanghai")).toBe(monday);
+    expect(nextScheduledAt("weekly-application-review", monday, "Asia/Shanghai")).toBe(monday + 7 * day);
+    expect(latestScheduledAt("weekly-application-review", monday, monday + 10 * day, "Asia/Shanghai")).toBe(
+      monday + 7 * day
+    );
   });
 
-  it("keeps pre-migration Asia/Shanghai data on exactly the same instants", () => {
+  it("defaults to the host's own zone and survives unusable persisted zones", () => {
+    const system = systemSchedulerTimeZone();
+    expect(isSupportedTimeZone(system)).toBe(true);
     for (const templateId of ["daily-application-plan", "weekly-application-review"] as const) {
-      expect(nextScheduledAt(templateId, monday - 1, "Asia/Shanghai")).toBe(nextScheduledAt(templateId, monday - 1));
-      expect(nextScheduledAt(templateId, monday + 3 * day, "Asia/Shanghai")).toBe(
-        nextScheduledAt(templateId, monday + 3 * day)
-      );
-      expect(latestScheduledAt(templateId, monday, monday + 10 * day, "Asia/Shanghai")).toBe(
-        latestScheduledAt(templateId, monday, monday + 10 * day)
+      expect(nextScheduledAt(templateId, monday - 1)).toBe(nextScheduledAt(templateId, monday - 1, system));
+      expect(latestScheduledAt(templateId, monday, monday + 10 * day)).toBe(
+        latestScheduledAt(templateId, monday, monday + 10 * day, system)
       );
     }
-    // An unusable persisted zone must not stall the loop; it falls back to the default zone.
-    expect(nextScheduledAt("daily-application-plan", monday - 1, "Mars/Phobos")).toBe(monday);
+    // An unusable persisted zone must not stall the loop; it falls back to the host zone.
+    expect(nextScheduledAt("daily-application-plan", monday - 1, "Mars/Phobos")).toBe(
+      nextScheduledAt("daily-application-plan", monday - 1, system)
+    );
     expect(isSupportedTimeZone(chicago)).toBe(true);
     expect(isSupportedTimeZone("Mars/Phobos")).toBe(false);
     expect(isSupportedTimeZone("")).toBe(false);
@@ -79,8 +87,10 @@ describe("scheduler time", () => {
         chicago
       )
     ).toBe(chicagoMondayAfterSpring);
-    // The default zone is unaffected by American transitions.
-    expect(nextScheduledAt("daily-application-plan", chicagoSaturdayBeforeSpring)).toBe(Date.UTC(2026, 2, 8));
+    // The zone-less call follows the host zone, whatever that is.
+    expect(nextScheduledAt("daily-application-plan", chicagoSaturdayBeforeSpring)).toBe(
+      nextScheduledAt("daily-application-plan", chicagoSaturdayBeforeSpring, systemSchedulerTimeZone())
+    );
   });
 });
 
@@ -95,7 +105,7 @@ describe("SchedulerStore", () => {
     });
     expect(job).toMatchObject({
       cron: "0 8 * * *",
-      timezone: "Asia/Shanghai",
+      timezone: systemSchedulerTimeZone(),
       enabled: true,
       destinations: ["web", "feishu"]
     });
@@ -165,7 +175,8 @@ describe("SchedulerStore", () => {
     const job = store.createJob({
       profileId: "graduate-admissions",
       templateId: "daily-application-plan",
-      enabled: true
+      enabled: true,
+      timezone: "Asia/Shanghai"
     });
     setNow(monday + 3 * day + 2_000);
     const [catchUp] = store.claimDue();

@@ -31,10 +31,10 @@ describe("scheduled job time zones", () => {
     expect(scheduleTimezoneOptions("Asia/Shanghai", "Asia/Shanghai")[0]).toBe("Asia/Shanghai");
   });
 
-  it("falls back to the default zone for a job saved before time zones were editable", () => {
-    expect(jobTimezone(job())).toBe("Asia/Shanghai");
-    expect(jobTimezone(job(""))).toBe("Asia/Shanghai");
-    expect(jobTimezone(job(42))).toBe("Asia/Shanghai");
+  it("falls back to the viewer's system zone for a job saved before time zones were editable", () => {
+    expect(jobTimezone(job())).toBe(systemTimezone());
+    expect(jobTimezone(job(""))).toBe(systemTimezone());
+    expect(jobTimezone(job(42))).toBe(systemTimezone());
     expect(jobTimezone(job("America/New_York"))).toBe("America/New_York");
     expect(systemTimezone()).toBeTruthy();
   });
