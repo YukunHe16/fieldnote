@@ -395,16 +395,20 @@ export class EvolutionCoordinator {
    */
   private async maybeSuggestDisable(profileId: string, now: number): Promise<void> {
     const stats = this.evolution.artifactUsageStats(profileId);
-    const totals = Object.values(stats).reduce(
-      (acc, item) => ({ uses: acc.uses + item.uses, retried: acc.retried + item.retriedRuns }),
-      { uses: 0, retried: 0 }
-    );
-    const baseline = totals.uses > 0 ? totals.retried / totals.uses : 0;
     for (const artifact of this.evolution.listArtifacts(profileId, "enabled")) {
       const stat = stats[artifact.id];
       if (!stat || stat.uses < USAGE_SUGGESTION_MIN_USES) continue;
       const rate = stat.retriedRuns / stat.uses;
-      if (rate < USAGE_SUGGESTION_RETRY_RATE || rate <= baseline) continue;
+      // The peer baseline excludes the candidate itself: including it makes a lone artifact
+      // (or co-enabled artifacts sharing every run) compare against its own numbers, so the
+      // strict > below could never pass. With no peers the absolute threshold alone decides.
+      const peers = Object.entries(stats).filter(([id]) => id !== artifact.id);
+      const peerTotals = peers.reduce(
+        (acc, [, item]) => ({ uses: acc.uses + item.uses, retried: acc.retried + item.retriedRuns }),
+        { uses: 0, retried: 0 }
+      );
+      const baseline = peerTotals.uses > 0 ? peerTotals.retried / peerTotals.uses : null;
+      if (rate < USAGE_SUGGESTION_RETRY_RATE || (baseline !== null && rate <= baseline)) continue;
       if (this.evolution.hasRecentUsageReview(artifact.id, now - USAGE_SUGGESTION_SUPPRESS_MS)) continue;
       const reason = `${DISABLE_SUGGESTION_PREFIX}启用后 ${stat.uses} 次使用、${stat.retriedRuns} 次被重试。`;
       this.evolution.recordDisableSuggestion(artifact.id, reason);

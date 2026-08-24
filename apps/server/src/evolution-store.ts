@@ -612,19 +612,34 @@ export class EvolutionStore {
     ].join("\n         ");
     const rows = this.database
       .prepare(
-        `SELECT o.run_id, o.snapshot_json, o.created_at
+        `SELECT o.id, o.run_id, o.snapshot_json, o.created_at
        FROM overlay_revisions o
        JOIN runs r ON r.id = o.run_id
        WHERE o.profile_id = ?
          ${exclusions}
        ORDER BY o.created_at DESC LIMIT 500`
       )
-      .all(profileId) as Array<{ run_id: string | null; snapshot_json: string; created_at: number }>;
-    const retriedRunIds = new Set(
+      .all(profileId) as Array<{ id: string; run_id: string | null; snapshot_json: string; created_at: number }>;
+    // Retry/edit signals carry the REJECTED run's overlay revision in overlay_revision while
+    // their run_id names the corrective replacement run. Blame must land on the rejected
+    // revision; matching by run_id would credit the failing run as a clean use and mark the
+    // fix as the failure (and blame artifacts enabled only after the failing run).
+    const retriedRevisionIds = new Set(
       (
         this.database
           .prepare(
-            "SELECT DISTINCT run_id FROM evolution_signals WHERE kind IN ('retry', 'edit') AND run_id IS NOT NULL"
+            "SELECT DISTINCT overlay_revision FROM evolution_signals WHERE kind IN ('retry', 'edit') AND overlay_revision IS NOT NULL"
+          )
+          .all() as Array<{ overlay_revision: string }>
+      ).map((row) => row.overlay_revision)
+    );
+    // Legacy edit signals (written before overlay_revision was recorded) can only match by
+    // their replacement run id — kept as a fallback so old feedback is not dropped entirely.
+    const legacyRetriedRunIds = new Set(
+      (
+        this.database
+          .prepare(
+            "SELECT DISTINCT run_id FROM evolution_signals WHERE kind IN ('retry', 'edit') AND overlay_revision IS NULL AND run_id IS NOT NULL"
           )
           .all() as Array<{ run_id: string }>
       ).map((row) => row.run_id)
@@ -648,7 +663,8 @@ export class EvolutionStore {
           stats[artifactId] = entry;
         }
         entry.uses += 1;
-        if (row.run_id && retriedRunIds.has(row.run_id)) entry.retriedRuns += 1;
+        if (retriedRevisionIds.has(row.id) || (row.run_id && legacyRetriedRunIds.has(row.run_id)))
+          entry.retriedRuns += 1;
       }
     }
     return stats;

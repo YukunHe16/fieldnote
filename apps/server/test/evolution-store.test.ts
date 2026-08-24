@@ -153,7 +153,17 @@ describe("EvolutionStore", () => {
       origin: "distilled",
       status: "enabled"
     });
-    const overlayFor = (conversationTitle: string, options?: { evalSession?: boolean; retried?: boolean }) => {
+    const lateEnabled = evolution.createArtifact({
+      profileId: "local-operator",
+      kind: "skill",
+      slug: "late-enabled-method",
+      name: "失败后才启用的方法",
+      description: "不该背锅",
+      body: "步骤",
+      origin: "distilled",
+      status: "enabled"
+    });
+    const overlayFor = (conversationTitle: string, options?: { evalSession?: boolean; retried?: boolean }): void => {
       const conversation = store.createConversation("web", conversationTitle, { profileId: "local-operator" });
       if (options?.evalSession) {
         learning.createSession({
@@ -164,29 +174,43 @@ describe("EvolutionStore", () => {
         });
       }
       const run = store.createRun(conversation.id, "做点事", "normal");
-      evolution.createOverlayRevision({
+      const revision = evolution.createOverlayRevision({
         runId: run.id,
         profileId: "local-operator",
         playbooks: [],
         artifactIds: [artifact.id]
       });
       if (options?.retried) {
+        // Production shape: the retry signal's run_id names the REPLACEMENT run while
+        // overlay_revision names the rejected run's revision — blame lands on the latter.
+        const replacement = store.createRun(conversation.id, "重试同一件事", "normal");
+        evolution.createOverlayRevision({
+          runId: replacement.id,
+          profileId: "local-operator",
+          playbooks: [],
+          artifactIds: [artifact.id, lateEnabled.id]
+        });
         evolution.createSignal({
           source: "implicit",
           kind: "retry",
           polarity: "down",
           conversationId: conversation.id,
           profileId: "local-operator",
-          runId: run.id
+          runId: replacement.id,
+          overlayRevision: revision.id
         });
       }
-      return run;
     };
     overlayFor("正常一");
     overlayFor("正常二", { retried: true });
     overlayFor("评测对话", { evalSession: true });
     const stats = evolution.artifactUsageStats("local-operator");
-    expect(stats[artifact.id]).toEqual({ uses: 2, retriedRuns: 1 });
+    // Three eligible uses (two sources + the corrective replacement); only the rejected
+    // revision counts as retried.
+    expect(stats[artifact.id]).toEqual({ uses: 3, retriedRuns: 1 });
+    // An artifact enabled only after the failure appears solely in the corrective run and
+    // must not inherit the blame for a run it never touched.
+    expect(stats[lateEnabled.id]).toEqual({ uses: 1, retriedRuns: 0 });
     database.close();
   });
 

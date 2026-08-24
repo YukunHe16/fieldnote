@@ -6,6 +6,7 @@ import type { AppConfig } from "../src/config.js";
 import { openDatabase } from "../src/database.js";
 import { EvolutionCoordinator } from "../src/evolution-coordinator.js";
 import { EvolutionStore } from "../src/evolution-store.js";
+import { AgentStore } from "../src/store.js";
 import { evaluateArtifactProgrammatically } from "../src/evolution-evaluator.js";
 import { backgroundAnalysisModel, emptyTurnAnalysis, normalizeTurnAnalysisPayload } from "../src/runtime.js";
 
@@ -219,6 +220,54 @@ describe("applyTurnEvolution", () => {
     const spec = JSON.parse(artifacts[0]!.body) as { allowDelegation?: boolean };
     expect(spec.allowDelegation).toBe(false);
     expect(evaluateArtifactProgrammatically(artifacts[0]!).verdict).not.toBe("reject");
+    database.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+});
+
+describe("maybeSuggestDisable", () => {
+  it("flags a lone weak artifact against the absolute threshold alone", async () => {
+    const { root, database, evolution, coordinator } = await setup();
+    const store = new AgentStore(database);
+    const artifact = evolution.createArtifact({
+      profileId: "local-operator",
+      kind: "skill",
+      slug: "weak-usage-method",
+      name: "表现不佳的方法",
+      description: "统计对象",
+      body: "步骤",
+      origin: "distilled",
+      status: "enabled"
+    });
+    // Six eligible uses, three retried (rate 0.5 ≥ 0.4). With no peer artifacts there is no
+    // baseline to beat — the old pooled baseline included the artifact itself, so the strict
+    // rate > baseline comparison was bit-for-bit unwinnable and the suggestion never fired.
+    for (let index = 0; index < 6; index += 1) {
+      const conversation = store.createConversation("web", `使用${index}`, { profileId: "local-operator" });
+      const run = store.createRun(conversation.id, "做点事", "normal");
+      const revision = evolution.createOverlayRevision({
+        runId: run.id,
+        profileId: "local-operator",
+        playbooks: [],
+        artifactIds: [artifact.id]
+      });
+      if (index < 3) {
+        const replacement = store.createRun(conversation.id, "重试同一件事", "normal");
+        evolution.createSignal({
+          source: "implicit",
+          kind: "retry",
+          polarity: "down",
+          conversationId: conversation.id,
+          profileId: "local-operator",
+          runId: replacement.id,
+          overlayRevision: revision.id
+        });
+      }
+    }
+    await (
+      coordinator as unknown as { maybeSuggestDisable(profileId: string, now: number): Promise<void> }
+    ).maybeSuggestDisable("local-operator", Date.now());
+    expect(evolution.openDisableSuggestion(artifact.id)).toContain("建议停用");
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
