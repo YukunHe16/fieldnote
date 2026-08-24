@@ -1220,6 +1220,23 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       : reply.code(404).send({ error: "Snapshot not found" });
   });
 
+  app.get("/api/snapshots", async (request, reply) => {
+    const query = request.query as { profileId?: string; limit?: string };
+    const profileId = requestedProfileId(query.profileId);
+    if (!profileId) return reply.code(400).send({ error: "回放需要指定助手" });
+    const limit = Math.max(1, Math.min(100, Number.parseInt(query.limit ?? "20", 10) || 20));
+    const snapshots = (dependencies.replay?.listForProfile(profileId, limit) ?? []).map((snapshot) => ({
+      id: snapshot.id,
+      runId: snapshot.runId,
+      conversationId: snapshot.conversationId,
+      profileId: snapshot.profileId,
+      prompt: snapshot.prompt.slice(0, 200),
+      hasLearning: Boolean(snapshot.overlay.learning),
+      createdAt: new Date(snapshot.createdAt).toISOString()
+    }));
+    return { snapshots };
+  });
+
   app.get("/api/snapshots/latest", async (request, reply) => {
     const profileId = requestedProfileId((request.query as { profileId?: string }).profileId);
     if (!profileId) return reply.code(400).send({ error: "回放需要指定助手" });

@@ -213,6 +213,13 @@ export class RunReplayStore {
     return row ? this.fromRow(row) : null;
   }
 
+  listForProfile(profileId: string, limit = 20): RunSnapshot[] {
+    const rows = this.database
+      .prepare("SELECT * FROM run_snapshots WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?")
+      .all(profileId, Math.max(1, Math.min(100, limit))) as Record<string, unknown>[];
+    return rows.map((row) => this.fromRow(row));
+  }
+
   latestForProfile(profileId: string): RunSnapshot | null {
     const row = this.database
       .prepare("SELECT * FROM run_snapshots WHERE profile_id = ? ORDER BY created_at DESC LIMIT 1")

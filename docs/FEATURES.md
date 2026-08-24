@@ -645,6 +645,7 @@ General self-evolution addresses “how should this class of task be completed m
 - 专家任务会重新真实执行，旧 collaboration records 不复制。
 - 学习 Replay 使用 `datasetKind=replay`，可展示回路但不写 live/demo 经验或策略。
 - Replay 不是逐字节确定性复现：模型、外部网页和依赖仍可能变化；它保证的是输入、文件与本地上下文边界可复核。
+- 批量重放：`GET /api/snapshots` 列出冻结快照，`node scripts/replay-batch.mjs --profile <id> [--artifact <id>]` 对一组快照跑基线与候选能力两臂并生成并排对比报告（`data/eval-runs/replay-*/report.md`）。
 
 **English**
 
@@ -654,6 +655,7 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - Specialist work is executed again for real; old collaboration records are not copied.
 - Learning Replay uses `datasetKind=replay`, showing the loop without writing live or demo experience/policies.
 - Replay is not byte-for-byte deterministic: models, external websites, and dependencies can still change. It guarantees an auditable boundary for inputs, files, and local context.
+- Batch replay: `GET /api/snapshots` lists frozen snapshots and `node scripts/replay-batch.mjs --profile <id> [--artifact <id>]` re-runs a set of them in baseline and candidate-capability arms, writing a side-by-side report under `data/eval-runs/replay-*/`.
 
 ## 12. 定时任务 / Scheduled jobs
 

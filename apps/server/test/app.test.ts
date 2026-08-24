@@ -687,6 +687,12 @@ describe("HTTP API", () => {
     });
     expect(snapshot).toBeTruthy();
 
+    const listed = await app.inject({ method: "GET", url: "/api/snapshots?profileId=graduate-admissions&limit=5" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toMatchObject({
+      snapshots: [{ runId: snapshot!.runId, prompt: "改简历", hasLearning: true }]
+    });
+
     const missing = await app.inject({
       method: "POST",
       url: `/api/runs/${snapshot!.runId}/replay`,
