@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { composeClaudeChildEnvironment, loadConfig } from "../src/config.js";
+import { composeClaudeChildEnvironment, fieldnoteClaudeHome, loadConfig } from "../src/config.js";
 
 describe("Claude user settings inheritance", () => {
   it("auto-detects authentication without copying secret values into AppConfig", async () => {
@@ -73,5 +73,46 @@ describe("Claude user settings inheritance", () => {
     });
     expect(child.ANTHROPIC_AUTH_TOKEN).toBe("test-process-token");
     expect(child.ANTHROPIC_BASE_URL).toBe("https://example.invalid/anthropic");
+  });
+});
+
+describe("credential precedence over a local Claude login", () => {
+  it("drops a blank ANTHROPIC_API_KEY inherited from .env", () => {
+    const config = loadConfig({ CLAUDE_SETTINGS_MODE: "isolated", NODE_ENV: "test" }, process.cwd());
+    const child = composeClaudeChildEnvironment(config, { NODE_ENV: "test", ANTHROPIC_API_KEY: "" });
+    expect(child).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+
+  it("points the child at a Fieldnote-owned config dir when Fieldnote supplies the credential", () => {
+    const config = loadConfig(
+      {
+        ANTHROPIC_AUTH_TOKEN: "test-process-token",
+        CLAUDE_SETTINGS_MODE: "isolated",
+        NODE_ENV: "test"
+      },
+      process.cwd()
+    );
+    const child = composeClaudeChildEnvironment(config, { NODE_ENV: "test" });
+    expect(child.CLAUDE_CONFIG_DIR).toBe(fieldnoteClaudeHome(config));
+    expect(child.CLAUDE_CONFIG_DIR).not.toBe(config.claudeConfigDir);
+  });
+
+  it("records the key approval so Claude Code does not fall back to the machine login", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "fieldnote-home-"));
+    const config = loadConfig(
+      {
+        ANTHROPIC_API_KEY: "sk-ant-test-0123456789abcdefghij",
+        AGENT_WORKSPACE_ROOT: path.join(root, "workspaces"),
+        CLAUDE_SETTINGS_MODE: "isolated",
+        NODE_ENV: "production",
+        WEB_APP_URL: "http://127.0.0.1:8787"
+      },
+      root
+    );
+    const child = composeClaudeChildEnvironment(config, { NODE_ENV: "production" });
+    const state = JSON.parse(await fs.readFile(path.join(child.CLAUDE_CONFIG_DIR!, ".claude.json"), "utf8"));
+    expect(state.customApiKeyResponses.approved).toContain("sk-ant-test-0123456789abcdefghij".slice(-20));
+    expect(child.ANTHROPIC_API_KEY).toBe("sk-ant-test-0123456789abcdefghij");
+    await fs.rm(root, { recursive: true, force: true });
   });
 });

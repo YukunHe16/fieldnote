@@ -74,6 +74,18 @@ function checkRuntime(config: AppConfig): DoctorCheck {
     };
   }
   if (config.claudeAuthConfigured) {
+    if (config.claudeOauthSubscription === "unavailable") {
+      return {
+        id: "runtime",
+        status: "fail",
+        label: "运行时：本机 Claude 登录当前没有可用订阅，对话会失败",
+        labelEn: "Runtime: the local Claude login has no available subscription; conversations will fail",
+        detail: "hasAvailableSubscription=false",
+        hint: "在“个人工作区 → 模型服务”粘贴 Anthropic API Key，或让组织管理员为该账号开启 Claude Code 访问。",
+        hintEn:
+          "Paste an Anthropic API key in Workspace → Model service, or ask your organization admin to enable Claude Code access for this account."
+      };
+    }
     return {
       id: "runtime",
       status: "ok",

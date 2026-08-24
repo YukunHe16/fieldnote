@@ -49,6 +49,8 @@ export interface AppConfig {
   anthropicBaseUrl?: string;
   claudeAuthConfigured: boolean;
   claudeAuthSource: "process-env" | "user-settings" | "oauth-credentials" | "local-settings" | "none";
+  /** Entitlement of a local `claude login`, when Fieldnote relies on those credentials. */
+  claudeOauthSubscription: "available" | "unavailable" | "unknown";
   claudeSettingsMode: "inherit-user" | "isolated";
   claudeConfigDir: string;
   claudeConfigDirExplicit: boolean;
@@ -102,6 +104,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     runtime: parsed.AGENT_RUNTIME,
     claudeAuthConfigured: claudeAuthSource !== "none",
     claudeAuthSource,
+    claudeOauthSubscription:
+      claudeAuthSource === "oauth-credentials" ? detectOAuthSubscriptionState(claudeConfigDir) : "unknown",
     claudeSettingsMode,
     claudeConfigDir,
     claudeConfigDirExplicit: Boolean(parsed.CLAUDE_CONFIG_DIR),
@@ -145,17 +149,61 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
   return config;
 }
 
+const BLANKABLE_AUTH_KEYS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
+
+/** Config directory Fieldnote owns when it supplies its own model credential. */
+export function fieldnoteClaudeHome(config: AppConfig): string {
+  return path.join(path.dirname(config.workspaceRoot), "claude-home");
+}
+
+/**
+ * Claude Code ignores an API key it has never seen approved and silently falls back to
+ * whatever subscription login exists on the machine — so a machine whose login is blocked
+ * keeps failing even after the user pastes a working key. When Fieldnote carries its own
+ * credential we hand the child a Fieldnote-owned config directory with that approval
+ * already recorded, so the credential we were given is the one actually used.
+ */
+function ensureManagedClaudeHome(home: string, credential: string): void {
+  try {
+    fs.mkdirSync(home, { recursive: true });
+    const statePath = path.join(home, ".claude.json");
+    let state: Record<string, unknown> = {};
+    try {
+      state = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, unknown>;
+    } catch {
+      state = {};
+    }
+    const responses = (state.customApiKeyResponses ?? {}) as { approved?: unknown; rejected?: unknown };
+    const approved = new Set(Array.isArray(responses.approved) ? responses.approved.map(String) : []);
+    approved.add(credential.slice(-20));
+    state.customApiKeyResponses = {
+      approved: [...approved],
+      rejected: Array.isArray(responses.rejected) ? responses.rejected : []
+    };
+    state.hasCompletedOnboarding = true;
+    fs.writeFileSync(statePath, JSON.stringify(state, null, 2), { mode: 0o600 });
+  } catch {
+    // A read-only data directory must not block the run; the child falls back to its own resolution.
+  }
+}
+
 export function composeClaudeChildEnvironment(
   config: AppConfig,
   processEnv: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const childEnvironment: NodeJS.ProcessEnv = { ...processEnv };
+  // A bare `ANTHROPIC_API_KEY=` line in .env otherwise reaches the child as a blank
+  // credential and derails its authentication.
+  for (const key of BLANKABLE_AUTH_KEYS) {
+    if (!childEnvironment[key]?.trim()) delete childEnvironment[key];
+  }
   if (config.claudeSettingsMode === "inherit-user") {
     const inherited = readClaudeUserSettingsEnv(config.claudeConfigDir);
     for (const [key, value] of Object.entries(inherited)) {
       if (!childEnvironment[key]) childEnvironment[key] = value;
     }
   }
+  const ownCredential = config.anthropicAuthToken ?? config.anthropicApiKey;
   if (config.anthropicAuthToken) {
     childEnvironment.ANTHROPIC_AUTH_TOKEN = config.anthropicAuthToken;
     delete childEnvironment.ANTHROPIC_API_KEY;
@@ -165,10 +213,16 @@ export function composeClaudeChildEnvironment(
   }
   if (config.anthropicBaseUrl) {
     childEnvironment.ANTHROPIC_BASE_URL = config.anthropicBaseUrl;
-  } else if (config.claudeSettingsMode === "isolated") {
+  } else if (config.claudeSettingsMode === "isolated" || ownCredential) {
     delete childEnvironment.ANTHROPIC_BASE_URL;
   }
-  if (config.claudeConfigDirExplicit) childEnvironment.CLAUDE_CONFIG_DIR = config.claudeConfigDir;
+  if (ownCredential) {
+    const home = fieldnoteClaudeHome(config);
+    if (config.nodeEnv !== "test") ensureManagedClaudeHome(home, ownCredential);
+    childEnvironment.CLAUDE_CONFIG_DIR = home;
+  } else if (config.claudeConfigDirExplicit) {
+    childEnvironment.CLAUDE_CONFIG_DIR = config.claudeConfigDir;
+  }
   childEnvironment.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
   childEnvironment.CLAUDE_AGENT_SDK_CLIENT_APP = "fieldnote";
   return childEnvironment;
@@ -178,13 +232,17 @@ export function applyLocalRuntimeSettings(config: AppConfig, settings: LocalRunt
   config.runtime = "auto";
   config.model = settings.model;
   config.modelDisplay = settings.model;
+  // The saved base URL is authoritative only when the UI also owns the credential; otherwise an
+  // endpoint configured in the environment (a third-party Anthropic-compatible gateway, say) would
+  // be erased by a settings row that never meant to speak about endpoints at all.
   if (settings.baseUrl) config.anthropicBaseUrl = settings.baseUrl;
-  else delete config.anthropicBaseUrl;
+  else if (settings.authToken) delete config.anthropicBaseUrl;
   if (settings.authToken) {
     config.anthropicAuthToken = settings.authToken;
     delete config.anthropicApiKey;
     config.claudeAuthConfigured = true;
     config.claudeAuthSource = "local-settings";
+    config.claudeOauthSubscription = "unknown";
   }
 }
 
@@ -251,6 +309,30 @@ function detectOAuthCredentials(configDir: string, allowKeychainProbe: boolean):
     }
   }
   return false;
+}
+
+/**
+ * Claude Code caches the signed-in account's entitlement locally. A login whose organization
+ * has turned Claude Code off still leaves valid-looking credentials on disk, so credential
+ * presence alone would report a working runtime that fails on the first message. Read-only,
+ * best-effort: an unreadable or absent cache reports "unknown" and changes nothing.
+ */
+function detectOAuthSubscriptionState(configDir: string): "available" | "unavailable" | "unknown" {
+  const candidates = [path.join(configDir, ".claude.json"), path.join(os.homedir(), ".claude.json")];
+  for (const candidate of candidates) {
+    try {
+      const state = JSON.parse(fs.readFileSync(candidate, "utf8")) as {
+        hasAvailableSubscription?: unknown;
+        cachedExtraUsageDisabledReason?: unknown;
+      };
+      if (state.hasAvailableSubscription === false) return "unavailable";
+      if (state.cachedExtraUsageDisabledReason === "org_level_disabled") return "unavailable";
+      if (state.hasAvailableSubscription === true) return "available";
+    } catch {
+      // try the next candidate
+    }
+  }
+  return "unknown";
 }
 
 /**

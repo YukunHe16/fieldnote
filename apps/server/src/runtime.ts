@@ -3170,6 +3170,20 @@ export async function preflightClaudeRuntime(
     else delete effective.anthropicBaseUrl;
   }
   const model = overrides.model?.trim() || effective.model;
+  // A machine login whose organization has turned Claude Code off still passes a tool-free
+  // probe while real conversations fail, so the test would report a green it cannot honour.
+  if (
+    !overrides.authToken &&
+    effective.claudeAuthSource === "oauth-credentials" &&
+    effective.claudeOauthSubscription === "unavailable"
+  ) {
+    return {
+      ok: false,
+      model,
+      error:
+        "The Claude login on this machine has no available subscription (organization-level restriction). Paste an Anthropic API key, or ask your organization admin to enable Claude Code access."
+    };
+  }
   const abortController = new AbortController();
   const timer = setTimeout(() => abortController.abort(), 15_000);
   const startedAt = Date.now();
