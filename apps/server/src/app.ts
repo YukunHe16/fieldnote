@@ -31,6 +31,7 @@ import type { SchedulerStore } from "./scheduler-store.js";
 import type { ScheduledJobRunner } from "./scheduler.js";
 import { registerSchedulerRoutes } from "./scheduler-routes.js";
 import { EvolutionStore } from "./evolution-store.js";
+import { isEvolutionEligibleConversation } from "./evolution-eligibility.js";
 import { handbookDocument, parseHandbook } from "./handbook.js";
 import { buildDomainCard } from "./domain-card.js";
 import { EvolutionCoordinator } from "./evolution-coordinator.js";
@@ -1400,16 +1401,18 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     );
     const conversation = store.getConversation(branched.id);
     const overlay = evolution.overlayForRun(sourceRun.id);
-    evolution.createSignal({
-      source: "implicit",
-      kind: "retry",
-      polarity: "down",
-      profileId: conversation?.profileId ?? null,
-      conversationId: branched.id,
-      messageId: message.id,
-      runId: run.id,
-      overlayRevision: overlay?.id ?? null
-    });
+    if (isEvolutionEligibleConversation(message.conversationId, { learning, replay: dependencies.replay })) {
+      evolution.createSignal({
+        source: "implicit",
+        kind: "retry",
+        polarity: "down",
+        profileId: conversation?.profileId ?? null,
+        conversationId: branched.id,
+        messageId: message.id,
+        runId: run.id,
+        overlayRevision: overlay?.id ?? null
+      });
+    }
     return reply.code(202).send({ run, conversation: await conversationDetail(branched.id) });
   });
 
@@ -1482,15 +1485,17 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       if (sourceRun) orchestrator.restoreWorkspaceFromRun(sourceRun, branched.id);
       const run = orchestrator.submit(branched.id, input.content, "normal");
       const conversation = store.getConversation(branched.id);
-      evolution.createSignal({
-        source: "implicit",
-        kind: "edit",
-        polarity: "down",
-        profileId: conversation?.profileId ?? null,
-        conversationId: branched.id,
-        messageId: id,
-        runId: run.id
-      });
+      if (isEvolutionEligibleConversation(sourceMessage.conversationId, { learning, replay: dependencies.replay })) {
+        evolution.createSignal({
+          source: "implicit",
+          kind: "edit",
+          polarity: "down",
+          profileId: conversation?.profileId ?? null,
+          conversationId: branched.id,
+          messageId: id,
+          runId: run.id
+        });
+      }
       return reply.code(201).send({ run, conversation: await conversationDetail(branched.id) });
     }
     return reply.code(201).send({ conversation: await conversationDetail(branched.id) });

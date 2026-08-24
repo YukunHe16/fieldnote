@@ -14,6 +14,7 @@ import { emptyTurnAnalysis } from "../src/runtime.js";
 import { shouldSkipCasualAnalyze } from "../src/memory-coordinator.js";
 import { AgentStore } from "../src/store.js";
 import { LearningStore } from "../src/learning-store.js";
+import { RunReplayStore } from "../src/run-replay.js";
 
 class RetryAnalysisRuntime implements AgentRuntime {
   readonly kind = "demo" as const;
@@ -325,6 +326,104 @@ describe("casual analyze skip", () => {
     await waitFor(() => memories.getExtraction(run.id)?.status === "skipped");
     expect(runtime.calls).toBe(0);
     expect(store.getConversation(conversation.id)?.title).toBe("合成演示 · 递归案例");
+    expect(memories.list({ profileId: "local-operator" })).toHaveLength(0);
+    await coordinator.stop();
+    database.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("keeps eval learning sessions out of memory and evolution extraction", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-synthetic-eval-"));
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const memories = new MemoryStore(database);
+    const learning = new LearningStore(database);
+    const evolution = new EvolutionStore(database);
+    const runtime = new CountingAnalysisRuntime();
+    const conversation = store.createConversation("web", "离线评测 · 递归题", { profileId: "local-operator" });
+    learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "评测：递归计划缺口",
+      topicKey: "programming-plans",
+      datasetKind: "eval"
+    });
+    const run = store.createRun(conversation.id, "我的嵌套求和递归写错了，帮我看看。", "normal");
+    store.replaceMessageText(
+      run.assistantMessageId,
+      "这是足够长的评测教学回复，用来确认模拟学习者对话不会进入真实记忆或通用能力自进化统计。"
+    );
+    store.setMessageStatus(run.assistantMessageId, "completed");
+    store.setRunStatus(run.id, "completed");
+    const coordinator = new MemoryCoordinator(
+      config(root),
+      store,
+      memories,
+      new EventStore(database),
+      runtime,
+      undefined,
+      undefined,
+      undefined,
+      learning
+    );
+
+    coordinator.enqueue(run);
+    await waitFor(() => memories.getExtraction(run.id)?.status === "skipped");
+    expect(runtime.calls).toBe(0);
+    expect(memories.list({ profileId: "local-operator" })).toHaveLength(0);
+    expect(evolution.listSignals({ limit: 50 })).toHaveLength(0);
+    await coordinator.stop();
+    database.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("keeps replay conversations without learning sessions out of extraction via the replay mark", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-synthetic-replay-"));
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const memories = new MemoryStore(database);
+    const replay = new RunReplayStore(database, path.join(root, ".snapshots"));
+    const runtime = new CountingAnalysisRuntime();
+    const conversation = store.createConversation("web", "回放", { profileId: "local-operator" });
+    replay.pinConversation(conversation.id, {
+      sourceRunId: "run-source",
+      mode: "frozen",
+      includeArtifactId: null,
+      prompt: "原始提问",
+      overlay: {
+        id: "",
+        playbookIds: [],
+        artifactIds: [],
+        cardTitle: null,
+        playbooks: [],
+        card: null,
+        memories: [],
+        artifacts: []
+      }
+    });
+    const run = store.createRun(conversation.id, "重放这个任务并检查输出。", "normal");
+    store.replaceMessageText(
+      run.assistantMessageId,
+      "这是足够长的重放回复，用来确认重放实验对话不会进入真实记忆或通用能力自进化统计。"
+    );
+    store.setMessageStatus(run.assistantMessageId, "completed");
+    store.setRunStatus(run.id, "completed");
+    const coordinator = new MemoryCoordinator(
+      config(root),
+      store,
+      memories,
+      new EventStore(database),
+      runtime,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      replay
+    );
+
+    coordinator.enqueue(run);
+    await waitFor(() => memories.getExtraction(run.id)?.status === "skipped");
+    expect(runtime.calls).toBe(0);
     expect(memories.list({ profileId: "local-operator" })).toHaveLength(0);
     await coordinator.stop();
     database.close();

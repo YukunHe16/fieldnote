@@ -13,6 +13,8 @@ import type { LiveDomainCard } from "./domain-card-live.js";
 import type { AdmissionsStore } from "./admissions-store.js";
 import type { LearningStore } from "./learning-store.js";
 import { detectLearningOpportunity } from "./learning-opportunity.js";
+import { isEvolutionEligibleConversation } from "./evolution-eligibility.js";
+import type { RunReplayStore } from "./run-replay.js";
 
 const CASUAL_PROMPT_CHARS = 20;
 const CASUAL_THINKING_MS = 4_000;
@@ -34,7 +36,8 @@ export class MemoryCoordinator {
     private readonly evolution?: EvolutionCoordinator,
     private readonly liveCard?: LiveDomainCard,
     private readonly admissions?: AdmissionsStore,
-    private readonly learning?: LearningStore
+    private readonly learning?: LearningStore,
+    private readonly replay?: RunReplayStore
   ) {
     this.memories.recoverExtractions();
     this.memories.recoverMaintenance();
@@ -169,7 +172,8 @@ export class MemoryCoordinator {
       return "skipped";
     }
     if (conversation.temporary) return "skipped";
-    if (this.learning?.getSessionForConversation(conversation.id)?.datasetKind === "demo") return "skipped";
+    if (!isEvolutionEligibleConversation(conversation.id, { learning: this.learning, replay: this.replay }))
+      return "skipped";
     const prompt = userMessages
       .map((message) => message.content)
       .filter(Boolean)

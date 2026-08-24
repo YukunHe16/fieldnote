@@ -111,7 +111,8 @@ const memoryCoordinator = new MemoryCoordinator(
   evolutionCoordinator,
   liveCard,
   admissionsStore,
-  learning
+  learning,
+  replay
 );
 const orchestrator = new RunOrchestrator(config, store, events, runtime, memoryCoordinator, {
   shelf,
