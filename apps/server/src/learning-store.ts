@@ -508,6 +508,24 @@ const variantTextsSimilar = (left: string, right: string): boolean => {
   return (2 * shared) / (a.size + b.size) >= 0.55;
 };
 
+/**
+ * Posterior mean of a Beta(1,1) prior over learning outcomes, counting a partial outcome as
+ * half a success and half a failure. Strategy ranking and variant promotion share it so both
+ * read the same evidence on the same scale; an empty set returns the 0.5 prior.
+ */
+const outcomePosterior = (outcomes: readonly string[]): number => {
+  let success = 0;
+  let failure = 0;
+  for (const outcome of outcomes) {
+    if (outcome === "resolved") success += 1;
+    else if (outcome === "partial") {
+      success += 0.5;
+      failure += 0.5;
+    } else failure += 1;
+  }
+  return (1 + success) / (2 + success + failure);
+};
+
 type SessionRow = Record<string, unknown>;
 type IncidentRow = Record<string, unknown>;
 type InterventionRow = Record<string, unknown>;
@@ -1539,18 +1557,6 @@ export class LearningStore {
         outcome: string;
         strategy_variant_id: string | null;
       }>;
-      const posterior = (subset: Array<{ outcome: string }>) => {
-        let success = 0;
-        let failure = 0;
-        for (const item of subset) {
-          if (item.outcome === "resolved") success += 1;
-          else if (item.outcome === "partial") {
-            success += 0.5;
-            failure += 0.5;
-          } else failure += 1;
-        }
-        return (1 + success) / (2 + success + failure);
-      };
       const attributed = experiences.filter((item) => item.strategy_variant_id === row.id);
       if (attributed.length < 5) continue;
       const bare = experiences.filter((item) => item.strategy_variant_id === null);
@@ -1561,8 +1567,8 @@ export class LearningStore {
       const evidenceIds = attributed.map((item) => item.id).sort();
       const rejected = row.rejected_evidence_json ? parseJson<string[]>(row.rejected_evidence_json, []) : null;
       if (rejected && JSON.stringify([...rejected].sort()) === JSON.stringify(evidenceIds)) continue;
-      const variantPosterior = posterior(attributed);
-      const basePosterior = posterior(bare);
+      const variantPosterior = outcomePosterior(attributed.map((item) => item.outcome));
+      const basePosterior = outcomePosterior(bare.map((item) => item.outcome));
       const diff = variantPosterior - basePosterior;
       const recommendation = diff >= 0.1 ? "promote" : diff <= -0.1 ? "retire" : null;
       if (!recommendation) continue;
@@ -1623,23 +1629,15 @@ export class LearningStore {
         input.failedStrategies ?? [],
         enabled ? "policy" : "default"
       );
-    const scores = Object.fromEntries(DEFAULT_STRATEGIES.map((strategy) => [strategy, 0.5])) as Record<
-      LearningInterventionStrategy,
-      number
-    >;
-    for (const strategy of DEFAULT_STRATEGIES) {
-      let success = 0;
-      let failure = 0;
-      for (const row of rows)
-        if (row.strategy === strategy) {
-          if (row.outcome === "resolved") success += 1;
-          else if (row.outcome === "partial") {
-            success += 0.5;
-            failure += 0.5;
-          } else failure += 1;
-        }
-      scores[strategy] = (1 + success) / (2 + success + failure);
+    const outcomesByStrategy = new Map<unknown, string[]>();
+    for (const row of rows) {
+      const bucket = outcomesByStrategy.get(row.strategy);
+      if (bucket) bucket.push(String(row.outcome));
+      else outcomesByStrategy.set(row.strategy, [String(row.outcome)]);
     }
+    const scores = Object.fromEntries(
+      DEFAULT_STRATEGIES.map((strategy) => [strategy, outcomePosterior(outcomesByStrategy.get(strategy) ?? [])])
+    ) as Record<LearningInterventionStrategy, number>;
     const ordered = [...base].sort(
       (left, right) => scores[right] - scores[left] || base.indexOf(left) - base.indexOf(right)
     );

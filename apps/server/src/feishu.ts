@@ -254,16 +254,9 @@ export class FeishuChannel implements ChannelAdapter {
       if (!session || session.datasetKind !== "live") return;
       const report = this.learning.handoffReport(incidentId);
       if (!report) return;
-      const binding = this.store.database
-        .prepare(
-          `SELECT metadata_json FROM channel_bindings
-         WHERE channel = 'feishu' AND external_key LIKE 'p2p:%'
-         ORDER BY updated_at DESC LIMIT 1`
-        )
-        .get() as { metadata_json: string } | undefined;
-      if (!binding) return;
+      const metadata = this.ownerDirectMessage();
+      if (!metadata) return;
       this.notifiedEscalations.add(incidentId);
-      const metadata = JSON.parse(binding.metadata_json) as FeishuBindingMetadata;
       await this.channel.send(metadata.chatId, {
         card: buildFeishuLearningHandoffCard(report, session.goal, this.webAppUrl)
       });
@@ -375,15 +368,8 @@ export class FeishuChannel implements ChannelAdapter {
     replayRunId?: string | null;
   }): Promise<boolean> {
     if (!this.channel) return false;
-    const binding = this.store.database
-      .prepare(
-        `SELECT metadata_json FROM channel_bindings
-       WHERE channel = 'feishu' AND external_key LIKE 'p2p:%'
-       ORDER BY updated_at DESC LIMIT 1`
-      )
-      .get() as { metadata_json: string } | undefined;
-    if (!binding) return false;
-    const metadata = JSON.parse(binding.metadata_json) as FeishuBindingMetadata;
+    const metadata = this.ownerDirectMessage();
+    if (!metadata) return false;
     const card = buildFeishuEvolutionCard({ ...input, webAppUrl: this.webAppUrl });
     if (input.verdict === "needs_human") {
       const result = await this.channel.send(metadata.chatId, { card });
@@ -405,15 +391,8 @@ export class FeishuChannel implements ChannelAdapter {
     reason: string;
   }): Promise<boolean> {
     if (!this.channel) return false;
-    const binding = this.store.database
-      .prepare(
-        `SELECT metadata_json FROM channel_bindings
-       WHERE channel = 'feishu' AND external_key LIKE 'p2p:%'
-       ORDER BY updated_at DESC LIMIT 1`
-      )
-      .get() as { metadata_json: string } | undefined;
-    if (!binding) return false;
-    const metadata = JSON.parse(binding.metadata_json) as FeishuBindingMetadata;
+    const metadata = this.ownerDirectMessage();
+    if (!metadata) return false;
     await this.channel.send(metadata.chatId, {
       card: buildFeishuUsageSuggestionCard({
         artifact: input.artifact,
@@ -425,24 +404,11 @@ export class FeishuChannel implements ChannelAdapter {
     return true;
   }
 
-  canNotifyEvolution(): boolean {
-    if (!this.channel) return false;
-    try {
-      const binding = this.store.database
-        .prepare(
-          `SELECT 1 FROM channel_bindings
-         WHERE channel = 'feishu' AND external_key LIKE 'p2p:%'
-         ORDER BY updated_at DESC LIMIT 1`
-        )
-        .get();
-      return Boolean(binding);
-    } catch {
-      return false;
-    }
-  }
-
-  async sendScheduledReport(input: { runId: string; title: string; content: string }): Promise<string> {
-    if (!this.channel) throw new Error("Feishu channel is not connected");
+  /**
+   * The most recent Feishu direct message, i.e. the owner's DM: where every host-initiated card
+   * (evolution review, disable suggestion, escalation handoff, scheduled report) is delivered.
+   */
+  private ownerDirectMessage(): FeishuBindingMetadata | null {
     const binding = this.store.database
       .prepare(
         `SELECT metadata_json FROM channel_bindings
@@ -450,8 +416,22 @@ export class FeishuChannel implements ChannelAdapter {
        ORDER BY updated_at DESC LIMIT 1`
       )
       .get() as { metadata_json: string } | undefined;
-    if (!binding) throw new Error("No Feishu direct-message conversation is available for scheduled delivery");
-    const metadata = JSON.parse(binding.metadata_json) as FeishuBindingMetadata;
+    return binding ? (JSON.parse(binding.metadata_json) as FeishuBindingMetadata) : null;
+  }
+
+  canNotifyEvolution(): boolean {
+    if (!this.channel) return false;
+    try {
+      return this.ownerDirectMessage() !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  async sendScheduledReport(input: { runId: string; title: string; content: string }): Promise<string> {
+    if (!this.channel) throw new Error("Feishu channel is not connected");
+    const metadata = this.ownerDirectMessage();
+    if (!metadata) throw new Error("No Feishu direct-message conversation is available for scheduled delivery");
     const result = await this.channel.send(metadata.chatId, {
       card: buildFeishuScheduledReportCard(input.title, input.content, input.runId, this.webAppUrl)
     });
