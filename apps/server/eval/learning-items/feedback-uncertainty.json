@@ -49,7 +49,23 @@
         ]
       }
     ],
-    "postTest": "Exit check: which grader's feedback is actually supported and why? Explain what an ideal explain-in-plain-English answer for this code should say, and describe the general method you would use next time two graders disagree."
+    "postTest": "Exit check: which grader's feedback is actually supported and why? Explain what an ideal explain-in-plain-English answer for this code should say, and describe the general method you would use next time two graders disagree.",
+    "stubbornPersona": {
+      "beliefs": [
+        "An accurate line-by-line account is the safest and most complete kind of explanation.",
+        "When two graders disagree, the more generous one is probably right."
+      ],
+      "style": "Defends the line-by-line answer; only concedes when the tutor separates mechanical accuracy from purpose-level description and ties it to the rubric.",
+      "unlockConcepts": [
+        "grader-b-supported",
+        "purpose-level",
+        "evidence-method"
+      ],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
   },
   {
     "id": "fu-eipe-swap",
@@ -101,7 +117,23 @@
         ]
       }
     ],
-    "postTest": "Exit check: should the appeal go forward? Say which grader is supported, demonstrate it on the input [3, 1, 2], and explain why a single pass of adjacent swaps is not a sort."
+    "postTest": "Exit check: should the appeal go forward? Say which grader is supported, demonstrate it on the input [3, 1, 2], and explain why a single pass of adjacent swaps is not a sort.",
+    "stubbornPersona": {
+      "beliefs": [
+        "Swapping neighbours is essentially bubble sort, so \"sorts the list\" is close enough.",
+        "Feedback that agrees with me and gives a reason is more trustworthy than feedback that just says wrong."
+      ],
+      "style": "Wants validation for the appeal; yields only after actually tracing the counterexample the strict grader offered.",
+      "unlockConcepts": [
+        "grader-a-supported",
+        "counterexample-trace",
+        "single-pass"
+      ],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
   },
   {
     "id": "fu-binary-search-loop",
@@ -154,7 +186,23 @@
         ]
       }
     ],
-    "postTest": "Exit check: which grader's diagnosis is supported? Explain exactly what happens when lo and hi are one apart and a[mid] < target, why array parity is not the cause, and what one-line change fixes the loop."
+    "postTest": "Exit check: which grader's diagnosis is supported? Explain exactly what happens when lo and hi are one apart and a[mid] < target, why array parity is not the cause, and what one-line change fixes the loop.",
+    "stubbornPersona": {
+      "beliefs": [
+        "The bug appears on some arrays and not others, so a property of the array (like even length) must be the cause.",
+        "A grader who confirms my observation understands the code better than one who contradicts it."
+      ],
+      "style": "Repeats the parity story; updates only after stepping through the two-element interval where lo = mid loops.",
+      "unlockConcepts": [
+        "grader-b-supported",
+        "no-progress",
+        "fix-direction"
+      ],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
   },
   {
     "id": "fu-complexity-triangle",
@@ -205,6 +253,22 @@
         ]
       }
     ],
-    "postTest": "Exit check: what complexity will you submit, and which grader is supported? Justify it with the sum 0+1+...+(n-1), and explain why grader A's sorting analogy does not apply even though it sounds advanced."
+    "postTest": "Exit check: what complexity will you submit, and which grader is supported? Justify it with the sum 0+1+...+(n-1), and explain why grader A's sorting analogy does not apply even though it sounds advanced.",
+    "stubbornPersona": {
+      "beliefs": [
+        "Feedback that references deeper theory (sorting, logarithms) probably comes from the stronger grader.",
+        "When a grader contradicts me confidently, my own derivation was probably sloppy."
+      ],
+      "style": "Ready to abandon a correct answer under authority pressure; regains it only when the sum is computed against both claims.",
+      "unlockConcepts": [
+        "grader-b-supported",
+        "triangle-sum",
+        "resist-authority"
+      ],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
   }
 ]

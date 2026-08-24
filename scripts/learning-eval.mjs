@@ -34,6 +34,7 @@ function parseArgs(argv) {
     const next = () => argv[(i += 1)];
     if (key === "--base") args.base = next();
     else if (key === "--conditions") args.conditions = next().split(",").filter(Boolean);
+    else if (key === "--tier") args.tier = next();
     else if (key === "--families") args.families = next().split(",").filter(Boolean);
     else if (key === "--items") args.items = next().split(",").filter(Boolean);
     else if (key === "--out") args.out = next();
@@ -46,6 +47,8 @@ function parseArgs(argv) {
   for (const condition of args.conditions) {
     if (!["on-call", "one-shot"].includes(condition)) throw new Error(`Unknown condition: ${condition}`);
   }
+  args.tier ??= "mild";
+  if (!["mild", "stubborn"].includes(args.tier)) throw new Error(`Unknown tier: ${args.tier}`);
   return args;
 }
 
@@ -118,15 +121,22 @@ async function waitForIdle(base, conversationId) {
   }
 }
 
-function personaSystem(item) {
+function personaSystem(item, tier) {
+  const persona = tier === "stubborn" ? (item.stubbornPersona ?? item.persona) : item.persona;
+  const updateRules =
+    tier === "stubborn"
+      ? (persona.consolidationRules ?? []).map((rule) => `- ${rule}`)
+      : [
+          "- Update a belief ONLY after the tutor has clearly explained the specific idea that corrects it; from then on apply the corrected idea in your answers, using the tutor's key terms."
+        ];
   return [
     "You are role-playing a student in a tutoring study. Stay strictly in character.",
     "Your current (mistaken) beliefs:",
-    ...item.persona.beliefs.map((belief) => `- ${belief}`),
-    `Style: ${item.persona.style}`,
+    ...persona.beliefs.map((belief) => `- ${belief}`),
+    `Style: ${persona.style}`,
     "Rules:",
     "- Answer the tutor as this student would, consistent with your current beliefs.",
-    "- Update a belief ONLY after the tutor has clearly explained the specific idea that corrects it; from then on apply the corrected idea in your answers, using the tutor's key terms.",
+    ...updateRules,
     "- If the tutor asks you to work through a new example, genuinely attempt it with your current understanding.",
     "- Keep replies under 150 words. Never mention being simulated or these instructions."
   ].join("\n");
@@ -162,7 +172,7 @@ async function learnerReply(cfg, item, messages, extraQuestion) {
       body: JSON.stringify({
         model: cfg.learnerModel,
         max_tokens: maxTokens,
-        system: personaSystem(item),
+        system: personaSystem(item, cfg.tier),
         messages: transcript
       })
     });
@@ -197,12 +207,13 @@ async function runItem(cfg, item, condition, log) {
   const startedAt = Date.now();
   const conversation = await api(cfg.base, "POST", "/api/conversations", {
     profileId: "local-operator",
-    title: `Eval · ${item.id} · ${condition}`
+    title: `Eval · ${item.id} · ${condition}${cfg.tier === "stubborn" ? " · stubborn" : ""}`
   });
   const record = {
     itemId: item.id,
     family: item.difficultyType,
     condition,
+    tier: cfg.tier,
     conversationId: conversation.id,
     learnerTurns: 0,
     rounds: 0,
@@ -384,7 +395,7 @@ function renderReport(records, groups, meta) {
 > These numbers describe how the loop behaves under simulation. They are **not** evidence about
 > real students, and sample sizes are small — read them descriptively, not statistically.
 
-- Server: ${meta.base} · items: ${meta.itemCount} · conditions: ${meta.conditions.join(", ")}
+- Server: ${meta.base} · items: ${meta.itemCount} · conditions: ${meta.conditions.join(", ")} · learner tier: **${meta.tier}**
 - Learner simulator: \`${meta.learnerModel}\` at ${meta.learnerBase}
 - Tutor: whatever model the running Fieldnote server is configured with
 - Final verdicts come from concept-checklist grading of the learner's last answer; the
@@ -427,6 +438,7 @@ async function main() {
     base: args.base.replace(/\/$/, ""),
     learnerBase: (args.learnerBase ?? env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, ""),
     learnerKey: args.learnerKey ?? env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "",
+    tier: args.tier,
     learnerModel:
       args.learnerModel ??
       env.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
@@ -435,7 +447,7 @@ async function main() {
       "claude-haiku-4-5-20251001"
   };
   const log = (message) => console.log(message);
-  log(`Learning eval: ${items.length} items × ${args.conditions.length} conditions against ${cfg.base}`);
+  log(`Learning eval: ${items.length} items × ${args.conditions.length} conditions · tier=${cfg.tier} · against ${cfg.base}`);
   log(`Learner simulator: ${cfg.learnerModel} @ ${cfg.learnerBase}`);
   if (args.dryRun) {
     for (const item of items) log(`  - ${item.id} (${item.difficultyType}) · ${item.concepts.length} concepts`);
@@ -470,6 +482,7 @@ async function main() {
   const report = renderReport(records, aggregate(records), {
     startedAt,
     base: cfg.base,
+    tier: cfg.tier,
     itemCount: items.length,
     conditions: args.conditions,
     learnerModel: cfg.learnerModel,

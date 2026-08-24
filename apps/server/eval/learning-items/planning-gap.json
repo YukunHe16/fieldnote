@@ -48,7 +48,23 @@
         ]
       }
     ],
-    "postTest": "Exit check, in your own words: what is the complete plan for deep_sum so it works for any depth of nesting? State what happens for a plain number or empty list, what the function does when it meets a sublist, and how the pieces are put together into the final total."
+    "postTest": "Exit check, in your own words: what is the complete plan for deep_sum so it works for any depth of nesting? State what happens for a plain number or empty list, what the function does when it meets a sublist, and how the pieces are put together into the final total.",
+    "stubbornPersona": {
+      "beliefs": [
+        "Nesting can be handled by adding one more isinstance level each time a test fails.",
+        "Recursion is not on my radar; I think in terms of a single loop over the input."
+      ],
+      "style": "Asks for the next patch to apply; does not mention recursion until the tutor explains the plan.",
+      "unlockConcepts": [
+        "base-case",
+        "recursive-reduction",
+        "combine-results"
+      ],
+      "consolidationRules": [
+        "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
+        "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
+      ]
+    }
   },
   {
     "id": "pg-count-leaves",
@@ -97,7 +113,23 @@
         ]
       }
     ],
-    "postTest": "Exit check, in your own words: describe the plan for count_leaves. What are the base cases and what do they return, how does the problem get smaller, and how do the answers for node.left and node.right turn into the final count?"
+    "postTest": "Exit check, in your own words: describe the plan for count_leaves. What are the base cases and what do they return, how does the problem get smaller, and how do the answers for node.left and node.right turn into the final count?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A tree can be walked with one pointer and a while loop, like a linked list.",
+        "Each recursive call would just overwrite the same variables, so recursion cannot keep two sides separate."
+      ],
+      "style": "Suggests adding more loops or stacks; only accepts recursion once the tutor explains how each call has its own frame and how results combine.",
+      "unlockConcepts": [
+        "base-case",
+        "two-subproblems",
+        "combine-results"
+      ],
+      "consolidationRules": [
+        "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
+        "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
+      ]
+    }
   },
   {
     "id": "pg-reverse-accumulator",
@@ -149,7 +181,23 @@
         ]
       }
     ],
-    "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, how the recursive call's return value is used to build the result, and why the global accumulator caused wrong answers on the second call."
+    "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, how the recursive call's return value is used to build the result, and why the global accumulator caused wrong answers on the second call.",
+    "stubbornPersona": {
+      "beliefs": [
+        "Recursion needs an external accumulator because a call cannot hand a value back to its caller.",
+        "The fix is to reset the global more carefully, not to restructure the function."
+      ],
+      "style": "Keeps proposing reset mechanisms; changes mind only when the tutor explains building the answer from return values.",
+      "unlockConcepts": [
+        "return-composition",
+        "base-case",
+        "no-shared-state"
+      ],
+      "consolidationRules": [
+        "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
+        "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
+      ]
+    }
   },
   {
     "id": "pg-power-halving",
@@ -201,6 +249,22 @@
         ]
       }
     ],
-    "postTest": "Exit check, in your own words: state the full plan for fast_pow. What is the base case, how is an odd exponent handled differently from an even one, and why does the recursion always terminate?"
+    "postTest": "Exit check, in your own words: state the full plan for fast_pow. What is the base case, how is an odd exponent handled differently from an even one, and why does the recursion always terminate?",
+    "stubbornPersona": {
+      "beliefs": [
+        "The halving trick only applies to even exponents; odd exponents are a special unsupported case.",
+        "A missing stopping point is a minor detail, not a structural part of the plan."
+      ],
+      "style": "Wants a one-line patch; accepts the full plan only when base case and the odd-exponent reduction are both spelled out.",
+      "unlockConcepts": [
+        "base-case",
+        "odd-reduction",
+        "termination"
+      ],
+      "consolidationRules": [
+        "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
+        "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
+      ]
+    }
   }
 ]

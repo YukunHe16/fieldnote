@@ -47,7 +47,23 @@
         ]
       }
     ],
-    "postTest": "Exit check, in your own words: why do blocks 0 and 8 keep missing even though six lines are empty? Classify these misses, and describe the test that separates a conflict miss from a capacity miss."
+    "postTest": "Exit check, in your own words: why do blocks 0 and 8 keep missing even though six lines are empty? Classify these misses, and describe the test that separates a conflict miss from a capacity miss.",
+    "stubbornPersona": {
+      "beliefs": [
+        "Repeated misses mean the cache ran out of room, so they must be capacity misses.",
+        "Index mapping is a detail of where things go, not a reason why misses happen."
+      ],
+      "style": "Talks about total size; starts using index mapping only after simulating where each block lands.",
+      "unlockConcepts": [
+        "index-mapping",
+        "conflict-classification",
+        "associativity-test"
+      ],
+      "consolidationRules": [
+        "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
+        "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
+      ]
+    }
   },
   {
     "id": "cm-compulsory-inflation",
@@ -98,7 +114,23 @@
         ]
       }
     ],
-    "postTest": "Exit check: how many of the five misses are compulsory and what are the others? State the rule for when a miss counts as compulsory, and explain what happened to block A on its later accesses."
+    "postTest": "Exit check: how many of the five misses are compulsory and what are the others? State the rule for when a miss counts as compulsory, and explain what happened to block A on its later accesses.",
+    "stubbornPersona": {
+      "beliefs": [
+        "In a cold-started cache every miss is by definition compulsory.",
+        "\"First access\" refers to the run, not to each distinct block."
+      ],
+      "style": "Recites the cold-start rule; separates first-touch from re-miss only after walking the trace access by access.",
+      "unlockConcepts": [
+        "first-touch",
+        "reclassify-repeat",
+        "trace-walk"
+      ],
+      "consolidationRules": [
+        "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
+        "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
+      ]
+    }
   },
   {
     "id": "cm-associativity-limits",
@@ -149,7 +181,23 @@
         ]
       }
     ],
-    "postTest": "Exit check: why does the fully-associative 4-line LRU cache still miss on every access of the loop 0,1,2,3,4 repeated? Classify these misses, compare the working set with the capacity, and say what LRU evicts right before each block is needed."
+    "postTest": "Exit check: why does the fully-associative 4-line LRU cache still miss on every access of the loop 0,1,2,3,4 repeated? Classify these misses, compare the working set with the capacity, and say what LRU evicts right before each block is needed.",
+    "stubbornPersona": {
+      "beliefs": [
+        "Associativity is the universal cure for cache misses.",
+        "Fully associative can still be improved by adding more ways."
+      ],
+      "style": "Reaches for the associativity knob; distinguishes capacity from placement only after the working-set comparison is made explicit.",
+      "unlockConcepts": [
+        "capacity-limit",
+        "working-set",
+        "lru-loop-pathology"
+      ],
+      "consolidationRules": [
+        "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
+        "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
+      ]
+    }
   },
   {
     "id": "cm-write-policy",
@@ -198,6 +246,22 @@
         ]
       }
     ],
-    "postTest": "Exit check: for 100 stores to the same cached block, how many memory writes does write-through make and how many does write-back make? Explain where the other 99 writes went and when the single write-back transfer happens."
+    "postTest": "Exit check: for 100 stores to the same cached block, how many memory writes does write-through make and how many does write-back make? Explain where the other 99 writes went and when the single write-back transfer happens.",
+    "stubbornPersona": {
+      "beliefs": [
+        "Every store instruction must eventually become its own memory write; caches only delay writes.",
+        "The dirty bit is a flag about correctness, not something that changes traffic."
+      ],
+      "style": "Conserves 'writes' like a physical quantity; lets go after the dirty-block-coalescing explanation with the eviction moment spelled out.",
+      "unlockConcepts": [
+        "dirty-coalescing",
+        "eviction-writeback",
+        "traffic-comparison"
+      ],
+      "consolidationRules": [
+        "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
+        "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
+      ]
+    }
   }
 ]
