@@ -863,6 +863,34 @@
   .learning-demo-stable:hover:not(:disabled) { background: var(--accent-soft); }
   .learning-demo-actions button:disabled { cursor: not-allowed; opacity: .55; }
   .learning-demo-actions small { display: block; max-width: 13rem; margin-top: .22rem; color: var(--ink-faint); font-size: .52rem; line-height: 1.35; }
+  .learning-condition-picker { margin-top: .55rem; }
+  .learning-condition-picker > span { display: block; margin-bottom: .28rem; color: var(--ink-soft); font-size: .6rem; font-weight: 640; }
+  .learning-condition-picker [role="radiogroup"] { display: flex; gap: .32rem; }
+  .learning-condition-picker button { min-height: 1.8rem; padding: 0 .52rem; border: 1px solid var(--line); border-radius: .43rem; color: var(--ink-soft); background: var(--fill-tertiary); cursor: pointer; font-size: .59rem; font-weight: 640; }
+  .learning-condition-picker button.is-selected { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent-strong); background: var(--accent-ghost); }
+  .learning-condition-picker small { display: block; margin-top: .26rem; color: var(--ink-faint); font-size: .52rem; line-height: 1.4; }
+  .learning-condition-badge { margin-left: .4rem; padding: .13rem .3rem; border-radius: .3rem; color: var(--warn-strong, #a15c00); background: color-mix(in srgb, orange 14%, transparent); font-size: .5rem; letter-spacing: .02em; }
+  .learning-metrics { display: flex; flex-direction: column; gap: .7rem; padding: .8rem .9rem 1rem; }
+  .learning-research-toggle label { display: flex; align-items: center; gap: .4rem; font-size: .66rem; font-weight: 650; cursor: pointer; }
+  .learning-research-toggle small { display: block; margin-top: .22rem; color: var(--ink-faint); font-size: .55rem; line-height: 1.42; }
+  .learning-metrics-scope { display: flex; gap: .32rem; }
+  .learning-metrics-scope button { min-height: 1.7rem; padding: 0 .5rem; border: 1px solid var(--line); border-radius: .4rem; color: var(--ink-soft); background: var(--fill-tertiary); cursor: pointer; font-size: .57rem; font-weight: 640; }
+  .learning-metrics-scope button.is-selected { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent-strong); background: var(--accent-ghost); }
+  .learning-metrics-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
+  .learning-metrics-tile { padding: .5rem .55rem; border: 1px solid var(--line); border-radius: .55rem; background: var(--fill-tertiary); }
+  .learning-metrics-tile b { display: block; font-size: .86rem; }
+  .learning-metrics-tile small { display: block; margin-top: .14rem; color: var(--ink-faint); font-size: .52rem; line-height: 1.3; }
+  .learning-metrics-section h4 { margin: 0 0 .34rem; font-size: .64rem; }
+  .learning-metrics-section > small { display: block; margin-top: .3rem; color: var(--ink-faint); font-size: .52rem; line-height: 1.42; }
+  .learning-metrics-table { width: 100%; border-collapse: collapse; font-size: .58rem; }
+  .learning-metrics-table th, .learning-metrics-table td { padding: .3rem .35rem; border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent); text-align: left; }
+  .learning-metrics-table th { color: var(--ink-faint); font-size: .52rem; font-weight: 640; }
+  .learning-calibration-chart { width: 100%; max-width: 22rem; height: auto; }
+  .learning-calibration-chart .calibration-track { fill: color-mix(in srgb, var(--line) 55%, transparent); }
+  .learning-calibration-chart .calibration-bar { fill: var(--accent); }
+  .learning-calibration-chart text { fill: var(--ink-soft); font-size: 9px; text-anchor: middle; }
+  .learning-calibration-chart .calibration-count { fill: var(--ink-faint); font-size: 8px; }
+  .learning-metrics-export { display: inline-block; padding: .4rem .6rem; border-radius: .45rem; color: var(--accent-strong); background: var(--accent-ghost); font-size: .6rem; font-weight: 650; text-decoration: none; }
   .learning-session-summary { padding: .95rem .9rem .7rem; border-bottom: 1px solid var(--line); }
   .learning-session-summary p, .learning-session-summary h3, .learning-session-summary small { margin: 0; }
   .learning-session-summary p { color: var(--accent-strong); font-size: .59rem; font-weight: 660; text-transform: uppercase; letter-spacing: .07em; }

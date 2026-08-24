@@ -44,6 +44,7 @@ import type {
   LearningIncidentDto,
   LearningDemoScenarioDto,
   LearningInterventionDto,
+  LearningMetricsDto,
   LearningOutcome,
   LearningPolicyRevisionDto,
   LearningSessionDto,
@@ -609,7 +610,11 @@ export function normalizeLearningSession(input: unknown): LearningSessionDto | n
   const raw = object(input);
   const id = string(raw.id);
   if (!id) return null;
-  const datasetKind = includes(["live", "demo", "replay"] as const, raw.datasetKind ?? raw.dataset_kind, "live");
+  const datasetKind = includes(
+    ["live", "demo", "replay", "eval"] as const,
+    raw.datasetKind ?? raw.dataset_kind,
+    "live"
+  );
   return {
     id,
     conversationId: string(raw.conversationId ?? raw.conversation_id),
@@ -618,6 +623,7 @@ export function normalizeLearningSession(input: unknown): LearningSessionDto | n
     topicKey: optionalString(raw.topicKey ?? raw.topic_key),
     status: includes(["suggested", "active", "paused", "completed", "dismissed"] as const, raw.status, "active"),
     datasetKind,
+    condition: includes(["on-call", "one-shot"] as const, raw.condition, "on-call"),
     executionMode: includes(
       ["agent", "deterministic"] as const,
       raw.executionMode ?? raw.execution_mode,
@@ -1039,7 +1045,10 @@ export const api = {
     const response = await request<{ session?: unknown }>(`/api/conversations/${conversationId}/learning-session`);
     return normalizeLearningSession(response.session);
   },
-  async createLearningSession(conversationId: string, input: { goal: string; topicKey?: string | null }) {
+  async createLearningSession(
+    conversationId: string,
+    input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" }
+  ) {
     const response = await request<{ session?: unknown }>(`/api/conversations/${conversationId}/learning-session`, {
       method: "POST",
       headers: JSON_HEADERS,
@@ -1107,17 +1116,44 @@ export const api = {
     const response = await request<{ scenarios?: unknown[] }>("/api/learning/demo-scenarios");
     return (response.scenarios ?? []).map(normalizeLearningDemoScenario);
   },
-  async startLearningDemoScenario(id: string, executionMode: "deterministic" | "agent") {
+  async startLearningDemoScenario(
+    id: string,
+    executionMode: "deterministic" | "agent",
+    condition: "on-call" | "one-shot" = "on-call"
+  ) {
     const response = await request<{ conversation?: ConversationDetail }>(
       `/api/learning/demo-scenarios/${encodeURIComponent(id)}/start`,
       {
         method: "POST",
         headers: JSON_HEADERS,
-        body: JSON.stringify({ executionMode })
+        body: JSON.stringify({ executionMode, condition })
       }
     );
     return response.conversation ? normalizeConversationDetail(response.conversation) : undefined;
   },
+
+  async learningMetrics(input: {
+    profileId?: string;
+    topicKey?: string | null;
+    difficultyType?: string;
+    datasetKind?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (input.profileId) params.set("profileId", input.profileId);
+    if (input.topicKey) params.set("topicKey", input.topicKey);
+    if (input.difficultyType) params.set("difficultyType", input.difficultyType);
+    if (input.datasetKind) params.set("datasetKind", input.datasetKind);
+    const response = await request<{ metrics: LearningMetricsDto }>(`/api/learning/metrics?${params}`);
+    return response.metrics;
+  },
+
+  researchSettings: () => request<{ enabled: boolean }>("/api/research/settings"),
+  updateResearchSettings: (enabled: boolean) =>
+    request<{ enabled: boolean }>("/api/research/settings", {
+      method: "PUT",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ enabled })
+    }),
 
   async sendMessage(id: string, content: string, mode: SendMode, attachmentIds: string[], clientMessageId: string) {
     const response = await request<SendMessageResponse & { conversation?: ConversationDetail }>(

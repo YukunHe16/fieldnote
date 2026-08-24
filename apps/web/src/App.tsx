@@ -979,6 +979,8 @@ export default function App() {
         conversation={workspace.conversation}
         onSessionUpdate={workspace.updateLearningSession}
         onConfirmVerification={workspace.confirmLearningVerification}
+        researchEnabled={workspace.researchEnabled}
+        onToggleResearch={workspace.setResearchMode}
         onClose={closeSupportPanel}
       />
       <DeleteDialog

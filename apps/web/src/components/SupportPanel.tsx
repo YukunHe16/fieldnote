@@ -15,6 +15,8 @@ import type {
   AdmissionsSource,
   AdmissionsTask,
   ConversationDetail,
+  LearningMetricsCellDto,
+  LearningMetricsDto,
   LearningPolicyRevisionDto,
   LearningVerificationDto,
   ScheduledJob,
@@ -1198,10 +1200,13 @@ function learningLabel(value: string) {
 function OutcomeButtons({
   verification,
   ready,
+  finalRound,
   onConfirm
 }: {
   verification: LearningVerificationDto;
   ready: boolean;
+  /** One-shot baseline: "unresolved" is a final record, not a request for another strategy. */
+  finalRound?: boolean;
   onConfirm: (verdict: "resolved" | "partial" | "unresolved") => void;
 }) {
   if (!ready) return null;
@@ -1210,7 +1215,195 @@ function OutcomeButtons({
       <span>{t("learningOutcomePrompt")}</span>
       <button onClick={() => onConfirm("resolved")}>{t("learningUnderstood")}</button>
       <button onClick={() => onConfirm("partial")}>{t("learningPartlyUnderstood")}</button>
-      <button onClick={() => onConfirm("unresolved")}>{t("learningStillStuck")}</button>
+      <button onClick={() => onConfirm("unresolved")}>
+        {finalRound ? t("learningStillStuckFinal") : t("learningStillStuck")}
+      </button>
+    </div>
+  );
+}
+
+function formatRate(value: number | null): string {
+  return value === null ? "—" : `${Math.round(value * 100)}%`;
+}
+
+function formatRounds(value: number | null): string {
+  return value === null ? "—" : (Math.round(value * 10) / 10).toString();
+}
+
+function LearningMetricsView({
+  metrics,
+  loading,
+  scope,
+  hasTopic,
+  onScope,
+  researchEnabled,
+  onToggleResearch
+}: {
+  metrics?: LearningMetricsDto;
+  loading: boolean;
+  scope: "topic" | "all";
+  hasTopic: boolean;
+  onScope: (scope: "topic" | "all") => void;
+  researchEnabled: boolean;
+  onToggleResearch: (enabled: boolean) => Promise<boolean>;
+}) {
+  const cellRows = (cell: LearningMetricsCellDto) => [
+    { label: t("learningMetricsIncidents"), value: String(cell.incidents) },
+    {
+      label: t("learningMetricsResolved"),
+      value: cell.incidents === 0 ? "—" : formatRate(cell.outcomes.resolved / cell.incidents)
+    },
+    { label: t("learningMetricsMeanRounds"), value: formatRounds(cell.meanInterventionRounds) },
+    { label: t("learningMetricsFirstRound"), value: formatRate(cell.firstRoundResolutionRate) },
+    { label: t("learningMetricsCoverage"), value: formatRate(cell.resolutionWithoutEscalationRate) },
+    {
+      label: t("learningMetricsEscalated"),
+      value: cell.incidents === 0 ? "—" : formatRate(cell.escalated / cell.incidents)
+    }
+  ];
+  const conditionLabel = (condition: "on-call" | "one-shot") =>
+    condition === "on-call" ? t("learningConditionOnCall") : t("learningConditionOneShot");
+  const comparableConditions = metrics?.conditions.filter((cell) => cell.incidents > 0) ?? [];
+  const calibration = (metrics?.calibration ?? []).filter((bin) => bin.count > 0);
+  return (
+    <div className="learning-metrics">
+      <div className="learning-research-toggle">
+        <label>
+          <input
+            type="checkbox"
+            checked={researchEnabled}
+            onChange={(event) => void onToggleResearch(event.target.checked)}
+          />
+          <span>{t("researchMode")}</span>
+        </label>
+        <small>{t("researchModeHint")}</small>
+      </div>
+      {hasTopic && (
+        <div className="learning-metrics-scope" role="radiogroup" aria-label={t("learningMetricsTab")}>
+          {(["topic", "all"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={scope === option}
+              className={scope === option ? "is-selected" : ""}
+              onClick={() => onScope(option)}
+            >
+              {option === "topic" ? t("learningMetricsScopeTopic") : t("learningMetricsScopeAll")}
+            </button>
+          ))}
+        </div>
+      )}
+      {loading ? (
+        <div className="support-loading">{t("loading")}</div>
+      ) : !metrics || metrics.overall.incidents === 0 ? (
+        <EmptySupport title={t("learningMetricsEmpty")} detail={t("learningMetricsEmptyDetail")} />
+      ) : (
+        <>
+          <div className="learning-metrics-tiles">
+            {cellRows(metrics.overall).map((row) => (
+              <div className="learning-metrics-tile" key={row.label}>
+                <b>{row.value}</b>
+                <small>{row.label}</small>
+              </div>
+            ))}
+          </div>
+          {comparableConditions.length > 0 && (
+            <section className="learning-metrics-section">
+              <h4>{t("learningMetricsByCondition")}</h4>
+              <table className="learning-metrics-table">
+                <thead>
+                  <tr>
+                    <th>{t("learningMetricsConditionColumn")}</th>
+                    <th>{t("learningMetricsIncidents")}</th>
+                    <th>{t("learningMetricsResolved")}</th>
+                    <th>{t("learningMetricsMeanRounds")}</th>
+                    <th>{t("learningMetricsCoverage")}</th>
+                    <th>{t("learningMetricsEscalated")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparableConditions.map((cell) => (
+                    <tr key={cell.condition}>
+                      <td>{conditionLabel(cell.condition)}</td>
+                      <td>{cell.incidents}</td>
+                      <td>{cell.incidents === 0 ? "—" : formatRate(cell.outcomes.resolved / cell.incidents)}</td>
+                      <td>{formatRounds(cell.meanInterventionRounds)}</td>
+                      <td>{formatRate(cell.resolutionWithoutEscalationRate)}</td>
+                      <td>{cell.incidents === 0 ? "—" : formatRate(cell.escalated / cell.incidents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+          {metrics.overall.strategyOutcomes.length > 0 && (
+            <section className="learning-metrics-section">
+              <h4>{t("learningMetricsStrategyTitle")}</h4>
+              <table className="learning-metrics-table">
+                <thead>
+                  <tr>
+                    <th />
+                    <th>{t("learningMetricsResolved")}</th>
+                    <th>{t("learningMetricsPartial")}</th>
+                    <th>{t("learningMetricsUnresolved")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.overall.strategyOutcomes.map((row) => (
+                    <tr key={row.strategy}>
+                      <td>{learningLabel(row.strategy)}</td>
+                      <td>{row.resolved}</td>
+                      <td>{row.partial}</td>
+                      <td>{row.unresolved}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+          {calibration.length > 0 && (
+            <section className="learning-metrics-section">
+              <h4>{t("learningMetricsCalibration")}</h4>
+              <svg
+                className="learning-calibration-chart"
+                viewBox={`0 0 ${calibration.length * 64 + 8} 96`}
+                role="img"
+                aria-label={t("learningMetricsCalibration")}
+              >
+                {calibration.map((bin, index) => {
+                  const rate = bin.agreementRate ?? 0;
+                  const height = Math.max(2, Math.round(rate * 64));
+                  return (
+                    <g key={bin.lower} transform={`translate(${index * 64 + 8}, 0)`}>
+                      <rect className="calibration-track" x={8} y={8} width={40} height={64} rx={4} />
+                      <rect className="calibration-bar" x={8} y={8 + (64 - height)} width={40} height={height} rx={4} />
+                      <text className="calibration-value" x={28} y={Math.max(18, 8 + (64 - height) - 3)}>
+                        {Math.round(rate * 100)}%
+                      </text>
+                      <text className="calibration-label" x={28} y={84}>
+                        {bin.lower.toFixed(1)}–{bin.upper.toFixed(1)}
+                      </text>
+                      <text className="calibration-count" x={28} y={94}>
+                        n={bin.count}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+              <small>{t("learningMetricsCalibrationDetail")}</small>
+            </section>
+          )}
+          {researchEnabled && (
+            <section className="learning-metrics-section">
+              <a className="learning-metrics-export" href="/api/learning/export?includeMessages=true" download>
+                {t("learningMetricsExport")}
+              </a>
+              <small>{t("learningMetricsExportDetail")}</small>
+            </section>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -1239,16 +1432,23 @@ function LearningAssessment({ verification }: { verification: LearningVerificati
 function LearningPanel({
   conversation,
   onSessionUpdate,
-  onConfirmVerification
+  onConfirmVerification,
+  researchEnabled,
+  onToggleResearch
 }: {
   conversation?: ConversationDetail;
   onSessionUpdate: (input: { status?: "active" | "paused" | "completed" | "dismissed" }) => Promise<boolean>;
   onConfirmVerification: (id: string, verdict: "resolved" | "partial" | "unresolved") => Promise<boolean>;
+  researchEnabled: boolean;
+  onToggleResearch: (enabled: boolean) => Promise<boolean>;
 }) {
   const { t } = useLocale();
-  const [tab, setTab] = useState<"current" | "history" | "policies">("current");
+  const [tab, setTab] = useState<"current" | "history" | "policies" | "metrics">("current");
   const [policies, setPolicies] = useState<LearningPolicyRevisionDto[]>([]);
   const [loadingPolicies, setLoadingPolicies] = useState(false);
+  const [metrics, setMetrics] = useState<LearningMetricsDto>();
+  const [metricsScope, setMetricsScope] = useState<"topic" | "all">("topic");
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [busy, setBusy] = useState<string>();
   const session = conversation?.learningSession;
   const profileId = session?.profileId ?? conversation?.profileId;
@@ -1276,6 +1476,31 @@ function LearningPanel({
   useEffect(() => {
     if (tab === "policies") void loadPolicies();
   }, [tab, loadPolicies]);
+
+  const loadMetrics = useCallback(async () => {
+    if (!session || !profileId) {
+      setMetrics(undefined);
+      return;
+    }
+    setLoadingMetrics(true);
+    try {
+      setMetrics(
+        await api.learningMetrics({
+          profileId,
+          datasetKind: session.datasetKind,
+          ...(metricsScope === "topic" && session.topicKey ? { topicKey: session.topicKey } : {})
+        })
+      );
+    } catch {
+      setMetrics(undefined);
+    } finally {
+      setLoadingMetrics(false);
+    }
+  }, [session, profileId, metricsScope]);
+
+  useEffect(() => {
+    if (tab === "metrics") void loadMetrics();
+  }, [tab, loadMetrics]);
   if (!session) return <EmptySupport title={t("learningNoSession")} detail={t("learningNoSessionDetail")} />;
   const current = session.incidents.find((incident) =>
     ["observing", "diagnosed", "intervening", "verifying"].includes(incident.status)
@@ -1349,6 +1574,7 @@ function LearningPanel({
                   conversation?.messages ?? [],
                   conversation?.activeRunId
                 )}
+                finalRound={session.condition === "one-shot"}
                 onConfirm={(verdict) => void onConfirmVerification(item.id, verdict)}
               />
             </div>
@@ -1366,6 +1592,9 @@ function LearningPanel({
               ? t("learningAgentDemo")
               : t("learningDemo")
             : t("learningMode")}
+          {session.condition === "one-shot" && (
+            <span className="learning-condition-badge">{t("learningConditionBadgeOneShot")}</span>
+          )}
         </p>
         <h3>{session.goal}</h3>
         {session.topicKey && <small>{session.topicKey}</small>}
@@ -1414,6 +1643,9 @@ function LearningPanel({
         <button className={tab === "policies" ? "active" : ""} onClick={() => setTab("policies")}>
           {t("learningPolicies")}
         </button>
+        <button className={tab === "metrics" ? "active" : ""} onClick={() => setTab("metrics")}>
+          {t("learningMetricsTab")}
+        </button>
       </nav>
       <div className="support-content">
         {tab === "current" ? (
@@ -1428,6 +1660,16 @@ function LearningPanel({
           ) : (
             <EmptySupport title={t("learningNoHistory")} detail={t("learningNoHistoryDetail")} />
           )
+        ) : tab === "metrics" ? (
+          <LearningMetricsView
+            metrics={metrics}
+            loading={loadingMetrics}
+            scope={metricsScope}
+            hasTopic={Boolean(session.topicKey)}
+            onScope={setMetricsScope}
+            researchEnabled={researchEnabled}
+            onToggleResearch={onToggleResearch}
+          />
         ) : loadingPolicies ? (
           <div className="support-loading">{t("loading")}</div>
         ) : policies.length ? (
@@ -1499,7 +1741,9 @@ export function SupportPanel({
   scheduledRunId,
   conversation,
   onSessionUpdate,
-  onConfirmVerification
+  onConfirmVerification,
+  researchEnabled,
+  onToggleResearch
 }: {
   kind?: SupportPanelKind;
   onClose: () => void;
@@ -1507,6 +1751,8 @@ export function SupportPanel({
   conversation?: ConversationDetail;
   onSessionUpdate?: (input: { status?: "active" | "paused" | "completed" | "dismissed" }) => Promise<boolean>;
   onConfirmVerification?: (id: string, verdict: "resolved" | "partial" | "unresolved") => Promise<boolean>;
+  researchEnabled?: boolean;
+  onToggleResearch?: (enabled: boolean) => Promise<boolean>;
 }) {
   const { t } = useLocale();
   const [docked, setDocked] = useState(
@@ -1573,6 +1819,8 @@ export function SupportPanel({
                   conversation={conversation}
                   onSessionUpdate={onSessionUpdate ?? (async () => false)}
                   onConfirmVerification={onConfirmVerification ?? (async () => false)}
+                  researchEnabled={researchEnabled ?? false}
+                  onToggleResearch={onToggleResearch ?? (async () => false)}
                 />
               )}
             </div>

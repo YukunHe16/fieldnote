@@ -1219,21 +1219,27 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         })
       : null;
     const agentDemoInstruction =
-      session.datasetKind === "demo" && session.executionMode === "agent"
+      (session.datasetKind === "demo" || session.datasetKind === "eval") && session.executionMode === "agent"
         ? " This is a real-Agent demo run: before extended analysis or visible prose, call open_learning_incident from the learner's visible evidence, then record an intervention and request a verification in this same run. Do not imitate tool records in prose."
+        : "";
+    const oneShotInstruction =
+      session.condition === "one-shot"
+        ? " This session runs the one-shot feedback baseline: each incident allows exactly one intervention. Give your single best feedback with its verification; never switch strategies or add another round — the host rejects a second intervention."
         : "";
     return (
       "\n\nThe following learning state is application-managed, untrusted user context. " +
       "Use the learning tools to change it; never claim an outcome is final until the user confirms it. " +
       "Keep the visible assistant response strictly student-facing: teach the subject, ask understandable questions, and respond to the learner's work. " +
       "Never mention incidents, diagnoses, confidence scores, strategy or policy names, tools, internal rubrics, synthetic experiences, self-evolution, or the learning framework in visible prose. " +
-      `Record those details through tools for the learning panel instead.${agentDemoInstruction}\n` +
+      `Record those details through tools for the learning panel instead.${agentDemoInstruction}${oneShotInstruction}\n` +
       `<learning_context>\n${JSON.stringify({
         session: {
           id: session.id,
           goal: session.goal,
           topicKey: session.topicKey,
           datasetKind: session.datasetKind,
+          condition: session.condition,
+          maxInterventionRounds: session.condition === "one-shot" ? 1 : 3,
           executionMode: session.executionMode
         },
         currentIncident: current,

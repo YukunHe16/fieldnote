@@ -947,12 +947,15 @@ export class RunOrchestrator {
           policyContext:
             session.datasetKind === "replay"
               ? (replayLearning?.policyContext ?? [])
-              : (this.services?.learning?.listPolicies({
-                  profileId: session.profileId,
-                  topicKey: session.topicKey,
-                  datasetKind: session.datasetKind,
-                  includeDisabled: true
-                }) ?? [])
+              : session.datasetKind === "eval"
+                ? // Eval runs pin the default strategy order, so there is no policy to freeze.
+                  []
+                : (this.services?.learning?.listPolicies({
+                    profileId: session.profileId,
+                    topicKey: session.topicKey,
+                    datasetKind: session.datasetKind,
+                    includeDisabled: true
+                  }) ?? [])
         }
       : null;
     const overlay = {

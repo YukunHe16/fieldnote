@@ -6,7 +6,7 @@ import { CollaborationStore } from "../src/collaboration-store.js";
 
 const evidenceMessages = new Map<string, string>();
 
-function fixture(datasetKind: LearningDatasetKind = "live") {
+function fixture(datasetKind: LearningDatasetKind = "live", condition: "on-call" | "one-shot" = "on-call") {
   const database = openDatabase(":memory:");
   const agents = new AgentStore(database);
   const conversation = agents.createConversation("web", "学习测试", { profileId: "local-operator" });
@@ -16,7 +16,8 @@ function fixture(datasetKind: LearningDatasetKind = "live") {
     profileId: "local-operator",
     goal: "理解递归",
     topicKey: "programming",
-    datasetKind
+    datasetKind,
+    condition
   });
   const run = agents.createRun(conversation.id, "我不理解这个概念", "normal");
   evidenceMessages.set(session.id, run.userMessageId);
@@ -655,6 +656,210 @@ describe("LearningStore", () => {
         datasetKind: "live"
       })
     ).toEqual([]);
+    database.close();
+  });
+
+  it("limits one-shot sessions to a single intervention and closes without escalation", () => {
+    const { database, learning, session } = fixture("live", "one-shot");
+    expect(session.condition).toBe("one-shot");
+    const first = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: first.id,
+      strategy: "direct_explanation",
+      rationale: "基线只讲一次",
+      expectedSignal: "能复述关键点"
+    });
+    expect(() =>
+      learning.recordIntervention({
+        incidentId: first.id,
+        strategy: "worked_example",
+        rationale: "第二轮",
+        expectedSignal: "换个信号"
+      })
+    ).toThrow("single intervention");
+    const verification = learning.requestVerification({
+      incidentId: first.id,
+      method: "self_explanation",
+      prompt: "请解释递归出口。",
+      rubric: "说明何时停止调用"
+    });
+    learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
+    learning.confirmVerification(verification.id, "unresolved");
+    // On-call would go back to "diagnosed" for another strategy; the baseline is final.
+    expect(learning.getIncident(first.id)).toMatchObject({ status: "unresolved" });
+    expect(learning.getIncident(first.id)?.closedAt).not.toBeNull();
+    // One-shot outcomes never feed strategy evolution.
+    expect(
+      learning.listExperiences({
+        profileId: "local-operator",
+        topicKey: "programming",
+        difficultyType: "conceptual_misconception",
+        datasetKind: "live"
+      })
+    ).toEqual([]);
+    database.close();
+  });
+
+  it("keeps eval runs order-independent: default strategy order, no experiences, no policies", () => {
+    const { database, learning, session } = fixture("eval");
+    expect(session.datasetKind).toBe("eval");
+    const first = incident(learning, session.id);
+    complete(learning, first.id, "socratic_question", "resolved");
+    const selection = learning.selectStrategy({
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception",
+      datasetKind: "eval"
+    });
+    expect(selection).toMatchObject({ reason: "default", historyCount: 0 });
+    expect(
+      learning.maybeCreatePendingPolicyRevision({
+        profileId: "local-operator",
+        topicKey: "programming",
+        difficultyType: "conceptual_misconception",
+        datasetKind: "eval"
+      })
+    ).toBeNull();
+    expect(learning.exportResearch().experiences).toEqual([]);
+    database.close();
+  });
+
+  it("rebuilds pre-research learning_sessions rows with the on-call default", () => {
+    const database = openDatabase(":memory:");
+    const agents = new AgentStore(database);
+    const conversation = agents.createConversation("web", "旧库", { profileId: "local-operator" });
+    database.exec(`
+      CREATE TABLE learning_sessions (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
+        profile_id TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        topic_key TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK (status IN ('suggested', 'active', 'paused', 'completed', 'dismissed')),
+        dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo', 'replay')),
+        execution_mode TEXT NOT NULL DEFAULT 'agent' CHECK (execution_mode IN ('agent', 'deterministic')),
+        suggestion_reason TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+    `);
+    database
+      .prepare(
+        `INSERT INTO learning_sessions (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, execution_mode, created_at, updated_at)
+       VALUES ('legacy-session', ?, 'local-operator', '旧目标', 'programming', 'active', 'live', 'agent', 1, 1)`
+      )
+      .run(conversation.id);
+    const learning = new LearningStore(database);
+    expect(learning.getSession("legacy-session")).toMatchObject({
+      goal: "旧目标",
+      datasetKind: "live",
+      condition: "on-call"
+    });
+    // The rebuilt table accepts the new dataset kind and condition.
+    const evalConversation = agents.createConversation("web", "评测", { profileId: "local-operator" });
+    expect(
+      learning.createSession({
+        conversationId: evalConversation.id,
+        profileId: "local-operator",
+        goal: "评测运行",
+        datasetKind: "eval",
+        condition: "one-shot"
+      })
+    ).toMatchObject({ datasetKind: "eval", condition: "one-shot" });
+    database.close();
+  });
+
+  it("aggregates metrics per condition with calibration bins", () => {
+    const { database, agents, learning, session } = fixture();
+    // On-call: one incident resolved in a single round, one resolved on the second round.
+    const first = incident(learning, session.id);
+    complete(learning, first.id, "socratic_question", "resolved");
+    const second = incident(learning, session.id);
+    complete(learning, second.id, "conceptual_hint", "unresolved");
+    complete(learning, second.id, "worked_example", "resolved");
+    // Miscalibrated verification: confident "resolved" verdict, learner says "partial".
+    const third = incident(learning, session.id);
+    const intervention = learning.recordIntervention({
+      incidentId: third.id,
+      strategy: "direct_explanation",
+      rationale: "直接讲",
+      expectedSignal: "能迁移"
+    });
+    const verification = learning.requestVerification({
+      incidentId: third.id,
+      interventionId: intervention.id,
+      method: "transfer_example",
+      prompt: "换一个输入再做一次。",
+      rubric: "结果正确"
+    });
+    learning.proposeSystemOutcome(verification.id, "resolved", 0.95);
+    learning.confirmVerification(verification.id, "partial");
+    // Partial keeps the incident open in on-call; close it by ending the session so it
+    // does not enter the closed-incident universe.
+    learning.transitionSession(session.id, "completed");
+
+    // One-shot baseline in a second conversation, same profile/topic/dataset.
+    const baselineConversation = agents.createConversation("web", "基线", { profileId: "local-operator" });
+    const baseline = learning.createSession({
+      conversationId: baselineConversation.id,
+      profileId: "local-operator",
+      goal: "基线对照",
+      topicKey: "programming",
+      condition: "one-shot"
+    });
+    const run = agents.createRun(baselineConversation.id, "还是不懂", "normal");
+    const baselineIncident = learning.openIncident({
+      sessionId: baseline.id,
+      difficultyType: "conceptual_misconception",
+      hypothesis: "同一误区",
+      confidence: 0.8,
+      severity: 3,
+      evidenceMessageIds: [run.userMessageId]
+    });
+    const baselineIntervention = learning.recordIntervention({
+      incidentId: baselineIncident.id,
+      strategy: "direct_explanation",
+      rationale: "一次讲清",
+      expectedSignal: "能复述"
+    });
+    const baselineVerification = learning.requestVerification({
+      incidentId: baselineIncident.id,
+      interventionId: baselineIntervention.id,
+      method: "self_explanation",
+      prompt: "解释一下",
+      rubric: "关键点齐全"
+    });
+    learning.proposeSystemOutcome(baselineVerification.id, "unresolved", 0.75);
+    learning.confirmVerification(baselineVerification.id, "unresolved");
+
+    const metrics = learning.metricsSummary({ profileId: "local-operator", topicKey: "programming" });
+    expect(metrics.overall).toMatchObject({
+      incidents: 3,
+      outcomes: { resolved: 2, partial: 0, unresolved: 1 },
+      escalated: 0
+    });
+    const onCall = metrics.conditions.find((cell) => cell.condition === "on-call");
+    expect(onCall).toMatchObject({ incidents: 2, outcomes: { resolved: 2, partial: 0, unresolved: 0 } });
+    expect(onCall?.meanInterventionRounds).toBe(1.5);
+    expect(onCall?.firstRoundResolutionRate).toBe(0.5);
+    expect(onCall?.resolutionWithoutEscalationRate).toBe(1);
+    const oneShot = metrics.conditions.find((cell) => cell.condition === "one-shot");
+    expect(oneShot).toMatchObject({ incidents: 1, outcomes: { resolved: 0, partial: 0, unresolved: 1 } });
+    expect(oneShot?.resolutionWithoutEscalationRate).toBe(0);
+    // 0.95-confidence disagreement lands in the top bin; the 0.7–0.8 bin agrees throughout.
+    const topBin = metrics.calibration.find((bin) => bin.lower === 0.9);
+    expect(topBin).toMatchObject({ count: 1, agreementRate: 0 });
+    const midBin = metrics.calibration.find((bin) => bin.lower === 0.7);
+    expect(midBin?.count).toBe(4);
+    expect(midBin?.agreementRate).toBe(1);
+    expect(metrics.overall.strategyOutcomes.find((row) => row.strategy === "worked_example")).toMatchObject({
+      resolved: 1
+    });
+    const exported = learning.exportResearch();
+    expect(exported.sessions).toHaveLength(2);
+    expect(exported.incidents).toHaveLength(4);
+    expect(exported.verifications).toHaveLength(5);
     database.close();
   });
 });

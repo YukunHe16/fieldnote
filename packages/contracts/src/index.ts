@@ -238,7 +238,9 @@ export interface MemorySettingsDto {
 }
 
 export type LearningSessionStatus = "suggested" | "active" | "paused" | "completed" | "dismissed";
-export type LearningDatasetKind = "live" | "demo" | "replay";
+export type LearningDatasetKind = "live" | "demo" | "replay" | "eval";
+/** Research comparison arm: the adaptive loop, or a single-feedback baseline. */
+export type LearningCondition = "on-call" | "one-shot";
 export type LearningIncidentStatus =
   | "observing"
   | "diagnosed"
@@ -333,6 +335,7 @@ export interface LearningSessionDto {
   topicKey: string | null;
   status: LearningSessionStatus;
   datasetKind: LearningDatasetKind;
+  condition: LearningCondition;
   suggestionReason: string | null;
   incidents: LearningIncidentDto[];
   createdAt: string;
@@ -358,7 +361,7 @@ export interface LearningPolicyRevisionDto {
   profileId: string;
   topicKey: string | null;
   difficultyType: LearningDifficultyType;
-  datasetKind: Exclude<LearningDatasetKind, "replay">;
+  datasetKind: Exclude<LearningDatasetKind, "replay" | "eval">;
   orderedStrategies: LearningInterventionStrategy[];
   evidenceExperienceIds: string[];
   previousRevisionId: string | null;
@@ -371,6 +374,51 @@ export interface LearningPolicyRevisionDto {
 
 export interface FrozenLearningSessionDto extends LearningSessionDto {
   policyContext?: LearningPolicyRevisionDto[];
+}
+
+/** Aggregates for one slice of closed learning incidents (a research condition, or everything). */
+export interface LearningMetricsCellDto {
+  /** Closed incidents counted (resolved / unresolved / escalated; abandoned and superseded excluded). */
+  incidents: number;
+  /** Final confirmed verdict per incident; escalation without a confirmed verdict counts as unresolved. */
+  outcomes: { resolved: number; partial: number; unresolved: number };
+  escalated: number;
+  meanInterventionRounds: number | null;
+  medianInterventionRounds: number | null;
+  /** Incidents resolved with a single intervention round. */
+  firstRoundResolutionRate: number | null;
+  /** Closed without escalation and not unresolved — the automation-coverage analog. */
+  resolutionWithoutEscalationRate: number | null;
+  meanTimeToCloseMs: number | null;
+  /** Confirmed verification verdicts grouped by the strategy of the intervention they checked. */
+  strategyOutcomes: Array<{
+    strategy: LearningInterventionStrategy;
+    resolved: number;
+    partial: number;
+    unresolved: number;
+  }>;
+}
+
+export interface LearningCalibrationBinDto {
+  lower: number;
+  upper: number;
+  count: number;
+  meanConfidence: number | null;
+  /** Share of confirmed verifications where the system verdict matched the final verdict. */
+  agreementRate: number | null;
+}
+
+export interface LearningMetricsDto {
+  scope: {
+    profileId: string | null;
+    topicKey: string | null;
+    difficultyType: LearningDifficultyType | null;
+    datasetKind: LearningDatasetKind | null;
+  };
+  overall: LearningMetricsCellDto;
+  conditions: Array<{ condition: LearningCondition } & LearningMetricsCellDto>;
+  calibration: LearningCalibrationBinDto[];
+  generatedAt: string;
 }
 
 export interface LearningDemoScenarioDto {

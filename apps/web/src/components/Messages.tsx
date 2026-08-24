@@ -1444,7 +1444,9 @@ function MessageItem({
               {t("learningPartlyUnderstood")}
             </button>
             <button onClick={() => void workspace.confirmLearningVerification(verification.id, "unresolved")}>
-              {t("learningStillStuck")}
+              {workspace.conversation?.learningSession?.condition === "one-shot"
+                ? t("learningStillStuckFinal")
+                : t("learningStillStuck")}
             </button>
           </div>
         ))}

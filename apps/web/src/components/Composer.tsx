@@ -71,6 +71,7 @@ export function Composer({
   const [learningSetupOpen, setLearningSetupOpen] = useState(false);
   const [learningGoal, setLearningGoal] = useState("");
   const [learningTopic, setLearningTopic] = useState("");
+  const [learningCondition, setLearningCondition] = useState<"on-call" | "one-shot">("on-call");
   const [learningBusy, setLearningBusy] = useState(false);
   const [learningDemos, setLearningDemos] = useState<LearningDemoScenarioDto[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -304,7 +305,8 @@ export function Composer({
     setLearningBusy(true);
     const started = await workspace.createLearningSession({
       goal: learningGoal.trim(),
-      topicKey: learningTopic.trim() || null
+      topicKey: learningTopic.trim() || null,
+      ...(workspace.researchEnabled ? { condition: learningCondition } : {})
     });
     setLearningBusy(false);
     if (started) {
@@ -330,7 +332,11 @@ export function Composer({
 
   async function startLearningDemo(scenario: LearningDemoScenarioDto, executionMode: "deterministic" | "agent") {
     setLearningBusy(true);
-    const started = await workspace.startLearningDemoScenario(scenario.id, executionMode);
+    const started = await workspace.startLearningDemoScenario(
+      scenario.id,
+      executionMode,
+      workspace.researchEnabled ? learningCondition : "on-call"
+    );
     setLearningBusy(false);
     if (started) {
       setLearningSetupOpen(false);
@@ -610,6 +616,26 @@ export function Composer({
                   maxLength={100}
                 />
               </label>
+              {workspace.researchEnabled && (
+                <div className="learning-condition-picker">
+                  <span>{t("learningCondition")}</span>
+                  <div role="radiogroup" aria-label={t("learningCondition")}>
+                    {(["on-call", "one-shot"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={learningCondition === option}
+                        className={learningCondition === option ? "is-selected" : ""}
+                        onClick={() => setLearningCondition(option)}
+                      >
+                        {option === "on-call" ? t("learningConditionOnCall") : t("learningConditionOneShot")}
+                      </button>
+                    ))}
+                  </div>
+                  <small>{t("learningConditionHint")}</small>
+                </div>
+              )}
               <footer>
                 <button type="button" onClick={() => setLearningSetupOpen(false)}>
                   {t("cancel")}

@@ -43,11 +43,13 @@ import { InputFileManifestService, MAX_INPUT_FILE_BYTES } from "./input-file-man
 import { CollaborationStore } from "./collaboration-store.js";
 import { getLearningDemoScenario, learningDemoText, LEARNING_DEMO_SCENARIOS } from "./learning-demos.js";
 import {
+  LEARNING_DATASET_KINDS,
   LEARNING_DIFFICULTY_TYPES,
   LearningStore,
   type LearningDatasetKind,
   type LearningDifficultyType
 } from "./learning-store.js";
+import { deepRedact } from "./redact.js";
 
 export interface AppDependencies {
   config: AppConfig;
@@ -158,7 +160,8 @@ const artifactReviewSchema = z.object({
   reason: z.string().trim().min(1).max(400)
 });
 const learningDemoStartSchema = z.object({
-  executionMode: z.enum(["deterministic", "agent"]).default("deterministic")
+  executionMode: z.enum(["deterministic", "agent"]).default("deterministic"),
+  condition: z.enum(["on-call", "one-shot"]).default("on-call")
 });
 
 export async function buildApp(dependencies: AppDependencies): Promise<FastifyInstance> {
@@ -536,7 +539,10 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const input = z
       .object({
         goal: z.string().trim().min(1).max(500),
-        topicKey: z.string().trim().max(100).nullable().optional()
+        topicKey: z.string().trim().max(100).nullable().optional(),
+        // Research options: the one-shot baseline arm and the isolated eval dataset.
+        condition: z.enum(["on-call", "one-shot"]).optional(),
+        datasetKind: z.enum(["live", "eval"]).optional()
       })
       .parse(request.body ?? {});
     let session = learning.getSessionForConversation(id);
@@ -556,7 +562,8 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         profileId: conversation.profileId,
         goal: input.goal,
         ...(input.topicKey !== undefined ? { topicKey: input.topicKey } : {}),
-        datasetKind: "live",
+        ...(input.condition ? { condition: input.condition } : {}),
+        datasetKind: input.datasetKind ?? "live",
         status: "active"
       });
     }
@@ -641,7 +648,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       includeDisabled?: string;
     };
     if (!query.profileId) return reply.code(400).send({ error: "profileId is required" });
-    const datasetKind = (query.datasetKind === "demo" ? "demo" : "live") as Exclude<LearningDatasetKind, "replay">;
+    const datasetKind = query.datasetKind === "demo" ? "demo" : "live";
     const difficultyType =
       query.difficultyType && LEARNING_DIFFICULTY_TYPES.includes(query.difficultyType as LearningDifficultyType)
         ? (query.difficultyType as LearningDifficultyType)
@@ -691,6 +698,69 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return { policy };
   });
 
+  app.get("/api/research/settings", async () => ({
+    enabled: store.getSetting<boolean>("research.enabled") ?? false
+  }));
+
+  app.put("/api/research/settings", async (request) => {
+    const input = z.object({ enabled: z.boolean() }).parse(request.body ?? {});
+    store.setSetting("research.enabled", input.enabled);
+    return { enabled: input.enabled };
+  });
+
+  app.get("/api/learning/metrics", async (request) => {
+    const query = request.query as {
+      profileId?: string;
+      topicKey?: string;
+      difficultyType?: string;
+      datasetKind?: string;
+    };
+    const difficultyType =
+      query.difficultyType && LEARNING_DIFFICULTY_TYPES.includes(query.difficultyType as LearningDifficultyType)
+        ? (query.difficultyType as LearningDifficultyType)
+        : null;
+    const datasetKind =
+      query.datasetKind && LEARNING_DATASET_KINDS.includes(query.datasetKind as LearningDatasetKind)
+        ? (query.datasetKind as LearningDatasetKind)
+        : null;
+    return {
+      metrics: learning.metricsSummary({
+        profileId: query.profileId ?? null,
+        topicKey: query.topicKey ?? null,
+        difficultyType,
+        datasetKind
+      })
+    };
+  });
+
+  app.get("/api/learning/export", async (request, reply) => {
+    const query = request.query as { includeMessages?: string };
+    const data = learning.exportResearch();
+    const payload: Record<string, unknown> = {
+      exportedAt: new Date().toISOString(),
+      codebook: "docs/RESEARCH_EXPORT.md",
+      note: "Anonymized local research export. Strings are pattern-redacted; review before sharing.",
+      ...data
+    };
+    if (query.includeMessages === "true") {
+      const conversationIds = [...new Set(data.sessions.map((session) => session.conversationId))];
+      if (conversationIds.length > 0) {
+        const placeholders = conversationIds.map(() => "?").join(",");
+        payload.messages = store.database
+          .prepare(
+            `SELECT id, conversation_id AS conversationId, run_id AS runId, role, content, created_at AS createdAt
+           FROM messages WHERE conversation_id IN (${placeholders}) ORDER BY created_at ASC`
+          )
+          .all(...conversationIds);
+      } else {
+        payload.messages = [];
+      }
+    }
+    return reply
+      .header("content-disposition", 'attachment; filename="fieldnote-learning-export.json"')
+      .send(deepRedact(payload));
+  });
+
   app.get("/api/learning/demo-scenarios", async (request) => {
     const locale = parseUiLocale(request.headers["accept-language"]);
     const agentAvailable = runtime.kind === "claude";
@@ -717,7 +787,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const { id } = request.params as { id: string };
     const scenario = getLearningDemoScenario(id);
     if (!scenario) return reply.code(404).send({ error: "Learning demo scenario not found" });
-    const { executionMode } = learningDemoStartSchema.parse(request.body ?? {});
+    const { executionMode, condition } = learningDemoStartSchema.parse(request.body ?? {});
     if (executionMode === "agent" && runtime.kind !== "claude") {
       return reply.code(409).send({ error: "Real Agent demo requires an active Claude runtime" });
     }
@@ -735,6 +805,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         goal: localized.goal,
         topicKey: scenario.topicKey,
         datasetKind: "demo",
+        condition,
         executionMode,
         status: "active"
       });

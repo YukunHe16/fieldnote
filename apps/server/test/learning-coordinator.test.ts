@@ -129,4 +129,60 @@ describe("LearningCoordinator demo loop", () => {
     expect(learning.listVerifications(firstTurn.incident.id)[0]?.systemVerdict).toBe("unresolved");
     database.close();
   });
+
+  it("ends a one-shot demo after the single round instead of switching strategies", () => {
+    const scenario = LEARNING_DEMO_SCENARIOS[0]!;
+    const database = openDatabase(":memory:");
+    const agents = new AgentStore(database);
+    const learning = new LearningStore(database);
+    const coordinator = new LearningCoordinator(learning);
+    const conversation = agents.createConversation("web", scenario.title, { profileId: "local-operator" });
+    const session = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: scenario.goalEn,
+      topicKey: scenario.topicKey,
+      datasetKind: "demo",
+      condition: "one-shot"
+    });
+    learning.seedDemoExperiences(session.id, scenario.difficultyType, [...scenario.seeds], "en");
+
+    const firstRun = agents.createRun(conversation.id, scenario.initialPromptEn, "normal");
+    const firstTurn = coordinator.advanceDemoTurn({
+      conversationId: conversation.id,
+      runId: firstRun.id,
+      userMessageId: firstRun.userMessageId,
+      assistantMessageId: firstRun.assistantMessageId,
+      prompt: scenario.initialPromptEn,
+      locale: "en"
+    });
+    expect(firstTurn).toMatchObject({ phase: "verification_requested" });
+
+    const answerRun = agents.createRun(conversation.id, "I am still confused about all of it.", "normal");
+    const secondTurn = coordinator.advanceDemoTurn({
+      conversationId: conversation.id,
+      runId: answerRun.id,
+      userMessageId: answerRun.userMessageId,
+      assistantMessageId: answerRun.assistantMessageId,
+      prompt: "I am still confused about all of it.",
+      locale: "en"
+    });
+    expect(secondTurn?.phase).toBe("outcome_proposed");
+    const verification = learning.listVerifications(firstTurn!.incident.id)[0]!;
+    learning.confirmVerification(verification.id, "unresolved");
+    // The baseline records the failure and closes; no second strategy is offered.
+    expect(learning.getIncident(firstTurn!.incident.id)).toMatchObject({ status: "unresolved" });
+    const thirdRun = agents.createRun(conversation.id, "Please try another way.", "normal");
+    const thirdTurn = coordinator.advanceDemoTurn({
+      conversationId: conversation.id,
+      runId: thirdRun.id,
+      userMessageId: thirdRun.userMessageId,
+      assistantMessageId: thirdRun.assistantMessageId,
+      prompt: "Please try another way.",
+      locale: "en"
+    });
+    expect(thirdTurn).toBeNull();
+    expect(learning.listInterventions(firstTurn!.incident.id)).toHaveLength(1);
+    database.close();
+  });
 });

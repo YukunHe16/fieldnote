@@ -108,6 +108,7 @@ export function useWorkspace() {
   });
   const [active, setActive] = useState<ConversationSummary[]>([]);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummary[]>(fallbackProfiles);
+  const [researchEnabled, setResearchEnabled] = useState(false);
   const [archived, setArchived] = useState<ConversationSummary[]>([]);
   const [details, setDetails] = useState<Record<string, ConversationDetail>>({});
   const [selectedId, setSelectedIdState] = useState<string | undefined>(
@@ -171,6 +172,13 @@ export function useWorkspace() {
   useEffect(() => {
     void loadLists();
   }, [loadLists]);
+
+  useEffect(() => {
+    void api
+      .researchSettings()
+      .then((settings) => setResearchEnabled(settings.enabled))
+      .catch(() => {});
+  }, []);
 
   // While the local server is unreachable the workspace polls quietly; a successful
   // load clears `backendDown` and repopulates the lists in the same pass.
@@ -762,8 +770,22 @@ export function useWorkspace() {
     []
   );
 
+  const setResearchMode = useCallback(
+    async (enabled: boolean) => {
+      try {
+        await api.updateResearchSettings(enabled);
+        setResearchEnabled(enabled);
+        return true;
+      } catch {
+        toast(t("syncFailed"), "danger");
+        return false;
+      }
+    },
+    [toast]
+  );
+
   const createLearningSession = useCallback(
-    async (input: { goal: string; topicKey?: string | null }) => {
+    async (input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" }) => {
       if (!selectedId || backendDown || selectedId.startsWith("local-")) return false;
       try {
         const learningSession = await api.createLearningSession(selectedId, input);
@@ -948,7 +970,11 @@ export function useWorkspace() {
       if (!selectedId || backendDown || selectedId.startsWith("local-")) return false;
       try {
         await api.confirmLearningVerification(verificationId, verdict);
-        updateLearningDetail(selectedId, await api.learningSession(selectedId));
+        const learningSession = await api.learningSession(selectedId);
+        updateLearningDetail(selectedId, learningSession);
+        // One-shot baseline sessions end after the single round: recording "unresolved"
+        // must not auto-request another strategy the host would reject anyway.
+        if (learningSession?.condition === "one-shot") return true;
         return verdict !== "unresolved" || (await sendMessage(t("learningTryAnotherPrompt"), "normal", []));
       } catch {
         toast(t("syncFailed"), "danger");
@@ -1146,10 +1172,14 @@ export function useWorkspace() {
   }, []);
 
   const startLearningDemoScenario = useCallback(
-    async (scenarioId: string, executionMode: "deterministic" | "agent") => {
+    async (
+      scenarioId: string,
+      executionMode: "deterministic" | "agent",
+      condition: "on-call" | "one-shot" = "on-call"
+    ) => {
       if (backendDown) return false;
       try {
-        const next = await api.startLearningDemoScenario(scenarioId, executionMode);
+        const next = await api.startLearningDemoScenario(scenarioId, executionMode, condition);
         if (!next) throw new Error("Learning demo response is missing its conversation");
         adoptConversation(next);
         return true;
@@ -1327,6 +1357,8 @@ export function useWorkspace() {
     branchMessage,
     uploadFiles,
     removeAttachment,
+    researchEnabled,
+    setResearchMode,
     createLearningSession,
     updateLearningSession,
     confirmLearningVerification,

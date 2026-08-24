@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { LearningCalibrationBinDto, LearningMetricsCellDto, LearningMetricsDto } from "@fieldnote/contracts";
 import type { SqliteDatabase } from "./database.js";
 
 export const LEARNING_SESSION_STATUSES = ["suggested", "active", "paused", "completed", "dismissed"] as const;
-export const LEARNING_DATASET_KINDS = ["live", "demo", "replay"] as const;
+export const LEARNING_DATASET_KINDS = ["live", "demo", "replay", "eval"] as const;
+export const LEARNING_CONDITIONS = ["on-call", "one-shot"] as const;
 export const LEARNING_EXECUTION_MODES = ["agent", "deterministic"] as const;
 export const LEARNING_INCIDENT_STATUSES = [
   "observing",
@@ -44,6 +46,9 @@ export const LEARNING_POLICY_STATUSES = ["pending", "enabled", "rejected", "disa
 
 export type LearningSessionStatus = (typeof LEARNING_SESSION_STATUSES)[number];
 export type LearningDatasetKind = (typeof LEARNING_DATASET_KINDS)[number];
+export type LearningCondition = (typeof LEARNING_CONDITIONS)[number];
+/** Dataset kinds whose confirmed outcomes may feed strategy evolution. */
+export type LearningEvolvingDatasetKind = Exclude<LearningDatasetKind, "replay" | "eval">;
 export type LearningExecutionMode = (typeof LEARNING_EXECUTION_MODES)[number];
 export type LearningIncidentStatus = (typeof LEARNING_INCIDENT_STATUSES)[number];
 export type LearningDifficultyType = (typeof LEARNING_DIFFICULTY_TYPES)[number];
@@ -70,6 +75,7 @@ export interface LearningSessionDto {
   topicKey: string | null;
   status: LearningSessionStatus;
   datasetKind: LearningDatasetKind;
+  condition: LearningCondition;
   executionMode: LearningExecutionMode;
   suggestionReason: string | null;
   createdAt: string;
@@ -136,7 +142,7 @@ export interface LearningExperienceDto {
   difficultyType: LearningDifficultyType;
   strategy: LearningInterventionStrategy;
   outcome: Exclude<LearningOutcome, "unknown">;
-  datasetKind: Exclude<LearningDatasetKind, "replay">;
+  datasetKind: LearningEvolvingDatasetKind;
   createdAt: string;
 }
 
@@ -145,7 +151,7 @@ export interface LearningPolicyRevisionDto {
   profileId: string;
   topicKey: string | null;
   difficultyType: LearningDifficultyType;
-  datasetKind: Exclude<LearningDatasetKind, "replay">;
+  datasetKind: LearningEvolvingDatasetKind;
   orderedStrategies: LearningInterventionStrategy[];
   evidenceExperienceIds: string[];
   previousRevisionId: string | null;
@@ -185,6 +191,7 @@ export interface CreateLearningSessionInput {
   topicKey?: string | null;
   status?: "suggested" | "active";
   datasetKind?: LearningDatasetKind;
+  condition?: LearningCondition;
   executionMode?: LearningExecutionMode;
   suggestionReason?: string | null;
 }
@@ -205,21 +212,25 @@ export interface DemoLearningExperienceSeed {
   count: number;
 }
 
-export const LEARNING_STORE_SCHEMA = `
-CREATE TABLE IF NOT EXISTS learning_sessions (
+const LEARNING_SESSIONS_TABLE = (name: string) => `
+CREATE TABLE IF NOT EXISTS ${name} (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
   profile_id TEXT NOT NULL,
   goal TEXT NOT NULL,
   topic_key TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL CHECK (status IN ('suggested', 'active', 'paused', 'completed', 'dismissed')),
-  dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo', 'replay')),
+  dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo', 'replay', 'eval')),
+  condition TEXT NOT NULL DEFAULT 'on-call' CHECK (condition IN ('on-call', 'one-shot')),
   execution_mode TEXT NOT NULL DEFAULT 'agent' CHECK (execution_mode IN ('agent', 'deterministic')),
   suggestion_reason TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   completed_at INTEGER
-);
+);`;
+
+export const LEARNING_STORE_SCHEMA = `
+${LEARNING_SESSIONS_TABLE("learning_sessions")}
 CREATE INDEX IF NOT EXISTS idx_learning_sessions_status ON learning_sessions(status, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS learning_incidents (
@@ -354,6 +365,22 @@ export class LearningStore {
       );
       this.database.exec("UPDATE learning_sessions SET execution_mode = 'deterministic' WHERE dataset_kind = 'demo'");
     }
+    if (!sessionColumns.some((column) => column.name === "condition")) {
+      // The research condition ships together with the 'eval' dataset kind; CHECK constraints
+      // cannot be altered in place, so rebuild the table (same recipe as database.ts rebuilds).
+      this.database.pragma("foreign_keys = OFF");
+      this.database.exec(`
+        ${LEARNING_SESSIONS_TABLE("learning_sessions_research")}
+        INSERT INTO learning_sessions_research
+          (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, execution_mode, suggestion_reason, created_at, updated_at, completed_at)
+        SELECT id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, execution_mode, suggestion_reason, created_at, updated_at, completed_at
+        FROM learning_sessions;
+        DROP TABLE learning_sessions;
+        ALTER TABLE learning_sessions_research RENAME TO learning_sessions;
+        CREATE INDEX IF NOT EXISTS idx_learning_sessions_status ON learning_sessions(status, updated_at DESC);
+      `);
+      this.database.pragma("foreign_keys = ON");
+    }
     const incidentColumns = this.database.pragma("table_info(learning_incidents)") as Array<{ name: string }>;
     if (!incidentColumns.some((column) => column.name === "opened_run_id")) {
       this.database.exec(
@@ -438,10 +465,12 @@ export class LearningStore {
     if (!goal || !profileId) throw new Error("Learning goal and profile are required");
     const status = input.status ?? "active";
     const datasetKind = input.datasetKind ?? "live";
+    const condition = input.condition ?? "on-call";
     const executionMode = input.executionMode ?? (datasetKind === "demo" ? "deterministic" : "agent");
     if (
       !has(["suggested", "active"] as const, status) ||
       !has(LEARNING_DATASET_KINDS, datasetKind) ||
+      !has(LEARNING_CONDITIONS, condition) ||
       !has(LEARNING_EXECUTION_MODES, executionMode)
     )
       throw new Error("Invalid learning session state");
@@ -452,8 +481,8 @@ export class LearningStore {
     try {
       this.database
         .prepare(
-          `INSERT INTO learning_sessions (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, execution_mode, suggestion_reason, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO learning_sessions (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, condition, execution_mode, suggestion_reason, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -463,6 +492,7 @@ export class LearningStore {
           topic(input.topicKey),
           status,
           datasetKind,
+          condition,
           executionMode,
           clean(input.suggestionReason ?? "", 500) || null,
           now,
@@ -636,6 +666,8 @@ export class LearningStore {
           .prepare("SELECT COUNT(*) AS count FROM learning_interventions WHERE incident_id = ?")
           .get(incident.id) as { count: number }
       ).count + 1;
+    if (session.condition === "one-shot" && round > 1)
+      throw learningConflict("One-shot learning sessions allow a single intervention");
     if (round > 3) throw learningConflict("Learning incidents allow at most three interventions");
     const id = randomUUID();
     const now = this.clock();
@@ -855,9 +887,12 @@ export class LearningStore {
       const incidentStatus: LearningIncidentStatus =
         verdict === "resolved"
           ? "resolved"
-          : verdict === "unresolved" && interventionCount >= 3
-            ? "escalated"
-            : "diagnosed";
+          : session.condition === "one-shot"
+            ? // The one-shot baseline ends after its single feedback round; nothing escalates.
+              "unresolved"
+            : verdict === "unresolved" && interventionCount >= 3
+              ? "escalated"
+              : "diagnosed";
       this.database
         .prepare(
           `UPDATE learning_incidents SET status = ?, updated_at = ?, closed_at = ?, closed_snapshot_json = ? WHERE id = ?`
@@ -869,7 +904,9 @@ export class LearningStore {
           TERMINAL_INCIDENTS.has(incidentStatus) ? JSON.stringify(closedSnapshot) : null,
           incident.id
         );
-      if (session.datasetKind !== "replay") {
+      // Experiences exist solely to feed strategy evolution: replay must not write live statistics,
+      // eval runs must stay order-independent, and the one-shot baseline never adapted a strategy.
+      if (session.datasetKind !== "replay" && session.datasetKind !== "eval" && session.condition !== "one-shot") {
         this.database
           .prepare(
             `INSERT INTO learning_experiences
@@ -905,7 +942,9 @@ export class LearningStore {
       throw new Error("Invalid learning strategy scope");
     const profileId = clean(input.profileId, 100);
     if (!profileId) throw new Error("Profile is required for strategy selection");
-    if (input.datasetKind === "replay")
+    // Replay must not read live statistics; eval runs use the fixed default order so every
+    // evaluation item sees the same policy regardless of what earlier items concluded.
+    if (input.datasetKind === "replay" || input.datasetKind === "eval")
       return this.selection([...DEFAULT_STRATEGIES], null, 0, {}, input.failedStrategies ?? [], "default");
     const scope = {
       profileId,
@@ -962,7 +1001,7 @@ export class LearningStore {
     difficultyType: LearningDifficultyType;
     datasetKind: LearningDatasetKind;
   }): LearningPolicyRevisionDto | null {
-    if (input.datasetKind === "replay") return null;
+    if (input.datasetKind === "replay" || input.datasetKind === "eval") return null;
     const selection = this.selectStrategy(input);
     if (selection.historyCount < 5 || selection.reason !== "evidence") return null;
     const scope = {
@@ -1098,7 +1137,7 @@ export class LearningStore {
     profileId: string;
     topicKey?: string | null;
     difficultyType?: LearningDifficultyType;
-    datasetKind: Exclude<LearningDatasetKind, "replay">;
+    datasetKind: LearningEvolvingDatasetKind;
     includeDisabled?: boolean;
   }): LearningPolicyRevisionDto[] {
     const clauses = ["profile_id = ?", "topic_key = ?", "dataset_kind = ?"];
@@ -1164,7 +1203,7 @@ export class LearningStore {
     profileId: string;
     topicKey?: string | null;
     difficultyType: LearningDifficultyType;
-    datasetKind: Exclude<LearningDatasetKind, "replay">;
+    datasetKind: LearningEvolvingDatasetKind;
   }): LearningExperienceDto[] {
     return (
       this.database
@@ -1182,6 +1221,198 @@ export class LearningStore {
           input.datasetKind
         ) as ExperienceRow[]
     ).map((row) => this.toExperience(row));
+  }
+
+  /**
+   * Descriptive aggregates over closed incidents, split by research condition. Everything is
+   * computed from incidents/interventions/verifications so eval and one-shot runs are covered
+   * even though they never write strategy experiences.
+   */
+  metricsSummary(input: {
+    profileId?: string | null;
+    topicKey?: string | null;
+    difficultyType?: LearningDifficultyType | null;
+    datasetKind?: LearningDatasetKind | null;
+  }): LearningMetricsDto {
+    const clauses = ["i.superseded_at IS NULL"];
+    const params: unknown[] = [];
+    if (input.profileId) {
+      clauses.push("s.profile_id = ?");
+      params.push(clean(input.profileId, 100));
+    }
+    if (input.topicKey) {
+      clauses.push("s.topic_key = ?");
+      params.push(topic(input.topicKey));
+    }
+    if (input.difficultyType) {
+      clauses.push("i.difficulty_type = ?");
+      params.push(input.difficultyType);
+    }
+    if (input.datasetKind) {
+      clauses.push("s.dataset_kind = ?");
+      params.push(input.datasetKind);
+    }
+    const scoped = this.database
+      .prepare(
+        `SELECT i.id, i.status, i.created_at, i.closed_at, s.condition
+       FROM learning_incidents i JOIN learning_sessions s ON s.id = i.session_id
+       WHERE ${clauses.join(" AND ")}`
+      )
+      .all(...params) as Array<{
+      id: string;
+      status: string;
+      created_at: number;
+      closed_at: number | null;
+      condition: string;
+    }>;
+    const scopedIds = new Set(scoped.map((row) => row.id));
+    // Cells count only genuinely closed incidents; calibration below is verification-level
+    // and also covers incidents that were later abandoned or are still open.
+    const incidents = scoped.filter((row) => ["resolved", "unresolved", "escalated"].includes(row.status));
+    const ids = new Set(incidents.map((row) => row.id));
+    const rounds = new Map<string, number>();
+    for (const row of this.database
+      .prepare("SELECT incident_id, COUNT(*) AS rounds FROM learning_interventions GROUP BY incident_id")
+      .all() as Array<{ incident_id: string; rounds: number }>) {
+      if (ids.has(row.incident_id)) rounds.set(row.incident_id, row.rounds);
+    }
+    const confirmed = (
+      this.database
+        .prepare(
+          `SELECT v.incident_id, v.final_verdict, v.system_verdict, v.system_confidence, v.created_at, iv.strategy
+       FROM learning_verifications v LEFT JOIN learning_interventions iv ON iv.id = v.intervention_id
+       WHERE v.final_verdict IN ('resolved', 'partial', 'unresolved')
+       ORDER BY v.created_at ASC`
+        )
+        .all() as Array<{
+        incident_id: string;
+        final_verdict: "resolved" | "partial" | "unresolved";
+        system_verdict: string | null;
+        system_confidence: number | null;
+        created_at: number;
+        strategy: string | null;
+      }>
+    ).filter((row) => scopedIds.has(row.incident_id));
+    const finalOutcome = new Map<string, "resolved" | "partial" | "unresolved">();
+    for (const row of confirmed) if (ids.has(row.incident_id)) finalOutcome.set(row.incident_id, row.final_verdict);
+
+    const cell = (subset: typeof incidents): LearningMetricsCellDto => {
+      const outcomes = { resolved: 0, partial: 0, unresolved: 0 };
+      const roundCounts: number[] = [];
+      const closeTimes: number[] = [];
+      let escalated = 0;
+      let firstRoundResolved = 0;
+      const strategyMap = new Map<string, { resolved: number; partial: number; unresolved: number }>();
+      const subsetIds = new Set(subset.map((row) => row.id));
+      for (const row of subset) {
+        const outcome = finalOutcome.get(row.id) ?? "unresolved";
+        outcomes[outcome] += 1;
+        if (row.status === "escalated") escalated += 1;
+        const roundCount = rounds.get(row.id) ?? 0;
+        roundCounts.push(roundCount);
+        if (outcome === "resolved" && roundCount <= 1) firstRoundResolved += 1;
+        if (row.closed_at !== null) closeTimes.push(row.closed_at - row.created_at);
+      }
+      for (const row of confirmed) {
+        if (!subsetIds.has(row.incident_id) || !row.strategy) continue;
+        const entry = strategyMap.get(row.strategy) ?? { resolved: 0, partial: 0, unresolved: 0 };
+        entry[row.final_verdict] += 1;
+        strategyMap.set(row.strategy, entry);
+      }
+      const total = subset.length;
+      const sorted = [...roundCounts].sort((left, right) => left - right);
+      const median =
+        sorted.length === 0
+          ? null
+          : sorted.length % 2 === 1
+            ? sorted[(sorted.length - 1) / 2]!
+            : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
+      const mean = (values: number[]) =>
+        values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
+      return {
+        incidents: total,
+        outcomes,
+        escalated,
+        meanInterventionRounds: mean(roundCounts),
+        medianInterventionRounds: median,
+        firstRoundResolutionRate: total === 0 ? null : firstRoundResolved / total,
+        resolutionWithoutEscalationRate:
+          total === 0
+            ? null
+            : subset.filter(
+                (row) => row.status !== "escalated" && (finalOutcome.get(row.id) ?? "unresolved") !== "unresolved"
+              ).length / total,
+        meanTimeToCloseMs: mean(closeTimes),
+        strategyOutcomes: [...strategyMap.entries()]
+          .map(([strategy, entry]) => ({ strategy: strategy as LearningInterventionStrategy, ...entry }))
+          .sort((left, right) => left.strategy.localeCompare(right.strategy))
+      };
+    };
+
+    const bins = [
+      { lower: 0, upper: 0.6 },
+      { lower: 0.6, upper: 0.7 },
+      { lower: 0.7, upper: 0.8 },
+      { lower: 0.8, upper: 0.9 },
+      { lower: 0.9, upper: 1.000_001 }
+    ];
+    const calibration: LearningCalibrationBinDto[] = bins.map(({ lower, upper }) => {
+      const rows = confirmed.filter(
+        (row) =>
+          row.system_confidence !== null &&
+          row.system_verdict !== null &&
+          row.system_confidence >= lower &&
+          row.system_confidence < upper
+      );
+      const agreements = rows.filter((row) => row.system_verdict === row.final_verdict).length;
+      return {
+        lower,
+        upper: Math.min(upper, 1),
+        count: rows.length,
+        meanConfidence:
+          rows.length === 0 ? null : rows.reduce((sum, row) => sum + (row.system_confidence ?? 0), 0) / rows.length,
+        agreementRate: rows.length === 0 ? null : agreements / rows.length
+      };
+    });
+
+    return {
+      scope: {
+        profileId: input.profileId ? clean(input.profileId, 100) : null,
+        topicKey: input.topicKey ? topic(input.topicKey) : null,
+        difficultyType: input.difficultyType ?? null,
+        datasetKind: input.datasetKind ?? null
+      },
+      overall: cell(incidents),
+      conditions: LEARNING_CONDITIONS.map((condition) => ({
+        condition,
+        ...cell(incidents.filter((row) => row.condition === condition))
+      })),
+      calibration,
+      generatedAt: iso(this.clock())!
+    };
+  }
+
+  /** Everything the research export needs, as plain DTOs; redaction happens at the API layer. */
+  exportResearch(): {
+    sessions: LearningSessionDto[];
+    incidents: LearningIncidentDto[];
+    interventions: LearningInterventionDto[];
+    verifications: LearningVerificationDto[];
+    experiences: LearningExperienceDto[];
+    policyRevisions: LearningPolicyRevisionDto[];
+  } {
+    const all = <T>(table: string, map: (row: Record<string, unknown>) => T): T[] =>
+      (this.database.prepare(`SELECT * FROM ${table} ORDER BY created_at ASC`).all() as Record<string, unknown>[]).map(
+        map
+      );
+    return {
+      sessions: all("learning_sessions", (row) => this.toSession(row)),
+      incidents: all("learning_incidents", (row) => this.toIncident(row)),
+      interventions: all("learning_interventions", (row) => this.toIntervention(row)),
+      verifications: all("learning_verifications", (row) => this.toVerification(row)),
+      experiences: all("learning_experiences", (row) => this.toExperience(row)),
+      policyRevisions: all("learning_policy_revisions", (row) => this.toPolicy(row))
+    };
   }
 
   seedDemoExperiences(
@@ -1339,7 +1570,7 @@ export class LearningStore {
     profileId: string;
     topicKey: string;
     difficultyType: LearningDifficultyType;
-    datasetKind: Exclude<LearningDatasetKind, "replay">;
+    datasetKind: LearningEvolvingDatasetKind;
   }): LearningPolicyRevisionDto | null {
     const row = this.database
       .prepare(
@@ -1506,6 +1737,7 @@ export class LearningStore {
       topicKey: optionalTopic(String(row.topic_key)),
       status: String(row.status) as LearningSessionStatus,
       datasetKind: String(row.dataset_kind) as LearningDatasetKind,
+      condition: String(row.condition ?? "on-call") as LearningCondition,
       executionMode: String(row.execution_mode ?? "agent") as LearningExecutionMode,
       suggestionReason: row.suggestion_reason === null ? null : String(row.suggestion_reason),
       createdAt: iso(Number(row.created_at))!,
@@ -1585,7 +1817,7 @@ export class LearningStore {
       difficultyType: String(row.difficulty_type) as LearningDifficultyType,
       strategy: String(row.strategy) as LearningInterventionStrategy,
       outcome: String(row.outcome) as Exclude<LearningOutcome, "unknown">,
-      datasetKind: String(row.dataset_kind) as Exclude<LearningDatasetKind, "replay">,
+      datasetKind: String(row.dataset_kind) as LearningEvolvingDatasetKind,
       createdAt: iso(Number(row.created_at))!
     };
   }
@@ -1595,7 +1827,7 @@ export class LearningStore {
       profileId: String(row.profile_id),
       topicKey: optionalTopic(String(row.topic_key)),
       difficultyType: String(row.difficulty_type) as LearningDifficultyType,
-      datasetKind: String(row.dataset_kind) as Exclude<LearningDatasetKind, "replay">,
+      datasetKind: String(row.dataset_kind) as LearningEvolvingDatasetKind,
       orderedStrategies: parseJson(String(row.ordered_strategies_json), [...DEFAULT_STRATEGIES]),
       evidenceExperienceIds: parseJson(String(row.evidence_experience_ids_json), []),
       previousRevisionId: row.previous_revision_id === null ? null : String(row.previous_revision_id),

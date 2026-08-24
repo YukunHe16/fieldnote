@@ -5,7 +5,7 @@ import type { AdmissionsStore } from "./admissions-store.js";
 import { RuntimeInputQueue, type AgentRuntime, type RuntimeEvent } from "./runtime.js";
 import { readUiLocale } from "./locale.js";
 import type { AgentStore } from "./store.js";
-import { containsSensitiveContent } from "./memory-store.js";
+import { redactSensitiveText } from "./redact.js";
 import type { LiveDomainCard } from "./domain-card-live.js";
 import type { MemoryStore } from "./memory-store.js";
 import type { SchedulerStore, ScheduleDestination, ScheduledJob, ScheduledJobRun } from "./scheduler-store.js";
@@ -302,14 +302,7 @@ export class ScheduledJobRunner {
 }
 
 function sanitizeScheduledContent(content: string): string {
-  if (containsSensitiveContent(content)) return "[内容因可能包含敏感信息已省略]";
-  return content
-    .replace(/sk-ant-[A-Za-z0-9._-]+/g, "[REDACTED]")
-    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
-    .replace(/(api[_ -]?key|password|passport(?:\s*number)?|bank\s*account)\s*[:：]\s*\S+/gi, "$1: [REDACTED]")
-    .replace(/\b\d{6,17}[0-9Xx]\b/g, "[REDACTED]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[REDACTED_EMAIL]")
-    .replace(/(?:\+?\d[\d\s()-]{8,}\d)/g, "[REDACTED_PHONE]");
+  return redactSensitiveText(content);
 }
 
 function safeError(error: unknown): string {

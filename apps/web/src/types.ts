@@ -292,7 +292,8 @@ export interface MemoryMaintenanceStatusDto {
 }
 
 export type LearningSessionStatus = "suggested" | "active" | "paused" | "completed" | "dismissed";
-export type LearningDatasetKind = "live" | "demo" | "replay";
+export type LearningDatasetKind = "live" | "demo" | "replay" | "eval";
+export type LearningCondition = "on-call" | "one-shot";
 export type LearningExecutionMode = "agent" | "deterministic";
 export type LearningIncidentStatus =
   | "observing"
@@ -336,6 +337,7 @@ export interface LearningSessionDto {
   topicKey: string | null;
   status: LearningSessionStatus;
   datasetKind: LearningDatasetKind;
+  condition: LearningCondition;
   executionMode: LearningExecutionMode;
   suggestionReason: string | null;
   createdAt: string;
@@ -401,7 +403,7 @@ export interface LearningPolicyRevisionDto {
   profileId: string;
   topicKey: string | null;
   difficultyType: LearningDifficultyType;
-  datasetKind: Exclude<LearningDatasetKind, "replay">;
+  datasetKind: Exclude<LearningDatasetKind, "replay" | "eval">;
   orderedStrategies: LearningInterventionStrategy[];
   evidenceExperienceIds: string[];
   previousRevisionId: string | null;
@@ -421,6 +423,44 @@ export interface LearningPolicyRevisionDto {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LearningMetricsCellDto {
+  incidents: number;
+  outcomes: { resolved: number; partial: number; unresolved: number };
+  escalated: number;
+  meanInterventionRounds: number | null;
+  medianInterventionRounds: number | null;
+  firstRoundResolutionRate: number | null;
+  resolutionWithoutEscalationRate: number | null;
+  meanTimeToCloseMs: number | null;
+  strategyOutcomes: Array<{
+    strategy: LearningInterventionStrategy;
+    resolved: number;
+    partial: number;
+    unresolved: number;
+  }>;
+}
+
+export interface LearningCalibrationBinDto {
+  lower: number;
+  upper: number;
+  count: number;
+  meanConfidence: number | null;
+  agreementRate: number | null;
+}
+
+export interface LearningMetricsDto {
+  scope: {
+    profileId: string | null;
+    topicKey: string | null;
+    difficultyType: LearningDifficultyType | null;
+    datasetKind: LearningDatasetKind | null;
+  };
+  overall: LearningMetricsCellDto;
+  conditions: Array<{ condition: LearningCondition } & LearningMetricsCellDto>;
+  calibration: LearningCalibrationBinDto[];
+  generatedAt: string;
 }
 
 export interface LearningDemoScenarioDto {

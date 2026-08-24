@@ -386,7 +386,7 @@ describe("API normalizers", () => {
       fetchMock.mock.calls.map(([path, init]) => [path, init?.method, init?.body && JSON.parse(String(init.body))])
     ).toEqual([
       ["/api/learning/demo-scenarios", undefined, undefined],
-      ["/api/learning/demo-scenarios/planning-gap/start", "POST", { executionMode: "agent" }]
+      ["/api/learning/demo-scenarios/planning-gap/start", "POST", { executionMode: "agent", condition: "on-call" }]
     ]);
     const startInit = fetchMock.mock.calls[1]?.[1];
     expect((startInit?.headers as Headers | undefined)?.get("Content-Type")).toBe("application/json");
