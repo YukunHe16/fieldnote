@@ -100,11 +100,14 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 `sourceIncidentId`（蒸馏来源 incident）/ `recommendation`（promote/retire/null，宿主按后验给出的建议）/
 `recommendationSummary` / `evidenceExperienceIds` / `attributedCount` / 时间戳。
 
-**归因口径（intention-to-treat）**：interventions 与 experiences 的 `strategyVariantId`
-由宿主确定性盖章——当且仅当导师记录的策略恰为宿主推荐策略、且该 scope 当时确有讲法在
-offer（enabled 优先，否则归因数最少的 trial，平局取最老）。模型无自报参数。注意这是观察性
-数据：无变体的基础策略行会过采样变体出现之前的时期，转正的因果检查是人审门，不是后验差值本身。
-讲法只在 live on-call 会话中被 offer 与蒸馏；eval 保持序无关、one-shot 保持纯基线。
+**归因口径（prompt 投放核验）**：interventions 与 experiences 的 `strategyVariantId`
+由宿主确定性盖章——宿主在渲染提示词时把当轮 offer（enabled 优先，否则归因数最少的
+trial，平局取最老）写入投放台账（learning_variant_offers，按 incident×round），记录干预时
+仅当该轮台账存在、且导师记录的策略恰为台账中的投放策略才盖章。运行中途才开出的事件，
+其首轮提示词从未包含讲法，故不盖章、计入对照。模型无自报参数。转正建议要求 ≥5 条归因
+且至少 1 条同 scope 对照。注意这是观察性数据：无变体的基础策略行会过采样变体出现之前的
+时期，转正的因果检查是人审门，不是后验差值本身。讲法只在 live on-call 会话中被 offer 与
+蒸馏；eval 保持序无关、one-shot 保持纯基线。
 
 ### handoffs
 

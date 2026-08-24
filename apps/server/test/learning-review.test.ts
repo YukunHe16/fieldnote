@@ -45,9 +45,11 @@ function fixture() {
   learning.confirmVerification(verification.id, "resolved");
   const submitted: Array<{ conversationId: string; content: string }> = [];
   const orchestrator = {
+    // Mirrors the real orchestrator: submit creates an actual run (fired_run_id is a real
+    // foreign key into runs).
     submit(conversationId: string, content: string) {
       submitted.push({ conversationId, content });
-      return {};
+      return agents.createRun(conversationId, content, "normal");
     }
   };
   return {
@@ -77,21 +79,35 @@ describe("LearningReviewRunner", () => {
     expect(submitted[0]!.conversationId).toBe(conversation.id);
     expect(submitted[0]!.content).toContain("间隔复习回访");
     expect(submitted[0]!.content).toContain("递归");
-    expect(learning.listReviewTasks(session.id)[0]?.status).toBe("fired");
+    const fired = learning.listReviewTasks(session.id)[0];
+    expect(fired?.status).toBe("fired");
+    // The delivering run is attached: confirmVerification matches the revisit's own
+    // confirmation through it.
+    expect(fired?.firedRunId).toBeTruthy();
+    expect(agents.getRun(fired!.firedRunId!)?.conversationId).toBe(conversation.id);
     // A fired task never double-posts.
     runner.tick();
     expect(submitted).toHaveLength(1);
     database.close();
   });
 
-  it("cancels the task when the session ended and holds it while the session is paused", () => {
+  it("cancels the task when the session ended and defers it while the session is paused", () => {
     const paused = fixture();
     paused.learning.transitionSession(paused.session.id, "paused");
     const pausedRunner = new LearningReviewRunner(paused.learning, paused.agents, paused.orchestrator, paused.now);
     paused.setNow(paused.now() + 3 * DAY);
     pausedRunner.tick();
     expect(paused.submitted).toHaveLength(0);
-    expect(paused.learning.listReviewTasks(paused.session.id)[0]?.status).toBe("pending");
+    const held = paused.learning.listReviewTasks(paused.session.id)[0];
+    expect(held?.status).toBe("pending");
+    // Deferred, not left overdue: a pile of past-due tasks from paused sessions would
+    // otherwise pin the head of the due window and starve active sessions' revisits.
+    expect(held!.dueAt).toBeGreaterThan(paused.now());
+    // Resuming the session lets the deferred task fire on a later tick.
+    paused.learning.transitionSession(paused.session.id, "active");
+    paused.setNow(paused.now() + 2 * 60 * 60 * 1_000);
+    pausedRunner.tick();
+    expect(paused.submitted).toHaveLength(1);
     paused.database.close();
 
     const ended = fixture();
@@ -102,6 +118,34 @@ describe("LearningReviewRunner", () => {
     expect(ended.submitted).toHaveLength(0);
     expect(ended.learning.listReviewTasks(ended.session.id)[0]?.status).toBe("cancelled");
     ended.database.close();
+  });
+
+  it("defers unreachable conversations and expires fired tasks that never linked back", () => {
+    const unreachable = fixture();
+    let reachable = false;
+    const runner = new LearningReviewRunner(
+      unreachable.learning,
+      unreachable.agents,
+      unreachable.orchestrator,
+      unreachable.now,
+      () => reachable
+    );
+    unreachable.setNow(unreachable.now() + 2 * DAY + 1_000);
+    runner.tick();
+    // A Feishu conversation whose binding rotated away (/new) gets no invisible model run.
+    expect(unreachable.submitted).toHaveLength(0);
+    expect(unreachable.learning.listReviewTasks(unreachable.session.id)[0]?.status).toBe("pending");
+    // Once the channel can reach the learner again, the deferred task fires.
+    reachable = true;
+    unreachable.setNow(unreachable.now() + 2 * 60 * 60 * 1_000);
+    runner.tick();
+    expect(unreachable.submitted).toHaveLength(1);
+    // A fired task whose revisit never produced a linked confirmation expires after a week
+    // instead of sitting as a permanent trap for later bookkeeping.
+    unreachable.setNow(unreachable.now() + 8 * DAY);
+    runner.tick();
+    expect(unreachable.learning.listReviewTasks(unreachable.session.id)[0]?.status).toBe("cancelled");
+    unreachable.database.close();
   });
 
   it("cancels the task when the conversation no longer exists", () => {

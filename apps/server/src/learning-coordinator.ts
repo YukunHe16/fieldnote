@@ -65,6 +65,10 @@ export class LearningCoordinator {
     return this.store.offerVariant(...args);
   }
 
+  offerVariantForPrompt(...args: Parameters<LearningStore["offerVariantForPrompt"]>) {
+    return this.store.offerVariantForPrompt(...args);
+  }
+
   advanceDemoTurn(input: DemoLearningTurnInput): DemoLearningTurnResult | null {
     const session = this.store.getSessionForConversation(input.conversationId);
     if (!session || session.status !== "active" || session.datasetKind !== "demo") return null;

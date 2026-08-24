@@ -1,12 +1,17 @@
 import type { LearningReviewTask, LearningStore } from "./learning-store.js";
 
 interface ReviewSubmitter {
-  submit(conversationId: string, content: string): unknown;
+  submit(conversationId: string, content: string): { id: string } | unknown;
 }
 
 interface ConversationLookup {
   getConversation(id: string): { id: string } | null | undefined;
 }
+
+/** Held tasks (paused session, unreachable channel) retry after an hour instead of blocking. */
+const HOLD_DEFER_MS = 60 * 60 * 1_000;
+/** A fired revisit whose confirmation never linked back is abandoned after a week. */
+const FIRED_EXPIRY_MS = 7 * 24 * 60 * 60 * 1_000;
 
 /**
  * Fires due spaced-review tasks by posting a learner-voiced revisit prompt into the
@@ -21,13 +26,19 @@ export class LearningReviewRunner {
     private readonly learning: LearningStore,
     private readonly store: ConversationLookup,
     private readonly orchestrator: ReviewSubmitter,
-    private readonly clock: () => number = Date.now
+    private readonly clock: () => number = Date.now,
+    /**
+     * Channel deliverability check (e.g. a Feishu conversation whose binding rotated away
+     * after /new cannot show the learner anything). Undefined means always deliverable.
+     */
+    private readonly reachable?: (conversationId: string) => boolean
   ) {}
 
   tick(): void {
     if (this.running) return;
     this.running = true;
     try {
+      this.learning.expireFiredReviewTasks(this.clock() - FIRED_EXPIRY_MS);
       for (const task of this.learning.dueReviewTasks(this.clock())) this.fire(task);
     } finally {
       this.running = false;
@@ -50,13 +61,21 @@ export class LearningReviewRunner {
         this.learning.markReviewTask(task.id, "cancelled");
         return;
       }
-      // A paused or merely-suggested session keeps the task pending for a later tick.
-      if (session.status !== "active") return;
+      // Held tasks are DEFERRED, not left due: a pile of overdue tasks from paused sessions
+      // sitting at the head of the due window would otherwise starve every later-due task.
+      if (session.status !== "active" || (this.reachable && !this.reachable(task.conversationId))) {
+        this.learning.deferReviewTask(task.id, this.clock() + HOLD_DEFER_MS);
+        return;
+      }
       const incident = this.learning.getIncident(task.incidentId);
       const focus = (incident?.hypothesis || session.goal || "").replace(/\s+/g, " ").trim().slice(0, 120);
       // Fired before submit: losing one revisit beats double-posting it into the chat.
       this.learning.markReviewTask(task.id, "fired");
-      this.orchestrator.submit(task.conversationId, reviewPrompt(task.round, focus));
+      const run = this.orchestrator.submit(task.conversationId, reviewPrompt(task.round, focus));
+      // The run id is the linkage confirmVerification uses to tell the revisit's own
+      // confirmation apart from unrelated confirmations in the same session.
+      const runId = (run as { id?: unknown } | null | undefined)?.id;
+      if (typeof runId === "string" && runId) this.learning.attachReviewRun(task.id, runId);
     } catch {
       // Reviews are opportunistic; a failed fire must never break the shared tick loop.
     }

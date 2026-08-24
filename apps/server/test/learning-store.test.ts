@@ -949,6 +949,35 @@ describe("LearningStore", () => {
     expect(open.learning.handoffReport(openIncident.id)).toBeNull();
     open.database.close();
     manual.database.close();
+
+    // interventionId omitted on every verification request (the MCP arg is optional and
+    // models routinely skip it): the write-time backfill keeps every attempt linked to its
+    // outcome instead of the handoff rendering three rounds of 未验证.
+    const omitted = fixture();
+    const omittedIncident = incident(omitted.learning, omitted.session.id);
+    for (const strategy of ["socratic_question", "conceptual_hint", "worked_example"] as const) {
+      omitted.learning.recordIntervention({
+        incidentId: omittedIncident.id,
+        strategy,
+        rationale: "按误区选择",
+        expectedSignal: "能解释递归出口"
+      });
+      const verification = omitted.learning.requestVerification({
+        incidentId: omittedIncident.id,
+        method: "self_explanation",
+        prompt: "请解释递归出口。",
+        rubric: "说明何时停止调用"
+      });
+      omitted.learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
+      omitted.learning.confirmVerification(verification.id, "unresolved");
+    }
+    const omittedReport = omitted.learning.handoffReport(omittedIncident.id)!;
+    expect(omittedReport.attempts.map((attempt) => attempt.outcome)).toEqual([
+      "unresolved",
+      "unresolved",
+      "unresolved"
+    ]);
+    omitted.database.close();
   });
 
   it("invents variants with dedupe, a single pending per scope, and rejection memory", () => {
@@ -986,6 +1015,25 @@ describe("LearningStore", () => {
         instruction: "让学生画出每次调用的独立栈帧再比较循环变量"
       })
     ).toBeNull();
+    // Genuinely different long instructions are NOT similar (the similarity is
+    // length-normalized): a distinct approach for the same base strategy still lands.
+    expect(
+      learning.createVariant({
+        ...base,
+        title: "反例对照法",
+        instruction: "给出一个没有出口条件的递归反例，让学生预测运行结果并解释为什么栈会溢出，再回到正确版本对照差异"
+      })
+    ).toMatchObject({ status: "pending" });
+    // Dedupe and rejection memory are scoped per base strategy: the same wording under a
+    // different strategy is a different candidate, not a blocked duplicate.
+    expect(
+      learning.createVariant({
+        ...base,
+        baseStrategy: "worked_example",
+        title: "栈帧追踪法",
+        instruction: "让学生画出每次调用的独立栈帧再比较循环变量"
+      })
+    ).toMatchObject({ status: "pending" });
     database.close();
   });
 
@@ -1017,8 +1065,12 @@ describe("LearningStore", () => {
     expect(() => learning.reviewVariant(third.id, "trial")).toThrow("two variants");
     expect(() => learning.reviewVariant(first.id, "enable")).not.toThrow();
     expect(learning.getVariant(first.id)?.status).toBe("enabled");
+    // Promoting a sibling is a switch: the previously enabled variant retires in the same
+    // decision — otherwise offerVariant (oldest-enabled-first) would shadow the new one
+    // forever while the UI showed both as 已启用.
+    expect(learning.reviewVariant(second.id, "enable").status).toBe("enabled");
+    expect(learning.getVariant(first.id)?.status).toBe("retired");
     expect(() => learning.reviewVariant(first.id, "keep")).toThrow("trial");
-    expect(learning.reviewVariant(first.id, "retire").status).toBe("retired");
     expect(learning.reviewVariant(second.id, "retire").status).toBe("retired");
     database.close();
   });
@@ -1056,45 +1108,69 @@ describe("LearningStore", () => {
     database.close();
   });
 
-  it("attributes interventions to the offered variant only when the recorded strategy matches", () => {
-    const attributed = fixture();
-    const variant = attributed.learning.createVariant({
+  it("attributes interventions only to variants the prompt actually delivered", () => {
+    const scope = {
       profileId: "local-operator",
       topicKey: "programming",
-      difficultyType: "conceptual_misconception",
-      baseStrategy: "socratic_question",
+      difficultyType: "conceptual_misconception" as const,
+      baseStrategy: "socratic_question" as const
+    };
+    const renderScope = { ...scope, datasetKind: "live" as const, condition: "on-call" as const };
+
+    const attributed = fixture();
+    const variant = attributed.learning.createVariant({
+      ...scope,
       title: "栈帧追踪法",
       instruction: "先画栈帧图再对比循环快照理解调用链"
     })!;
     attributed.learning.reviewVariant(variant.id, "trial");
     const current = incident(attributed.learning, attributed.session.id);
-    // Fresh scope → default order recommends socratic_question; recording it attributes the round.
+    // The prompt render wrote the delivery ledger for round one, and the tutor recorded the
+    // delivered strategy → the round is attributed.
+    expect(attributed.learning.offerVariantForPrompt({ ...renderScope, incidentId: current.id, round: 1 })?.id).toBe(
+      variant.id
+    );
     complete(attributed.learning, current.id, "socratic_question", "resolved");
     const rounds = attributed.learning.listInterventions(current.id);
     expect(rounds[0]?.strategyVariantId).toBe(variant.id);
     const exported = attributed.learning.exportResearch();
     expect(exported.strategyVariants).toHaveLength(1);
+    // The export carries the real attributed count, not the toVariant default.
+    expect(exported.strategyVariants[0]?.attributedCount).toBe(1);
     expect(exported.experiences.at(-1)?.strategyVariantId).toBe(variant.id);
     attributed.database.close();
 
     const deviated = fixture();
     const other = deviated.learning.createVariant({
-      profileId: "local-operator",
-      topicKey: "programming",
-      difficultyType: "conceptual_misconception",
-      baseStrategy: "socratic_question",
+      ...scope,
       title: "栈帧追踪法",
       instruction: "先画栈帧图再对比循环快照理解调用链"
     })!;
     deviated.learning.reviewVariant(other.id, "trial");
     const deviatedIncident = incident(deviated.learning, deviated.session.id);
-    // The tutor deviated from the recommendation: no attribution, honest ITT semantics.
+    deviated.learning.offerVariantForPrompt({ ...renderScope, incidentId: deviatedIncident.id, round: 1 });
+    // The tutor deviated from the delivered strategy: no attribution, honest ITT semantics.
     complete(deviated.learning, deviatedIncident.id, "direct_explanation", "resolved");
     expect(deviated.learning.listInterventions(deviatedIncident.id)[0]?.strategyVariantId).toBeNull();
     deviated.database.close();
+
+    const undelivered = fixture();
+    const ghost = undelivered.learning.createVariant({
+      ...scope,
+      title: "栈帧追踪法",
+      instruction: "先画栈帧图再对比循环快照理解调用链"
+    })!;
+    undelivered.learning.reviewVariant(ghost.id, "trial");
+    const midRun = incident(undelivered.learning, undelivered.session.id);
+    // An incident opened mid-run has no ledger entry for round one — the context rendered
+    // before it existed, so the instruction was never in the prompt. Recording the matching
+    // strategy must NOT stamp the variant (this was the systematic round-one mislabeling).
+    complete(undelivered.learning, midRun.id, "socratic_question", "resolved");
+    expect(undelivered.learning.listInterventions(midRun.id)[0]?.strategyVariantId).toBeNull();
+    undelivered.database.close();
   });
 
-  it("recommends promotion after five attributed outcomes and respects the keep memory", () => {
+  it("recommends promotion after five attributed outcomes, needs a real control, and respects the keep memory", () => {
     const { database, learning, session } = fixture();
     const variant = learning.createVariant({
       profileId: "local-operator",
@@ -1110,10 +1186,26 @@ describe("LearningStore", () => {
       topicKey: "programming",
       difficultyType: "conceptual_misconception" as const
     };
+    const renderScope = {
+      ...scope,
+      baseStrategy: "socratic_question" as const,
+      datasetKind: "live" as const,
+      condition: "on-call" as const
+    };
+    const attributedRound = (verdict: "resolved" | "partial" | "unresolved" = "resolved") => {
+      const current = incident(learning, session.id);
+      learning.offerVariantForPrompt({ ...renderScope, incidentId: current.id, round: 1 });
+      complete(learning, current.id, "socratic_question", verdict);
+    };
     for (let index = 0; index < 4; index += 1) {
-      complete(learning, incident(learning, session.id).id, "socratic_question", "resolved");
+      attributedRound();
       expect(learning.maybeRecommendVariantPromotion(scope)).toHaveLength(0);
     }
+    attributedRound();
+    // Five attributed outcomes but ZERO bare controls: a recommendation would compare
+    // against the bare Beta(1,1) prior — advice built on no evidence — so none is raised.
+    expect(learning.maybeRecommendVariantPromotion(scope)).toHaveLength(0);
+    // One real control (no delivery ledger, tutor used the bare base strategy) unlocks it.
     complete(learning, incident(learning, session.id).id, "socratic_question", "resolved");
     const [recommended] = learning.maybeRecommendVariantPromotion(scope);
     expect(recommended).toMatchObject({ id: variant.id, recommendation: "promote" });
@@ -1122,7 +1214,7 @@ describe("LearningStore", () => {
     learning.reviewVariant(variant.id, "keep");
     expect(learning.maybeRecommendVariantPromotion(scope)).toHaveLength(0);
     // A sixth attributed outcome changes the evidence set; the recommendation returns.
-    complete(learning, incident(learning, session.id).id, "socratic_question", "resolved");
+    attributedRound();
     expect(learning.maybeRecommendVariantPromotion(scope)[0]?.recommendation).toBe("promote");
     database.close();
   });
@@ -1166,26 +1258,57 @@ describe("LearningStore", () => {
     }
   });
 
-  it("completes a fired revisit on the next confirmation and books round two only after a resolved revisit", () => {
+  it("completes a fired revisit only via its own linked confirmation and books round two after a resolved revisit", () => {
     const day = 24 * 60 * 60 * 1_000;
-    const { database, learning, session } = fixture();
+    const { database, agents, conversation, learning, session } = fixture();
+    const revisitIncident = (runId: string, hypothesis: string) =>
+      learning.openIncident({
+        sessionId: session.id,
+        difficultyType: "conceptual_misconception",
+        hypothesis,
+        confidence: 0.7,
+        severity: 3,
+        evidenceMessageIds: [agents.getRun(runId)!.userMessageId],
+        runId
+      });
     complete(learning, incident(learning, session.id).id, "direct_explanation", "resolved");
     const [round1] = learning.listReviewTasks(session.id);
+    // Simulate the runner: mark fired, then attach the run that delivered the revisit.
     learning.markReviewTask(round1!.id, "fired");
+    const reviewRun = agents.createRun(conversation.id, "【间隔复习回访】迁移小任务", "normal");
+    learning.attachReviewRun(round1!.id, reviewRun.id);
 
-    complete(learning, incident(learning, session.id).id, "worked_example", "resolved");
-    const afterResolved = learning.listReviewTasks(session.id);
-    expect(afterResolved.find((task) => task.id === round1!.id)?.status).toBe("completed");
-    const round2 = afterResolved.find((task) => task.round === 2);
+    // An unrelated difficulty confirmed while the revisit is outstanding must NOT consume
+    // the fired task — and it books its own round-one review instead of losing it.
+    const unrelated = incident(learning, session.id);
+    complete(learning, unrelated.id, "worked_example", "resolved");
+    let tasks = learning.listReviewTasks(session.id);
+    expect(tasks.find((task) => task.id === round1!.id)?.status).toBe("fired");
+    expect(
+      tasks.filter((task) => task.round === 1 && task.status === "pending" && task.incidentId === unrelated.id)
+    ).toHaveLength(1);
+
+    // The revisit's own incident — opened by the review run — resolves: the task completes
+    // and round two is booked for the ORIGINAL incident, while the revisit incident itself
+    // starts no chain of its own.
+    const revisit = revisitIncident(reviewRun.id, "回访迁移任务暴露的残余困难");
+    complete(learning, revisit.id, "contrastive_example", "resolved");
+    tasks = learning.listReviewTasks(session.id);
+    expect(tasks.find((task) => task.id === round1!.id)?.status).toBe("completed");
+    const round2 = tasks.find((task) => task.round === 2);
     expect(round2).toMatchObject({ status: "pending", incidentId: round1!.incidentId });
     expect(round2!.dueAt - Date.now()).toBeGreaterThan(4.9 * day);
+    expect(tasks.filter((task) => task.status === "pending" && task.incidentId === revisit.id)).toHaveLength(0);
 
+    // Round two is the end of the chain: its linked resolution books nothing further.
     learning.markReviewTask(round2!.id, "fired");
-    complete(learning, incident(learning, session.id).id, "contrastive_example", "partial");
-    const afterPartial = learning.listReviewTasks(session.id);
-    expect(afterPartial.find((task) => task.id === round2!.id)?.status).toBe("completed");
-    // A round-two revisit is the end of the chain; a partial one books nothing new either.
-    expect(afterPartial.filter((task) => task.status === "pending")).toHaveLength(0);
+    const reviewRun2 = agents.createRun(conversation.id, "【间隔复习回访】第二轮迁移任务", "normal");
+    learning.attachReviewRun(round2!.id, reviewRun2.id);
+    const revisit2 = revisitIncident(reviewRun2.id, "第二轮回访的迁移任务");
+    complete(learning, revisit2.id, "conceptual_hint", "resolved");
+    tasks = learning.listReviewTasks(session.id);
+    expect(tasks.find((task) => task.id === round2!.id)?.status).toBe("completed");
+    expect(tasks.filter((task) => task.status === "pending" && task.incidentId === round1!.incidentId)).toHaveLength(0);
     database.close();
   });
 });

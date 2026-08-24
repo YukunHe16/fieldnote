@@ -5,7 +5,7 @@ import type {
   LearningMetricsCellDto,
   LearningMetricsDto
 } from "@fieldnote/contracts";
-import { methodsSimilar } from "./evolution-store.js";
+import { overlayTokens } from "./overlay-context.js";
 import type { SqliteDatabase } from "./database.js";
 
 export const LEARNING_SESSION_STATUSES = ["suggested", "active", "paused", "completed", "dismissed"] as const;
@@ -277,6 +277,7 @@ export interface LearningReviewTask {
   round: 1 | 2;
   dueAt: number;
   status: LearningReviewStatus;
+  firedRunId: string | null;
 }
 
 interface ReviewTaskRow {
@@ -288,6 +289,7 @@ interface ReviewTaskRow {
   round: number;
   due_at: number;
   status: string;
+  fired_run_id: string | null;
 }
 
 function toReviewTask(row: ReviewTaskRow): LearningReviewTask {
@@ -299,7 +301,9 @@ function toReviewTask(row: ReviewTaskRow): LearningReviewTask {
     profileId: row.profile_id,
     round: row.round === 2 ? 2 : 1,
     dueAt: row.due_at,
-    status: (["pending", "fired", "completed", "cancelled"] as const).find((item) => item === row.status) ?? "cancelled"
+    status:
+      (["pending", "fired", "completed", "cancelled"] as const).find((item) => item === row.status) ?? "cancelled",
+    firedRunId: row.fired_run_id ?? null
   };
 }
 
@@ -440,11 +444,21 @@ CREATE TABLE IF NOT EXISTS learning_review_tasks (
   round INTEGER NOT NULL CHECK (round IN (1, 2)),
   due_at INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'fired', 'completed', 'cancelled')),
+  fired_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_learning_review_due ON learning_review_tasks(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_learning_review_session ON learning_review_tasks(session_id, status);
+
+CREATE TABLE IF NOT EXISTS learning_variant_offers (
+  incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
+  round INTEGER NOT NULL CHECK (round BETWEEN 1 AND 3),
+  variant_id TEXT NOT NULL REFERENCES learning_strategy_variants(id) ON DELETE CASCADE,
+  strategy TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (incident_id, round)
+);
 `;
 
 const DEFAULT_STRATEGIES: readonly LearningInterventionStrategy[] = [
@@ -475,6 +489,23 @@ const parseJson = <T>(value: string, fallback: T): T => {
   } catch {
     return fallback;
   }
+};
+
+/**
+ * Length-normalized similarity for teaching-approach texts. methodsSimilar's absolute
+ * overlap threshold (tuned for ~10-char playbook method strings) misfires on 100+-char
+ * Chinese instructions, where generic pedagogy bigrams alone clear it — measured: 8 of 9
+ * clearly distinct realistic instruction pairs were flagged similar. Dice on the same
+ * token/bigram sets is scale-free: rewordings of one approach score high at any length,
+ * genuinely different approaches stay low.
+ */
+const variantTextsSimilar = (left: string, right: string): boolean => {
+  const a = overlayTokens(left);
+  const b = overlayTokens(right);
+  if (a.size === 0 || b.size === 0) return left.trim() === right.trim();
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared += 1;
+  return (2 * shared) / (a.size + b.size) >= 0.55;
 };
 
 type SessionRow = Record<string, unknown>;
@@ -571,6 +602,17 @@ export class LearningStore {
         "ALTER TABLE learning_experiences ADD COLUMN strategy_variant_id TEXT REFERENCES learning_strategy_variants(id) ON DELETE SET NULL"
       );
     }
+    const reviewTaskColumns = this.database.pragma("table_info(learning_review_tasks)") as Array<{ name: string }>;
+    if (!reviewTaskColumns.some((column) => column.name === "fired_run_id")) {
+      this.database.exec(
+        "ALTER TABLE learning_review_tasks ADD COLUMN fired_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL"
+      );
+    }
+    // Created here rather than in the static schema: on an upgraded database the column only
+    // exists after the guarded ALTER above has run.
+    this.database.exec(
+      "CREATE INDEX IF NOT EXISTS idx_learning_experiences_variant ON learning_experiences(strategy_variant_id) WHERE strategy_variant_id IS NOT NULL"
+    );
     this.database.exec(`
       CREATE TRIGGER IF NOT EXISTS learning_supersede_run
       AFTER UPDATE OF superseded_at ON runs
@@ -817,30 +859,18 @@ export class LearningStore {
     if (session.condition === "one-shot" && round > 1)
       throw learningConflict("One-shot learning sessions allow a single intervention");
     if (round > 3) throw learningConflict("Learning incidents allow at most three interventions");
-    // Host-side intention-to-treat attribution: when the tutor records exactly the strategy
-    // the host recommended AND a variant instruction was offered for it, the round counts
-    // toward that variant. No tool parameter — self-report by the model is not trustworthy.
+    // Delivery-verified attribution: stamp only the variant whose instruction the PROMPT of
+    // this round actually carried (the render-time ledger written by offerVariantForPrompt),
+    // and only when the tutor recorded that strategy. Recomputing the offer here instead
+    // would also stamp rounds whose prompt never contained the approach — every incident
+    // opened mid-run has such a round one, since the context renders before it exists.
+    // No tool parameter — self-report by the model is not trustworthy.
     let strategyVariantId: string | null = null;
     if (session.datasetKind === "live" && session.condition === "on-call") {
-      const priorStrategies = this.listInterventions(incident.id).map((item) => item.strategy);
-      const selection = this.selectStrategy({
-        profileId: session.profileId,
-        topicKey: session.topicKey,
-        difficultyType: incident.difficultyType,
-        datasetKind: session.datasetKind,
-        failedStrategies: priorStrategies
-      });
-      if (input.strategy === selection.strategy) {
-        strategyVariantId =
-          this.offerVariant({
-            profileId: session.profileId,
-            topicKey: session.topicKey,
-            difficultyType: incident.difficultyType,
-            baseStrategy: input.strategy,
-            datasetKind: session.datasetKind,
-            condition: session.condition
-          })?.id ?? null;
-      }
+      const offer = this.database
+        .prepare("SELECT variant_id, strategy FROM learning_variant_offers WHERE incident_id = ? AND round = ?")
+        .get(incident.id, round) as { variant_id: string; strategy: string } | undefined;
+      if (offer && offer.strategy === input.strategy) strategyVariantId = offer.variant_id;
     }
     const id = randomUUID();
     const now = this.clock();
@@ -896,6 +926,10 @@ export class LearningStore {
       if (!row || row.incident_id !== incident.id)
         throw learningConflict("Verification intervention does not belong to the incident");
     }
+    // interventionId is optional in the MCP tool and models routinely omit it. Backfill from
+    // the latest intervention at write time so downstream joins (handoff reports, research
+    // exports) see every attempt linked instead of rendering it as never-verified.
+    const interventionId = input.interventionId ?? this.latestIntervention(incident.id)?.id ?? null;
     const prompt = clean(input.prompt, 4_000);
     const rubric = clean(input.rubric, 4_000);
     if (!prompt || !rubric) throw new Error("Verification prompt and rubric are required");
@@ -923,7 +957,7 @@ export class LearningStore {
         .run(
           id,
           incident.id,
-          input.interventionId ?? null,
+          interventionId,
           input.method,
           prompt,
           rubric,
@@ -1104,18 +1138,41 @@ export class LearningStore {
           TERMINAL_INCIDENTS.has(incidentStatus) ? JSON.stringify(closedSnapshot) : null,
           incident.id
         );
-      // Spaced review: a live on-call resolution earns a +2d revisit. The revisit's own
-      // confirmation completes the fired task and, when the learner still resolved it,
-      // books the second revisit (+5d, ≈ a week after the original fix). A non-resolved
-      // revisit books nothing: the loop re-teaches in-conversation and a fresh resolution
-      // re-enters the cycle from round one.
+      // Spaced review: a live on-call resolution earns a +2d revisit. Only the revisit's OWN
+      // confirmation completes the fired task — the confirmed incident must have been opened
+      // by the run the review runner submitted (fired_run_id), otherwise an unrelated
+      // confirmation in the same session would swallow the task, book a phantom round two,
+      // and rob the new incident of its own round-one review. Unmatched fired tasks are
+      // expired by the runner instead.
       if (session.datasetKind === "live" && session.condition !== "one-shot") {
         const fired = this.database
           .prepare(
-            "SELECT id, incident_id, round FROM learning_review_tasks WHERE session_id = ? AND status = 'fired' ORDER BY created_at DESC LIMIT 1"
+            "SELECT id, incident_id, round, fired_run_id FROM learning_review_tasks WHERE session_id = ? AND status = 'fired' ORDER BY created_at DESC LIMIT 1"
           )
-          .get(session.id) as { id: string; incident_id: string; round: number } | undefined;
-        if (fired) {
+          .get(session.id) as
+          | { id: string; incident_id: string; round: number; fired_run_id: string | null }
+          | undefined;
+        // Linked when the confirmed incident was opened by the review run, or cites one of
+        // that run's messages as evidence (the incident may open only after the learner
+        // answers the revisit question).
+        const openedRunId = (
+          this.database.prepare("SELECT opened_run_id FROM learning_incidents WHERE id = ?").get(incident.id) as {
+            opened_run_id: string | null;
+          }
+        ).opened_run_id;
+        const linked = fired?.fired_run_id
+          ? openedRunId === fired.fired_run_id ||
+            Boolean(
+              this.database
+                .prepare(
+                  `SELECT 1 FROM json_each((SELECT evidence_message_ids_json FROM learning_incidents WHERE id = ?)) evidence
+                 JOIN messages message ON message.id = evidence.value
+                WHERE message.run_id = ? LIMIT 1`
+                )
+                .get(incident.id, fired.fired_run_id)
+            )
+          : false;
+        if (fired && linked) {
           this.database
             .prepare("UPDATE learning_review_tasks SET status = 'completed', updated_at = ? WHERE id = ?")
             .run(now, fired.id);
@@ -1191,6 +1248,36 @@ export class LearningStore {
       .run(status, this.clock(), id);
   }
 
+  /** Records which run delivered the revisit, so its confirmation can be matched back. */
+  attachReviewRun(id: string, runId: string): void {
+    this.database
+      .prepare("UPDATE learning_review_tasks SET fired_run_id = ?, updated_at = ? WHERE id = ?")
+      .run(runId, this.clock(), id);
+  }
+
+  /**
+   * Pushes a due task back without firing it (paused session, unreachable channel). Deferring
+   * instead of holding keeps stuck tasks out of the head of the due window, so they cannot
+   * starve later-due tasks of active sessions.
+   */
+  deferReviewTask(id: string, dueAt: number): void {
+    this.database
+      .prepare("UPDATE learning_review_tasks SET due_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'")
+      .run(dueAt, this.clock(), id);
+  }
+
+  /**
+   * A fired task whose revisit never produced a linked confirmation (learner ignored it, the
+   * run failed, or the channel binding moved on) would otherwise stay 'fired' forever.
+   */
+  expireFiredReviewTasks(firedBefore: number): number {
+    return this.database
+      .prepare(
+        "UPDATE learning_review_tasks SET status = 'cancelled', updated_at = ? WHERE status = 'fired' AND updated_at < ?"
+      )
+      .run(this.clock(), firedBefore).changes;
+  }
+
   private variantAttributedCounts(variantIds: string[]): Map<string, number> {
     const counts = new Map<string, number>();
     if (variantIds.length === 0) return counts;
@@ -1264,15 +1351,17 @@ export class LearningStore {
     const instruction = clean(input.instruction, 300);
     if (!profileId || !title || !instruction) return null;
     const topicKey = topic(input.topicKey);
+    // Rejection memory stays per base strategy: a variant refines one strategy, so a
+    // rejected 讲法 under one strategy must not block candidates for the other seven.
     const scoped = this.database
       .prepare(
-        "SELECT * FROM learning_strategy_variants WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ?"
+        "SELECT * FROM learning_strategy_variants WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ?"
       )
-      .all(profileId, topicKey, input.difficultyType) as VariantRow[];
+      .all(profileId, topicKey, input.difficultyType, input.baseStrategy) as VariantRow[];
     for (const row of scoped) {
-      if (methodsSimilar(`${row.title} ${row.instruction}`, `${title} ${instruction}`)) return null;
+      if (variantTextsSimilar(`${row.title} ${row.instruction}`, `${title} ${instruction}`)) return null;
     }
-    if (scoped.some((row) => row.status === "pending" && row.base_strategy === input.baseStrategy)) return null;
+    if (scoped.some((row) => row.status === "pending")) return null;
     const now = this.clock();
     const id = randomUUID();
     this.database
@@ -1297,11 +1386,12 @@ export class LearningStore {
   }
 
   /**
-   * The deterministic offer for one (scope, base strategy): the enabled variant if any,
-   * else the trial variant with the fewest attributed experiences (oldest on ties), so the
-   * context-time offer and the record-time attribution always agree. Only live on-call
+   * The offer for one (scope, base strategy): the enabled variant if any, else the trial
+   * variant with the fewest attributed experiences (oldest on ties). Only live on-call
    * sessions ever see variants — eval stays order-independent and one-shot stays a pure
-   * baseline.
+   * baseline. Attribution does NOT recompute this; it reads the ledger that
+   * offerVariantForPrompt writes at render time, so only actually-delivered instructions
+   * are ever stamped.
    */
   offerVariant(input: {
     profileId: string;
@@ -1335,6 +1425,34 @@ export class LearningStore {
     return this.toVariant(trial, counts.get(trial.id) ?? 0);
   }
 
+  /**
+   * The prompt-render entry point: computes the offer AND writes it into the delivery
+   * ledger for (incident, round), which is the sole source recordIntervention's attribution
+   * reads. A re-render of the same round replaces the entry; a render that no longer offers
+   * anything (the variant retired mid-round) clears it.
+   */
+  offerVariantForPrompt(
+    input: Parameters<LearningStore["offerVariant"]>[0] & { incidentId: string; round: number }
+  ): LearningStrategyVariantDto | null {
+    const offer = this.offerVariant(input);
+    if (input.round < 1 || input.round > 3) return offer;
+    if (offer) {
+      this.database
+        .prepare(
+          `INSERT INTO learning_variant_offers (incident_id, round, variant_id, strategy, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(incident_id, round) DO UPDATE SET
+           variant_id = excluded.variant_id, strategy = excluded.strategy, created_at = excluded.created_at`
+        )
+        .run(input.incidentId, input.round, offer.id, input.baseStrategy, this.clock());
+    } else {
+      this.database
+        .prepare("DELETE FROM learning_variant_offers WHERE incident_id = ? AND round = ?")
+        .run(input.incidentId, input.round);
+    }
+    return offer;
+  }
+
   reviewVariant(id: string, verdict: "trial" | "reject" | "enable" | "retire" | "keep"): LearningStrategyVariantDto {
     const row = this.database.prepare("SELECT * FROM learning_strategy_variants WHERE id = ?").get(id) as
       | VariantRow
@@ -1362,7 +1480,19 @@ export class LearningStore {
       update("status = 'rejected'", []);
     } else if (verdict === "enable") {
       if (row.status !== "trial") throw learningConflict("Only trial variants can be promoted");
-      update("status = 'enabled', recommendation = NULL", []);
+      this.database.transaction(() => {
+        // Promotion is a switch: offerVariant serves exactly one enabled variant per scope
+        // (the oldest), so a sibling left enabled would silently shadow the newly promoted
+        // one forever. Retiring it is part of the same human decision.
+        this.database
+          .prepare(
+            `UPDATE learning_strategy_variants
+             SET status = 'retired', recommendation = NULL, recommendation_summary = '已被新转正的讲法替代', updated_at = ?
+             WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ? AND status = 'enabled' AND id != ?`
+          )
+          .run(now, row.profile_id, row.topic_key, row.difficulty_type, row.base_strategy, id);
+        update("status = 'enabled', recommendation = NULL", []);
+      })();
     } else if (verdict === "retire") {
       if (row.status !== "trial" && row.status !== "enabled")
         throw learningConflict("Only trial or enabled variants can retire");
@@ -1424,6 +1554,10 @@ export class LearningStore {
       const attributed = experiences.filter((item) => item.strategy_variant_id === row.id);
       if (attributed.length < 5) continue;
       const bare = experiences.filter((item) => item.strategy_variant_id === null);
+      // No controls (possible when the winning round's own experience was superseded away):
+      // the base posterior would be the bare Beta(1,1) prior, and a recommendation against
+      // pure prior is advice built on no evidence. Wait for at least one real control.
+      if (bare.length === 0) continue;
       const evidenceIds = attributed.map((item) => item.id).sort();
       const rejected = row.rejected_evidence_json ? parseJson<string[]>(row.rejected_evidence_json, []) : null;
       if (rejected && JSON.stringify([...rejected].sort()) === JSON.stringify(evidenceIds)) continue;
@@ -1747,8 +1881,15 @@ export class LearningStore {
     if (!session) return null;
     const interventions = this.listInterventions(incidentId);
     const verifications = this.listVerifications(incidentId);
+    // New verification rows always carry an interventionId (backfilled at write time), but
+    // rows written before the backfill may not: link those to the latest intervention that
+    // existed when the verification was requested, instead of rendering the attempt 未验证.
+    const effectiveInterventionId = (entry: (typeof verifications)[number]): string | null =>
+      entry.interventionId ??
+      [...interventions].reverse().find((item) => item.createdAt <= entry.createdAt)?.id ??
+      null;
     const attempts = interventions.map((item) => {
-      const verification = verifications.filter((entry) => entry.interventionId === item.id).at(-1) ?? null;
+      const verification = verifications.filter((entry) => effectiveInterventionId(entry) === item.id).at(-1) ?? null;
       return {
         round: item.round,
         strategy: item.strategy,
@@ -2033,9 +2174,13 @@ export class LearningStore {
         .filter((incident) => incident.status === "escalated")
         .map((incident) => this.handoffReport(incident.id))
         .filter((report): report is LearningHandoffReportDto => report !== null),
-      strategyVariants: (
-        this.database.prepare("SELECT * FROM learning_strategy_variants ORDER BY created_at ASC").all() as VariantRow[]
-      ).map((row) => this.toVariant(row))
+      strategyVariants: (() => {
+        const rows = this.database
+          .prepare("SELECT * FROM learning_strategy_variants ORDER BY created_at ASC")
+          .all() as VariantRow[];
+        const counts = this.variantAttributedCounts(rows.map((row) => row.id));
+        return rows.map((row) => this.toVariant(row, counts.get(row.id) ?? 0));
+      })()
     };
   }
 

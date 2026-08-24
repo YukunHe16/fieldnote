@@ -1317,11 +1317,15 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           failedStrategies: interventions.map((item) => item.strategy)
         })
       : null;
-    // At most one invented approach rides along with the recommended strategy; the store's
-    // offer is deterministic, so record-time attribution recomputes the same answer.
+    // At most one invented approach rides along with the recommended strategy. The call
+    // also writes the delivery ledger for (incident, round): attribution later stamps only
+    // rounds whose prompt actually carried the instruction — an incident opened mid-run has
+    // no ledger entry for round one, so that round stays a bare control.
     const recommendedApproach =
       current && selection && session.datasetKind === "live" && session.condition === "on-call"
-        ? (store.offerVariant?.({
+        ? (store.offerVariantForPrompt?.({
+            incidentId: current.id,
+            round: interventions.length + 1,
             profileId: session.profileId,
             topicKey: session.topicKey,
             difficultyType: current.difficultyType,
