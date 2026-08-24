@@ -26,7 +26,16 @@ export function RuntimeSettingsDialog({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ tone: "ok" | "error"; message: string }>();
+  const [savedNotice, setSavedNotice] = useState("");
   const [error, setError] = useState("");
+
+  /** Any edit invalidates the last save confirmation, so it never describes a stale form. */
+  function edited<T>(apply: (value: T) => void) {
+    return (value: T) => {
+      setSavedNotice("");
+      apply(value);
+    };
+  }
   const authSourceText: Record<RuntimeConfigStatus["authSource"], string> = {
     "local-settings": t("runtimeAuthLocal"),
     "process-env": t("runtimeAuthEnv"),
@@ -40,6 +49,7 @@ export function RuntimeSettingsDialog({
     setLoading(true);
     setError("");
     setTestResult(undefined);
+    setSavedNotice("");
     void api
       .runtimeConfig()
       .then((next) => {
@@ -66,6 +76,7 @@ export function RuntimeSettingsDialog({
   function selectProvider(next: ModelProviderId) {
     setProvider(next);
     setTestResult(undefined);
+    setSavedNotice("");
     const preset = providerById(next);
     if (!preset || next === "custom") return;
     setBaseUrl(preset.baseUrl);
@@ -132,6 +143,13 @@ export function RuntimeSettingsDialog({
       });
       setStatus(next);
       setAuthToken("");
+      setTestResult(undefined);
+      setSavedNotice(
+        t("runtimeSaved", {
+          provider: providerById(provider)?.label || t("runtimeProviderCustom"),
+          model: next.model
+        })
+      );
       await onSaved();
     } catch (saveError) {
       setError(saveError instanceof ApiError ? saveError.message : t("runtimeSaveFailed"));
@@ -216,7 +234,7 @@ export function RuntimeSettingsDialog({
                   <input
                     type="password"
                     value={authToken}
-                    onChange={(event) => setAuthToken(event.target.value)}
+                    onChange={(event) => edited(setAuthToken)(event.target.value)}
                     placeholder={
                       status?.hasAuthToken || status?.authConfigured ? t("runtimeTokenHas") : t("runtimeTokenPaste")
                     }
@@ -235,7 +253,7 @@ export function RuntimeSettingsDialog({
                       type="url"
                       inputMode="url"
                       value={baseUrl}
-                      onChange={(event) => setBaseUrl(event.target.value)}
+                      onChange={(event) => edited(setBaseUrl)(event.target.value)}
                       placeholder={t("runtimeBasePlaceholder")}
                       autoComplete="off"
                       spellCheck={false}
@@ -248,7 +266,7 @@ export function RuntimeSettingsDialog({
                   </span>
                   <input
                     value={model}
-                    onChange={(event) => setModel(event.target.value)}
+                    onChange={(event) => edited(setModel)(event.target.value)}
                     placeholder="sonnet"
                     autoComplete="off"
                     spellCheck={false}
@@ -261,6 +279,11 @@ export function RuntimeSettingsDialog({
                   <b>{t("runtimeApply")}</b>
                   <p>{t("runtimeApplyBody")}</p>
                 </div>
+                {savedNotice && (
+                  <p className="runtime-test-result is-ok" role="status">
+                    {savedNotice}
+                  </p>
+                )}
                 {testResult && (
                   <p className={`runtime-test-result is-${testResult.tone}`} role="status">
                     {testResult.message}

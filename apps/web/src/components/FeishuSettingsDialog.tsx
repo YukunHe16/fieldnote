@@ -50,6 +50,7 @@ export function FeishuSettingsDialog({
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedNotice, setSavedNotice] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -102,6 +103,7 @@ export function FeishuSettingsDialog({
     }
     setSaving(true);
     setError("");
+    setSavedNotice("");
     try {
       const next = await api.saveFeishuSettings({
         appId: appId.trim(),
@@ -110,6 +112,7 @@ export function FeishuSettingsDialog({
       });
       setStatus(next);
       setAppSecret("");
+      setSavedNotice(next.connected ? t("feishuSavedConnected") : t("feishuSaved"));
       await onSaved();
     } catch (saveError) {
       setError(saveError instanceof ApiError ? saveError.message : t("runtimeSaveFailed"));
@@ -241,6 +244,11 @@ export function FeishuSettingsDialog({
                 <div className="feishu-setup-note">
                   <p>{t("feishuStoredOverridesEnv")}</p>
                 </div>
+                {savedNotice && (
+                  <p className="runtime-test-result is-ok" role="status">
+                    {savedNotice}
+                  </p>
+                )}
                 {error && (
                   <p className="settings-error" role="alert">
                     {error}
