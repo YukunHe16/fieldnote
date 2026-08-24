@@ -102,10 +102,39 @@ async function learningOutcomes(base, conversationId) {
 
 async function runArm(base, snapshot, arm, artifact) {
   const startedAt = Date.now();
-  const body = arm === "with-artifact" ? { includeArtifactId: artifact } : {};
-  const replay = await api(base, "POST", `/api/runs/${snapshot.runId}/replay`, body);
+  const body =
+    arm === "with-artifact"
+      ? { includeArtifactId: artifact }
+      : // A true baseline strips the candidate from the frozen overlay too: snapshots
+        // frozen AFTER the artifact was enabled already carry it, and without the
+        // exclusion both arms would replay with the artifact and compare nothing.
+        artifact
+        ? { excludeArtifactId: artifact }
+        : {};
+  const notStarted = (error) => {
+    console.warn(`  ! ${arm} arm could not start: ${String(error).slice(0, 160)}`);
+    return {
+      arm,
+      conversationId: null,
+      durationMs: Date.now() - startedAt,
+      failed: true,
+      status: "not-started",
+      answerChars: 0,
+      toolCalls: 0,
+      assistantMessages: 0,
+      learning: null
+    };
+  };
+  let replay;
+  try {
+    replay = await api(base, "POST", `/api/runs/${snapshot.runId}/replay`, body);
+  } catch (error) {
+    // A single unreplayable snapshot (input file changed, artifact since rejected) must
+    // not abort the batch and discard every arm that already ran.
+    return notStarted(error);
+  }
   const conversationId = replay.conversation?.id ?? replay.run?.conversationId;
-  if (!conversationId) throw new Error("Replay did not return a conversation");
+  if (!conversationId) return notStarted(new Error("Replay did not return a conversation"));
   let failed = false;
   let detail;
   try {
@@ -132,7 +161,12 @@ function renderReport(context, results) {
   lines.push(
     `Profile \`${context.profile}\` · ${results.length} snapshots · arms: baseline${context.artifact ? " + with-artifact" : ""}`
   );
-  if (context.artifact) lines.push(`Candidate artifact: \`${context.artifact}\``);
+  if (context.artifact) {
+    lines.push(`Candidate artifact: \`${context.artifact}\``);
+    lines.push(
+      "The baseline arm replays the frozen overlay WITHOUT the candidate (excluded even if it was enabled at freeze time); the with-artifact arm replays it with the candidate's current body."
+    );
+  }
   lines.push("");
   lines.push(
     "Replays re-execute the real agent over frozen inputs; numbers are descriptive behaviour, not deterministic ground truth."
@@ -173,9 +207,16 @@ async function main() {
   const results = [];
   for (const snapshot of snapshots) {
     console.log(`▶ ${snapshot.runId}`);
-    const arms = [await runArm(args.base, snapshot, "baseline")];
-    if (args.artifact) arms.push(await runArm(args.base, snapshot, "with-artifact", args.artifact));
-    results.push({ runId: snapshot.runId, prompt: snapshot.prompt, hasLearning: snapshot.hasLearning, arms });
+    // Belt and braces: runArm already degrades per-arm, but nothing inside this loop may
+    // unwind past the report writing below — completed arms are minutes of real agent time.
+    try {
+      const arms = [await runArm(args.base, snapshot, "baseline", args.artifact)];
+      if (args.artifact) arms.push(await runArm(args.base, snapshot, "with-artifact", args.artifact));
+      results.push({ runId: snapshot.runId, prompt: snapshot.prompt, hasLearning: snapshot.hasLearning, arms });
+    } catch (error) {
+      console.warn(`  ! snapshot failed entirely: ${String(error).slice(0, 160)}`);
+      results.push({ runId: snapshot.runId, prompt: snapshot.prompt, hasLearning: snapshot.hasLearning, arms: [] });
+    }
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
