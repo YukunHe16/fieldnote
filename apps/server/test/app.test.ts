@@ -812,6 +812,15 @@ describe("HTTP API", () => {
     });
     expect(rejected.statusCode).toBe(400);
     expect(rejected.json()).toMatchObject({ error: expect.stringContaining("web only") });
+    // The other research arm is web-only too: a one-shot session on Feishu would strand the
+    // learner after a single round (no try-another) and pollute the one-shot metrics cell.
+    const oneShot = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${conversation.id}/learning-session`,
+      payload: { goal: "研究基线", condition: "one-shot" }
+    });
+    expect(oneShot.statusCode).toBe(400);
+    expect(oneShot.json()).toMatchObject({ error: expect.stringContaining("one-shot") });
     const started = await app.inject({
       method: "POST",
       url: `/api/conversations/${conversation.id}/learning-session`,
@@ -831,6 +840,26 @@ describe("HTTP API", () => {
       payload: { verdict: "trial" }
     });
     expect(missingReview.statusCode).toBeGreaterThanOrEqual(400);
+
+    // Explicit thumbs from synthetic conversations are ignored: the M0 isolation must also
+    // cover POST /api/signals, not just the implicit retry/edit signals.
+    const evalConversation = store.createConversation("web", "评测对话", { profileId: "local-operator" });
+    const evalSession = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${evalConversation.id}/learning-session`,
+      payload: { goal: "评测目标", datasetKind: "eval" }
+    });
+    expect(evalSession.statusCode).toBe(201);
+    const ignoredThumb = await app.inject({
+      method: "POST",
+      url: "/api/signals",
+      payload: { kind: "thumb", polarity: "up", conversationId: evalConversation.id }
+    });
+    expect(ignoredThumb.statusCode).toBe(202);
+    expect(ignoredThumb.json()).toMatchObject({ ignored: true });
+    expect((database.prepare("SELECT COUNT(*) AS count FROM evolution_signals").get() as { count: number }).count).toBe(
+      0
+    );
   });
 
   it("manages a web learning session and confirms a system-proposed outcome", async () => {

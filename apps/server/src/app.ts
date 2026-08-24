@@ -547,9 +547,11 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       .parse(request.body ?? {});
     if (conversation.channel !== "web" && conversation.channel !== "feishu")
       return reply.code(400).send({ error: "Learning mode is available on web and Feishu only" });
-    // Research arms stay a web affair; Feishu carries only ordinary live sessions.
+    // Research arms stay a web affair; Feishu carries only ordinary live on-call sessions.
     if (conversation.channel !== "web" && (input.datasetKind ?? "live") !== "live")
       return reply.code(400).send({ error: "Research datasets are available on the web only" });
+    if (conversation.channel !== "web" && (input.condition ?? "on-call") !== "on-call")
+      return reply.code(400).send({ error: "The one-shot research arm is available on the web only" });
     let session = learning.getSessionForConversation(id);
     if (session?.status === "suggested") {
       session = learning.updateSessionDetails(session.id, {
@@ -895,6 +897,12 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const conversationId = input.conversationId ?? message?.conversationId ?? null;
     const conversation = conversationId ? store.getConversation(conversationId) : null;
     if (conversationId && !conversation) return reply.code(404).send({ error: "Conversation not found" });
+    // Same eligibility gate as the implicit retry/edit signals: feedback given inside a
+    // replay or eval/demo learning conversation must not feed live self-evolution, and a
+    // thumbs-up there must not confirm or mint playbooks.
+    if (conversationId && !isEvolutionEligibleConversation(conversationId, { learning, replay: dependencies.replay })) {
+      return reply.code(202).send({ ignored: true, reason: "Synthetic conversations do not feed self-evolution" });
+    }
     const runId = input.runId ?? message?.runId ?? null;
     const overlay = runId ? evolution.overlayForRun(runId) : null;
     const signal = evolution.createSignal({
@@ -1300,7 +1308,18 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   app.post("/api/runs/:id/replay", async (request, reply) => {
     rememberUiLocale(store, request.headers["accept-language"]);
     const { id } = request.params as { id: string };
-    const input = z.object({ includeArtifactId: z.string().uuid().optional() }).parse(request.body ?? {});
+    const input = z
+      .object({
+        includeArtifactId: z.string().uuid().optional(),
+        // A true baseline arm: strip this artifact from the frozen overlay before replaying.
+        // Without it, comparing "baseline vs with-artifact" is meaningless for an artifact
+        // that was already enabled when the snapshot froze.
+        excludeArtifactId: z.string().uuid().optional()
+      })
+      .parse(request.body ?? {});
+    if (input.includeArtifactId && input.includeArtifactId === input.excludeArtifactId) {
+      return reply.code(400).send({ error: "Cannot include and exclude the same artifact" });
+    }
     const snapshot = dependencies.replay?.getByRun(id);
     if (!snapshot || !dependencies.replay) return reply.code(404).send({ error: "Snapshot not found" });
     let includedArtifact: ReturnType<EvolutionStore["getArtifact"]> = null;
@@ -1354,6 +1373,12 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       } catch {
         await deleteConversationData(store, config.workspaceRoot, created.id);
         return reply.code(409).send({ error: `Replay input file is missing or changed: ${file.originalFileName}` });
+      }
+    }
+    if (input.excludeArtifactId) {
+      overlay.artifactIds = overlay.artifactIds.filter((artifactId) => artifactId !== input.excludeArtifactId);
+      if (overlay.artifacts) {
+        overlay.artifacts = overlay.artifacts.filter((artifact) => artifact.id !== input.excludeArtifactId);
       }
     }
     if (input.includeArtifactId && !overlay.artifactIds.includes(input.includeArtifactId)) {
@@ -1544,6 +1569,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       const run = orchestrator.submit(branched.id, input.content, "normal");
       const conversation = store.getConversation(branched.id);
       if (isEvolutionEligibleConversation(sourceMessage.conversationId, { learning, replay: dependencies.replay })) {
+        // Like the retry route: overlayRevision points at the REJECTED run's overlay, so
+        // usage stats can blame the run that actually failed, not the corrective one.
+        const sourceOverlay = sourceRun ? evolution.overlayForRun(sourceRun) : null;
         evolution.createSignal({
           source: "implicit",
           kind: "edit",
@@ -1551,7 +1579,8 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
           profileId: conversation?.profileId ?? null,
           conversationId: branched.id,
           messageId: id,
-          runId: run.id
+          runId: run.id,
+          overlayRevision: sourceOverlay?.id ?? null
         });
       }
       return reply.code(201).send({ run, conversation: await conversationDetail(branched.id) });

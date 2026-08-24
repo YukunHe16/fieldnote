@@ -135,7 +135,8 @@ const feishu = new FeishuChannel(
   config.workspaceRoot,
   evolutionCoordinator,
   collaboration,
-  learning
+  learning,
+  runtime
 );
 evolutionCoordinator.setNotifier(feishu);
 evolutionCoordinator.setReplay(replay);
@@ -214,7 +215,9 @@ const memoryMaintenanceTimer = setInterval(() => {
 memoryMaintenanceTimer.unref();
 
 runner.tick();
-const learningReviews = new LearningReviewRunner(learning, store, orchestrator);
+const learningReviews = new LearningReviewRunner(learning, store, orchestrator, Date.now, (conversationId) =>
+  feishu.canReachConversation(conversationId)
+);
 learningReviews.tick();
 const scheduledJobTimer = setInterval(() => {
   runner.tick();
