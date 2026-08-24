@@ -12,8 +12,9 @@ import type { EvolutionCoordinator } from "./evolution-coordinator.js";
 import type { EvolvedArtifactDto, EvolutionReviewVerdict, FeishuSenderCandidateDto } from "@fieldnote/contracts";
 import { readUiLocale, type UiLocale } from "./locale.js";
 import type { CollaborationStore } from "./collaboration-store.js";
-import type { LearningStore, LearningSessionDto } from "./learning-store.js";
+import { LearningConflictError, type LearningStore, type LearningSessionDto } from "./learning-store.js";
 import { LEARNING_TRY_ANOTHER_PROMPT, confirmLearningVerification } from "./learning-confirm.js";
+import type { AgentRuntime } from "./runtime.js";
 import { chineseStrategy } from "./learning-coordinator.js";
 import type { LearningHandoffReportDto } from "@fieldnote/contracts";
 import { MAX_INPUT_FILE_BYTES } from "./input-file-manifest.js";
@@ -196,6 +197,8 @@ export class FeishuChannel implements ChannelAdapter {
   private readonly notifiedUnauthorized = new Set<string>();
   /** One handoff card per escalated incident; both escalation paths emit the same event. */
   private readonly notifiedEscalations = new Set<string>();
+  /** One outcome-confirmation card per verification, however many runs finish meanwhile. */
+  private readonly notifiedLearningConfirms = new Set<string>();
   private senderCandidateList: FeishuSenderCandidate[] = [];
   // Retained for symmetric teardown in stop(); flagged as unused only because assignment is conditional.
   private unsubscribeEvents: (() => void) | undefined;
@@ -209,7 +212,9 @@ export class FeishuChannel implements ChannelAdapter {
     private readonly workspaceRoot = "",
     private evolution?: EvolutionCoordinator,
     private readonly collaboration?: CollaborationStore,
-    private readonly learning?: LearningStore
+    private readonly learning?: LearningStore,
+    /** Needed only for teaching-approach distillation on card-confirmed resolutions. */
+    private readonly runtime?: AgentRuntime
   ) {
     this.evolutionCards = new FeishuEvolutionCardIndex(
       () => this.readSetting(FEISHU_EVOLUTION_CARDS_SETTING),
@@ -693,17 +698,46 @@ export class FeishuChannel implements ChannelAdapter {
       let result: ReturnType<typeof confirmLearningVerification>;
       try {
         result = confirmLearningVerification(
-          { learning: this.learning, store: this.store, events: this.events },
+          {
+            learning: this.learning,
+            store: this.store,
+            events: this.events,
+            // Same deps as the web confirm route: without them, card-confirmed resolutions
+            // would never distill teaching approaches and the D feature would not exist on
+            // the one channel B2 made a first-class learning surface.
+            ...(this.runtime
+              ? {
+                  invention: {
+                    learning: this.learning,
+                    store: this.store,
+                    runtime: this.runtime,
+                    workspaceRoot: this.workspaceRoot
+                  }
+                }
+              : {})
+          },
           value.verificationId,
           value.verdict
         );
-      } catch {
-        // A double-click or stale card: show the terminal state instead of silent failure.
-        if (this.channel.updateCard) {
-          await this.channel.updateCard(
-            event.messageId,
-            buildFeishuLearningConfirmedCard(null, "该确认已处理过，以对话中的最新状态为准。")
-          );
+      } catch (error) {
+        if (error instanceof LearningConflictError) {
+          // A double-click or stale card: show the terminal state instead of silent failure.
+          if (this.channel.updateCard) {
+            await this.channel.updateCard(
+              event.messageId,
+              buildFeishuLearningConfirmedCard(null, "该确认已处理过，以对话中的最新状态为准。")
+            );
+          }
+        } else {
+          // Anything else is a real failure — never dress it up as "already handled": the
+          // verdict may or may not have been recorded, so send the learner to the web view.
+          console.warn("[feishu] learning confirm failed", error);
+          if (this.channel.updateCard) {
+            await this.channel.updateCard(
+              event.messageId,
+              buildFeishuLearningConfirmedCard(null, "确认处理时出错了，请到网页端查看学习面板的最新状态。")
+            );
+          }
         }
         return;
       }
@@ -898,7 +932,11 @@ export class FeishuChannel implements ChannelAdapter {
         payload: { session }
       });
     };
-    if (goal === "off" || goal === "结束") {
+    // Mobile keyboards auto-capitalize and append punctuation; a fuzzy match keeps
+    // "/learn OFF" or "/learn off。" from being taken as a new goal that overwrites the
+    // real one.
+    const normalizedGoal = goal.toLowerCase().replace(/[。．.!！]+$/u, "");
+    if (normalizedGoal === "off" || normalizedGoal === "结束") {
       if (existing && (existing.status === "active" || existing.status === "paused")) {
         const session = this.learning.transitionSession(existing.id, "completed");
         announce(session);
@@ -990,14 +1028,17 @@ export class FeishuChannel implements ChannelAdapter {
               try {
                 for await (const event of this.events.streamRun(run.conversationId, run.id)) {
                   if (event.type === "activity.started") {
-                    stopThinking();
                     const block = event.payload.block as Record<string, any> | undefined;
                     // Learning MCP activity stays invisible to the learner on every channel.
+                    // Checked BEFORE stopThinking(): learning turns open with several hidden
+                    // tool calls, and killing the animation for them would freeze the card on
+                    // a stale frame until the first visible text arrives.
                     if (isLearningFrameworkActivity(block)) {
                       const hiddenId = String(block?.id ?? "");
                       if (hiddenId) hiddenActivityBlocks.add(hiddenId);
                       continue;
                     }
+                    stopThinking();
                     const activity = block?.activity as Record<string, any> | undefined;
                     const blockId = String(block?.id ?? "");
                     latestActivityLabel = String(activity?.displayName ?? "正在处理");
@@ -1008,9 +1049,9 @@ export class FeishuChannel implements ChannelAdapter {
                     }
                   }
                   if (event.type === "activity.text.delta") {
-                    stopThinking();
                     const blockId = String(event.payload.blockId ?? "");
                     if (hiddenActivityBlocks.has(blockId)) continue;
+                    stopThinking();
                     latestActivityLabel = activityLabels.get(blockId) ?? (latestActivityLabel || "正在处理");
                     latestActivityText = `${latestActivityText}${String(event.payload.delta ?? "")}`.slice(-800);
                     if (!accumulated) {
@@ -1122,6 +1163,10 @@ export class FeishuChannel implements ChannelAdapter {
     try {
       const pending = this.learning.pendingLearnerConfirmation(conversationId);
       if (!pending) return;
+      // One card per verification: the pending state persists across every run until the
+      // learner clicks, so without this a learner who keeps typing gets an identical card
+      // appended after each reply, all carrying the same verificationId.
+      if (this.notifiedLearningConfirms.has(pending.verification.id)) return;
       await this.channel.send(
         chatId,
         {
@@ -1133,9 +1178,21 @@ export class FeishuChannel implements ChannelAdapter {
         },
         options
       );
+      this.notifiedLearningConfirms.add(pending.verification.id);
     } catch (error) {
       console.error("[feishu] learning outcome card failed", safeMessage(error));
     }
+  }
+
+  /**
+   * Whether anything sent into this conversation can still reach a human on Feishu. `/new`
+   * and `/agent` repoint the DM's single binding row, so runs submitted into the previous
+   * conversation would execute invisibly; the spaced-review runner defers instead.
+   */
+  canReachConversation(conversationId: string): boolean {
+    const conversation = this.store.getConversation(conversationId);
+    if (!conversation || conversation.channel !== "feishu") return true;
+    return this.bindingForConversation(conversationId) !== null;
   }
 
   private async ingestInboundFiles(
