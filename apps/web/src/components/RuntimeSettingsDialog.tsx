@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
 import { useLocale } from "../i18n";
 import { Icon } from "../icons";
+import { detectProvider, mappingsFor, providerById, type ModelProviderId } from "../modelProviders";
 import type { RuntimeConfigStatus } from "../types";
+import { ProviderPicker } from "./ProviderPicker";
 
 export function RuntimeSettingsDialog({
   open,
@@ -16,6 +18,7 @@ export function RuntimeSettingsDialog({
 }) {
   const { t } = useLocale();
   const [status, setStatus] = useState<RuntimeConfigStatus>();
+  const [provider, setProvider] = useState<ModelProviderId>("anthropic");
   const [authToken, setAuthToken] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("sonnet");
@@ -44,6 +47,7 @@ export function RuntimeSettingsDialog({
         setAuthToken("");
         setBaseUrl(next.baseUrl);
         setModel(next.model);
+        setProvider(detectProvider(next.baseUrl, next.provider));
       })
       .catch(() => setError(t("runtimeLoading")))
       .finally(() => setLoading(false));
@@ -58,15 +62,27 @@ export function RuntimeSettingsDialog({
     return () => document.removeEventListener("keydown", escape);
   }, [open, onClose]);
 
+  /** Selecting a provider fills in everything except the key. */
+  function selectProvider(next: ModelProviderId) {
+    setProvider(next);
+    setTestResult(undefined);
+    const preset = providerById(next);
+    if (!preset || next === "custom") return;
+    setBaseUrl(preset.baseUrl);
+    setModel(preset.defaultModel);
+  }
+
   // An untouched form sends `{}` so the server tests whatever it already has.
   async function testConnection() {
     setTesting(true);
     setTestResult(undefined);
     setError("");
+    const mappings = mappingsFor(provider, model);
     const payload = {
       ...(authToken.trim() ? { authToken: authToken.trim() } : {}),
       ...(baseUrl.trim() !== (status?.baseUrl ?? "") ? { baseUrl: baseUrl.trim() } : {}),
-      ...(model.trim() && model.trim() !== status?.model ? { model: model.trim() } : {})
+      ...(model.trim() && model.trim() !== status?.model ? { model: model.trim() } : {}),
+      ...(Object.keys(mappings).length > 0 ? { modelMappings: mappings } : {})
     };
     try {
       const result = await api.testRuntime(payload);
@@ -110,7 +126,9 @@ export function RuntimeSettingsDialog({
       const next = await api.saveRuntimeConfig({
         ...(authToken.trim() ? { authToken: authToken.trim() } : {}),
         baseUrl: baseUrl.trim(),
-        model: model.trim()
+        model: model.trim(),
+        provider,
+        modelMappings: mappingsFor(provider, model)
       });
       setStatus(next);
       setAuthToken("");
@@ -123,6 +141,7 @@ export function RuntimeSettingsDialog({
   }
 
   const configured = status?.runtime === "claude" && status.authConfigured;
+  const backgroundModel = mappingsFor(provider, model).ANTHROPIC_DEFAULT_SONNET_MODEL_NAME;
 
   return (
     <AnimatePresence>
@@ -176,17 +195,20 @@ export function RuntimeSettingsDialog({
                     </small>
                   </div>
                 </div>
-                <div className="runtime-region-note">
-                  <div>
-                    <b>{t("runtimeChina")}</b>
-                    <p>{t("runtimeChinaBody")}</p>
-                    <small>{t("runtimeChinaNote")}</small>
+                <ProviderPicker provider={provider} onSelect={selectProvider} />
+                {provider === "anthropic" && (
+                  <div className="runtime-region-note">
+                    <div>
+                      <b>{t("runtimeChina")}</b>
+                      <p>{t("runtimeChinaBody")}</p>
+                      <small>{t("runtimeChinaNote")}</small>
+                    </div>
+                    <a href="https://ccswitch.io/zh/" target="_blank" rel="noreferrer">
+                      {t("runtimeDownload")}
+                      <Icon name="chevronRight" size={14} />
+                    </a>
                   </div>
-                  <a href="https://ccswitch.io/zh/" target="_blank" rel="noreferrer">
-                    {t("runtimeDownload")}
-                    <Icon name="chevronRight" size={14} />
-                  </a>
-                </div>
+                )}
                 <label>
                   <span>
                     {t("runtimeToken")} <code>ANTHROPIC_AUTH_TOKEN</code>
@@ -204,20 +226,22 @@ export function RuntimeSettingsDialog({
                   />
                   <small>{t("runtimeTokenHint")}</small>
                 </label>
-                <label>
-                  <span>
-                    {t("runtimeBaseUrl")} <code>ANTHROPIC_BASE_URL</code>
-                  </span>
-                  <input
-                    type="url"
-                    inputMode="url"
-                    value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.target.value)}
-                    placeholder={t("runtimeBasePlaceholder")}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </label>
+                {provider === "custom" && (
+                  <label>
+                    <span>
+                      {t("runtimeBaseUrl")} <code>ANTHROPIC_BASE_URL</code>
+                    </span>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      value={baseUrl}
+                      onChange={(event) => setBaseUrl(event.target.value)}
+                      placeholder={t("runtimeBasePlaceholder")}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
+                )}
                 <label>
                   <span>
                     {t("runtimeModel")} <code>ANTHROPIC_MODEL</code>
@@ -229,7 +253,9 @@ export function RuntimeSettingsDialog({
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  <small>{t("runtimeModelHint")}</small>
+                  <small>
+                    {backgroundModel ? t("runtimeBackgroundModel", { model: backgroundModel }) : t("runtimeModelHint")}
+                  </small>
                 </label>
                 <div className="runtime-setup-note">
                   <b>{t("runtimeApply")}</b>

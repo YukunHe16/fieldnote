@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
 import { localizedProfile, useLocale, type MessageKey } from "../i18n";
 import { Icon } from "../icons";
+import { detectProvider, mappingsFor, providerById, type ModelProviderId } from "../modelProviders";
 import type { AgentProfileId, RuntimeConfigStatus } from "../types";
+import { ProviderPicker } from "./ProviderPicker";
 import type { Workspace } from "../useWorkspace";
 
 export const ONBOARDED_KEY = "fieldnote-onboarded";
@@ -46,6 +48,7 @@ export function OnboardingWizard({
   const [authToken, setAuthToken] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("sonnet");
+  const [provider, setProvider] = useState<ModelProviderId>("anthropic");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ tone: "ok" | "error"; message: string }>();
   const [profileId, setProfileId] = useState<AgentProfileId>("graduate-admissions");
@@ -60,6 +63,7 @@ export function OnboardingWizard({
         setStatus(next);
         setBaseUrl(next.baseUrl);
         setModel(next.model || "sonnet");
+        setProvider(detectProvider(next.baseUrl, next.provider));
       })
       .catch(() => setStatus(undefined));
   }, [open]);
@@ -120,19 +124,31 @@ export function OnboardingWizard({
     }
   }
 
+  /** Selecting a provider fills in everything except the key. */
+  function selectProvider(next: ModelProviderId) {
+    setProvider(next);
+    setTestResult(undefined);
+    const preset = providerById(next);
+    if (!preset || next === "custom") return;
+    setBaseUrl(preset.baseUrl);
+    setModel(preset.defaultModel);
+  }
+
   async function testAndSave() {
     if (!authToken.trim() && !status?.authConfigured) {
       setTestResult({ tone: "error", message: t("runtimeTestNoCredentials") });
       return;
     }
+    const mappings = mappingsFor(provider, model.trim() || "sonnet");
     const payload = {
       ...(authToken.trim() ? { authToken: authToken.trim() } : {}),
       baseUrl: baseUrl.trim(),
-      model: model.trim() || "sonnet"
+      model: model.trim() || "sonnet",
+      ...(Object.keys(mappings).length > 0 ? { modelMappings: mappings } : {})
     };
     if (!(await runTest(payload))) return;
     try {
-      await api.saveRuntimeConfig({ ...payload, baseUrl: payload.baseUrl, model: payload.model });
+      await api.saveRuntimeConfig({ ...payload, provider });
       await workspace.refreshCapabilities();
       setAuthToken("");
       setStep(2);
@@ -326,17 +342,20 @@ export function OnboardingWizard({
                     </button>
                     {choice === "token" && (
                       <div className="onboarding-card-body onboarding-token-form">
-                        <div className="runtime-region-note">
-                          <div>
-                            <b>{t("runtimeChina")}</b>
-                            <p>{t("runtimeChinaBody")}</p>
-                            <small>{t("runtimeChinaNote")}</small>
+                        <ProviderPicker provider={provider} onSelect={selectProvider} />
+                        {provider === "anthropic" && (
+                          <div className="runtime-region-note">
+                            <div>
+                              <b>{t("runtimeChina")}</b>
+                              <p>{t("runtimeChinaBody")}</p>
+                              <small>{t("runtimeChinaNote")}</small>
+                            </div>
+                            <a href="https://ccswitch.io/zh/" target="_blank" rel="noreferrer">
+                              {t("runtimeDownload")}
+                              <Icon name="chevronRight" size={14} />
+                            </a>
                           </div>
-                          <a href="https://ccswitch.io/zh/" target="_blank" rel="noreferrer">
-                            {t("runtimeDownload")}
-                            <Icon name="chevronRight" size={14} />
-                          </a>
-                        </div>
+                        )}
                         <label>
                           <span>
                             {t("runtimeToken")} <code>ANTHROPIC_AUTH_TOKEN</code>
@@ -355,20 +374,22 @@ export function OnboardingWizard({
                           />
                           <small>{t("runtimeTokenHint")}</small>
                         </label>
-                        <label>
-                          <span>
-                            {t("runtimeBaseUrl")} <code>ANTHROPIC_BASE_URL</code>
-                          </span>
-                          <input
-                            type="url"
-                            inputMode="url"
-                            value={baseUrl}
-                            onChange={(event) => setBaseUrl(event.target.value)}
-                            placeholder={t("runtimeBasePlaceholder")}
-                            autoComplete="off"
-                            spellCheck={false}
-                          />
-                        </label>
+                        {provider === "custom" && (
+                          <label>
+                            <span>
+                              {t("runtimeBaseUrl")} <code>ANTHROPIC_BASE_URL</code>
+                            </span>
+                            <input
+                              type="url"
+                              inputMode="url"
+                              value={baseUrl}
+                              onChange={(event) => setBaseUrl(event.target.value)}
+                              placeholder={t("runtimeBasePlaceholder")}
+                              autoComplete="off"
+                              spellCheck={false}
+                            />
+                          </label>
+                        )}
                         <label>
                           <span>
                             {t("runtimeModel")} <code>ANTHROPIC_MODEL</code>

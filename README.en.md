@@ -82,7 +82,7 @@ The quality gate is `pnpm lint && pnpm typecheck && pnpm test && pnpm build` —
 
 ## Configuration reference
 
-Most users only need to run setup; the table below rarely needs manual edits.
+Most users only need to run setup; the table below rarely needs manual edits. **To use a third-party Anthropic-compatible service (DeepSeek, Kimi, GLM, ...), pick the provider preset in Workspace → Model service** — the endpoint and the alias mapping below are filled in for you, and you only paste your key.
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
@@ -94,6 +94,8 @@ Most users only need to run setup; the table below rarely needs manual edits.
 | `ANTHROPIC_AUTH_TOKEN` | empty | Access token for Claude or a compatible service |
 | `ANTHROPIC_BASE_URL` | Anthropic default | Optional compatible API address |
 | `ANTHROPIC_MODEL` | empty | Default model name for a compatible service |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL_NAME` and friends | empty | Alias mapping for a compatible service. Fieldnote's background work (titles, memory upkeep) asks for the `sonnet` alias, so without the mapping chat works while background work fails |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | empty | Model used by subagents |
 | `CLAUDE_SETTINGS_MODE` | `auto` | `auto`, `inherit-user`, or `isolated` |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Optional Claude configuration directory |
 | `AGENT_MODEL` | `sonnet` | Model alias or full ID; may be resolved by local mapping |
@@ -138,6 +140,7 @@ The first step is always `pnpm doctor` (or `npx fieldnote doctor`). It reports o
 
 - **The page will not open**: confirm both `pnpm dev` processes are still running; check whether `5173` / `8787` are already in use; the web app is on `5173` — do not use the API address as the page address.
 - **It says demo runtime**: check `Selected runtime` in doctor. With an existing Claude CLI setup, confirm `CLAUDE_SETTINGS_MODE` is not `isolated`, or save credentials in **Workspace → Model service** — the switch takes effect from your next message.
+- **It says “organization has disabled Claude subscription access” or “organization does not have access to Claude”**: the account behind the machine's `claude login` has Claude Code disabled by its organization — the credentials exist but cannot be used, and the plain `claude` command fails the same way. Doctor reports this as a failure. Use an Anthropic API key, or pick a compatible provider in **Workspace → Model service**; the credential you configure takes precedence over the machine login.
 - **MCP servers or plugins are missing**: confirm doctor discovers the name. Reusing local configuration requires `CLAUDE_SETTINGS_MODE=auto` or `inherit-user`. The project never copies MCP credentials into SQLite or the frontend.
 - **Feishu receives nothing**: confirm `Feishu long connection is ready` appears in the log; check that the app version published the latest permissions and events; in group chats the bot must be explicitly @-mentioned. See the [Feishu setup guide](docs/FEISHU_SETUP.md#6-故障排查) (Chinese).
 

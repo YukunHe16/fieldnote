@@ -626,6 +626,15 @@
   .channel-connection b, .channel-connection small { display: block; }
   .channel-connection b { font-size: .75rem; font-weight: 640; }
   .channel-connection small { margin-top: .08rem; color: var(--ink-faint); font-size: .62rem; }
+  .provider-picker { margin-bottom: .9rem; }
+  .provider-picker-label { display: block; margin: 0 0 .35rem .12rem; font-size: .68rem; font-weight: 620; }
+  .provider-options { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .provider-option { min-height: 2.1rem; padding: 0 .7rem; border: 1px solid var(--line); border-radius: .6rem; color: var(--ink-soft); background: var(--surface-solid); font-size: .7rem; font-weight: 600; cursor: pointer; transition: background .12s ease, border-color .12s ease, color .12s ease; }
+  .provider-option:hover { background: var(--hover-surface); }
+  .provider-option.is-selected { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-ghost); }
+  .provider-picker > small { display: block; margin: .38rem .12rem 0; color: var(--ink-faint); font-size: .58rem; line-height: 1.45; }
+  .provider-picker > small a { color: var(--accent-strong); font-weight: 620; text-decoration: none; }
+  .provider-picker > small a:hover { text-decoration: underline; }
   .runtime-region-note { min-height: 4rem; margin-bottom: .9rem; padding: .7rem .72rem; border: 1px solid var(--line); border-radius: .8rem; display: flex; align-items: center; justify-content: space-between; gap: .8rem; background: var(--fill-tertiary); }
   .runtime-region-note > div { min-width: 0; }
   .runtime-region-note b, .runtime-region-note p, .runtime-region-note small { display: block; }

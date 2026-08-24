@@ -8,7 +8,12 @@ import multipart from "@fastify/multipart";
 import staticPlugin from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
-import { applyLocalRuntimeSettings, type AppConfig, type LocalRuntimeSettings } from "./config.js";
+import {
+  applyLocalRuntimeSettings,
+  MODEL_ALIAS_ENV_KEYS,
+  type AppConfig,
+  type LocalRuntimeSettings
+} from "./config.js";
 import type { EventStore } from "./event-store.js";
 import type { FeishuChannel } from "./feishu.js";
 import type { MemoryCoordinator } from "./memory-coordinator.js";
@@ -88,7 +93,10 @@ const feishuSettingsSchema = z.object({
   appSecret: z.string().trim().min(6).max(256).optional(),
   allowedOpenIds: z.array(z.string().trim().min(1).max(128)).max(100).default([])
 });
+const modelMappingsSchema = z.record(z.enum(MODEL_ALIAS_ENV_KEYS), z.string().trim().max(200)).optional();
 const runtimeSettingsSchema = z.object({
+  provider: z.string().trim().max(64).optional(),
+  modelMappings: modelMappingsSchema,
   authToken: z.string().trim().min(1).max(4_096).optional(),
   baseUrl: z
     .string()
@@ -347,7 +355,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       authSource: config.claudeAuthSource,
       hasAuthToken: Boolean(stored?.authToken || config.anthropicAuthToken),
       baseUrl: config.anthropicBaseUrl ?? "",
-      model: config.model
+      model: config.model,
+      provider: config.modelProvider ?? stored?.provider ?? "",
+      modelMappings: config.modelAliasEnv ?? {}
     };
   };
 
@@ -364,7 +374,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const next: LocalRuntimeSettings = {
       baseUrl: input.baseUrl,
       model: input.model,
-      ...(authToken ? { authToken } : {})
+      ...(authToken ? { authToken } : {}),
+      ...(input.provider ? { provider: input.provider } : {}),
+      ...(input.modelMappings ? { modelMappings: input.modelMappings } : {})
     };
     store.setSetting("runtime.config", next);
     applyLocalRuntimeSettings(config, next);
@@ -375,7 +387,8 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   const runtimeTestSchema = z.object({
     authToken: z.string().trim().min(6).max(512).optional(),
     baseUrl: z.union([z.string().trim().url(), z.literal("")]).optional(),
-    model: z.string().trim().min(1).max(200).optional()
+    model: z.string().trim().min(1).max(200).optional(),
+    modelMappings: modelMappingsSchema
   });
 
   app.post("/api/runtime/test", async (request, reply) => {
@@ -386,10 +399,16 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         error: "no-credentials"
       });
     }
-    const overrides: { authToken?: string; baseUrl?: string; model?: string } = {};
+    const overrides: {
+      authToken?: string;
+      baseUrl?: string;
+      model?: string;
+      modelMappings?: Record<string, string>;
+    } = {};
     if (input.authToken) overrides.authToken = input.authToken;
     if (input.baseUrl !== undefined) overrides.baseUrl = input.baseUrl;
     if (input.model) overrides.model = input.model;
+    if (input.modelMappings) overrides.modelMappings = input.modelMappings;
     return preflightClaudeRuntime(config, overrides);
   });
 

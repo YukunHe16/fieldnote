@@ -51,6 +51,10 @@ export interface AppConfig {
   claudeAuthSource: "process-env" | "user-settings" | "oauth-credentials" | "local-settings" | "none";
   /** Entitlement of a local `claude login`, when Fieldnote relies on those credentials. */
   claudeOauthSubscription: "available" | "unavailable" | "unknown";
+  /** Provider preset the saved model service came from, for UI round-trip. */
+  modelProvider?: string;
+  /** Alias -> concrete model, forwarded to the agent child for compatible providers. */
+  modelAliasEnv?: Record<string, string>;
   claudeSettingsMode: "inherit-user" | "isolated";
   claudeConfigDir: string;
   claudeConfigDirExplicit: boolean;
@@ -71,6 +75,37 @@ export interface LocalRuntimeSettings {
   authToken?: string;
   baseUrl: string;
   model: string;
+  /** Preset the settings came from, so the UI can show the right provider selected. */
+  provider?: string;
+  /** Alias -> concrete model for an Anthropic-compatible provider (see MODEL_ALIAS_ENV_KEYS). */
+  modelMappings?: Record<string, string>;
+}
+
+/**
+ * The only environment variables the web UI may set on the agent child process. The child runs
+ * with bypassPermissions, so this stays a closed allowlist of model-routing keys rather than an
+ * open channel from an HTTP body into a subprocess environment.
+ */
+export const MODEL_ALIAS_ENV_KEYS = [
+  "ANTHROPIC_MODEL",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+  "ANTHROPIC_DEFAULT_FABLE_MODEL",
+  "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+  "CLAUDE_CODE_SUBAGENT_MODEL"
+] as const;
+
+/** Model name Fieldnote asks for on background work (titles, memory upkeep). */
+export function backgroundModelName(config: AppConfig): string {
+  return (
+    config.modelAliasEnv?.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME?.trim() ||
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME?.trim() ||
+    "sonnet"
+  );
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): AppConfig {
@@ -216,6 +251,13 @@ export function composeClaudeChildEnvironment(
   } else if (config.claudeSettingsMode === "isolated" || ownCredential) {
     delete childEnvironment.ANTHROPIC_BASE_URL;
   }
+  // The saved provider mapping is authoritative: it describes the endpoint the credential
+  // belongs to, so it must win over aliases inherited from the machine's own Claude setup.
+  for (const [key, value] of Object.entries(config.modelAliasEnv ?? {})) {
+    if ((MODEL_ALIAS_ENV_KEYS as readonly string[]).includes(key) && value.trim()) {
+      childEnvironment[key] = value;
+    }
+  }
   if (ownCredential) {
     const home = fieldnoteClaudeHome(config);
     if (config.nodeEnv !== "test") ensureManagedClaudeHome(home, ownCredential);
@@ -237,6 +279,15 @@ export function applyLocalRuntimeSettings(config: AppConfig, settings: LocalRunt
   // be erased by a settings row that never meant to speak about endpoints at all.
   if (settings.baseUrl) config.anthropicBaseUrl = settings.baseUrl;
   else if (settings.authToken) delete config.anthropicBaseUrl;
+  if (settings.provider) config.modelProvider = settings.provider;
+  else delete config.modelProvider;
+  const mappings = Object.fromEntries(
+    Object.entries(settings.modelMappings ?? {}).filter(
+      ([key, value]) => (MODEL_ALIAS_ENV_KEYS as readonly string[]).includes(key) && value.trim()
+    )
+  );
+  if (Object.keys(mappings).length > 0) config.modelAliasEnv = mappings;
+  else delete config.modelAliasEnv;
   if (settings.authToken) {
     config.anthropicAuthToken = settings.authToken;
     delete config.anthropicApiKey;

@@ -2,7 +2,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { composeClaudeChildEnvironment, fieldnoteClaudeHome, loadConfig } from "../src/config.js";
+import {
+  applyLocalRuntimeSettings,
+  composeClaudeChildEnvironment,
+  fieldnoteClaudeHome,
+  loadConfig
+} from "../src/config.js";
 
 describe("Claude user settings inheritance", () => {
   it("auto-detects authentication without copying secret values into AppConfig", async () => {
@@ -114,5 +119,47 @@ describe("credential precedence over a local Claude login", () => {
     expect(state.customApiKeyResponses.approved).toContain("sk-ant-test-0123456789abcdefghij".slice(-20));
     expect(child.ANTHROPIC_API_KEY).toBe("sk-ant-test-0123456789abcdefghij");
     await fs.rm(root, { recursive: true, force: true });
+  });
+});
+
+describe("provider model mapping", () => {
+  it("forwards the saved alias mapping to the child and ignores keys outside the allowlist", () => {
+    const config = loadConfig({ CLAUDE_SETTINGS_MODE: "isolated", NODE_ENV: "test" }, process.cwd());
+    applyLocalRuntimeSettings(config, {
+      baseUrl: "https://example.invalid/anthropic",
+      model: "provider-strong",
+      authToken: "test-token",
+      provider: "example",
+      modelMappings: {
+        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: "provider-fast",
+        CLAUDE_CODE_SUBAGENT_MODEL: "provider-fast",
+        PATH: "/attacker/bin",
+        ANTHROPIC_AUTH_TOKEN: "smuggled"
+      }
+    });
+    expect(config.modelProvider).toBe("example");
+    expect(config.modelAliasEnv).toEqual({
+      ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: "provider-fast",
+      CLAUDE_CODE_SUBAGENT_MODEL: "provider-fast"
+    });
+
+    const child = composeClaudeChildEnvironment(config, { NODE_ENV: "test", PATH: "/usr/bin" });
+    expect(child.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME).toBe("provider-fast");
+    expect(child.CLAUDE_CODE_SUBAGENT_MODEL).toBe("provider-fast");
+    expect(child.PATH).toBe("/usr/bin");
+    expect(child.ANTHROPIC_AUTH_TOKEN).toBe("test-token");
+  });
+
+  it("clears a previous mapping when the next provider has none", () => {
+    const config = loadConfig({ CLAUDE_SETTINGS_MODE: "isolated", NODE_ENV: "test" }, process.cwd());
+    applyLocalRuntimeSettings(config, {
+      baseUrl: "https://example.invalid/anthropic",
+      model: "a",
+      modelMappings: { ANTHROPIC_MODEL: "a" }
+    });
+    expect(config.modelAliasEnv).toBeDefined();
+    applyLocalRuntimeSettings(config, { baseUrl: "", model: "sonnet" });
+    expect(config.modelAliasEnv).toBeUndefined();
+    expect(config.modelProvider).toBeUndefined();
   });
 });

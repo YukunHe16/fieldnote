@@ -12,7 +12,7 @@ import type {
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { composeClaudeChildEnvironment, type AppConfig } from "./config.js";
+import { backgroundModelName, composeClaudeChildEnvironment, type AppConfig } from "./config.js";
 import { getAgentProfile, GRADUATE_ADMISSIONS_PLUGIN_PATH, type AgentProfileId } from "./agent-profiles.js";
 import { containsSensitiveContent, type MemoryStore } from "./memory-store.js";
 import type { SqliteSessionStore } from "./session-store.js";
@@ -1029,7 +1029,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           options: {
             abortController,
             cwd: input.workspacePath,
-            model: backgroundAnalysisModel(),
+            model: backgroundModelName(this.config),
             maxTurns: 1,
             tools: [],
             settingSources: [],
@@ -1105,7 +1105,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           options: {
             abortController,
             cwd: input.workspacePath,
-            model: backgroundAnalysisModel(),
+            model: backgroundModelName(this.config),
             maxTurns: 1,
             tools: [],
             settingSources: [],
@@ -3138,6 +3138,8 @@ export interface RuntimePreflightOverrides {
   authToken?: string;
   baseUrl?: string;
   model?: string;
+  /** Alias mapping being tried, so the test exercises the provider the user is configuring. */
+  modelMappings?: Record<string, string>;
 }
 
 export interface RuntimePreflightResult {
@@ -3168,6 +3170,10 @@ export async function preflightClaudeRuntime(
   if (overrides.baseUrl !== undefined) {
     if (overrides.baseUrl) effective.anthropicBaseUrl = overrides.baseUrl;
     else delete effective.anthropicBaseUrl;
+  }
+  if (overrides.modelMappings) {
+    if (Object.keys(overrides.modelMappings).length > 0) effective.modelAliasEnv = overrides.modelMappings;
+    else delete effective.modelAliasEnv;
   }
   const model = overrides.model?.trim() || effective.model;
   // A machine login whose organization has turned Claude Code off still passes a tool-free

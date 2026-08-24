@@ -182,18 +182,23 @@ export interface RuntimeConfigStatus {
   hasAuthToken: boolean;
   baseUrl: string;
   model: string;
+  provider?: string;
+  modelMappings?: Record<string, string>;
 }
 
 export interface RuntimeConfigInput {
   authToken?: string;
   baseUrl: string;
   model: string;
+  provider?: string;
+  modelMappings?: Record<string, string>;
 }
 
 export interface RuntimeTestInput {
   authToken?: string;
   baseUrl?: string;
   model?: string;
+  modelMappings?: Record<string, string>;
 }
 
 export interface RuntimeTestResult {
