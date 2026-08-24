@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/YukunHe16/fieldnote/blob/HEAD/SECURITY.md
     about: 报告前请先阅读设计假设与已知边界。/ Read the design assumptions and known boundaries first.
   - name: 使用问题先跑 doctor / Troubleshooting starts with doctor
-    url: https://github.com/YukunHe16/fieldnote/blob/HEAD/README.md#遇到问题
+    url: https://github.com/YukunHe16/fieldnote/blob/HEAD/README.md#troubleshooting
     about: 大部分安装与配置问题可以由 pnpm doctor 定位。/ Most setup problems are diagnosed by pnpm doctor.
