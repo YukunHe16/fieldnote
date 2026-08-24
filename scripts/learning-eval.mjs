@@ -273,8 +273,16 @@ async function runItem(cfg, item, condition, log) {
           record.status = incident ? "stalled" : "no_incident";
           break;
         }
+        // The recovery message must match the loop phase: claiming "here is my attempt"
+        // when no attempt exists derails the tutor (observed in the fix-verification run).
+        const nudge =
+          incident?.status === "diagnosed" && verification?.finalVerdict
+            ? TRY_ANOTHER
+            : incident?.status === "intervening"
+              ? "Could you give me a question or a small task so you can check whether I have understood?"
+              : NUDGE;
         await api(cfg.base, "POST", `/api/conversations/${conversation.id}/messages`, {
-          content: NUDGE,
+          content: nudge,
           mode: "normal"
         });
         record.learnerTurns += 1;
