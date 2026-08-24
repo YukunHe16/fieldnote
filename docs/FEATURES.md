@@ -73,7 +73,7 @@ The learning loop, trusted specialist collaboration, and admissions tools are in
 | --- | --- | --- | --- |
 | 普通 Agent 对话 / General Agent chat | ✅ | ✅ | 同一 Runtime，渠道呈现不同 / Same runtime, channel-specific presentation |
 | 申学能力 / Admissions capabilities | ✅ | ✅ | 可视化申学看板仅 Web / Visual admissions board is Web-only |
-| 对话式学习模式 / Learning mode | ✅ | — | V1 仅 Web / Web-only in V1 |
+| 对话式学习模式 / Learning mode | ✅ | ✅ | 飞书用 `/learn` 显式开启；学习面板、策略与讲法审阅仅 Web / Opt in with `/learn` on Feishu; the learning panel and policy/approach review stay Web-only |
 | 稳定合成演示 / Stable synthetic demos | ✅ | — | 确定性案例运行 / Deterministic case execution |
 | 真实 Agent 演示 / Real Agent demos | ✅ | — | 需要已配置 Claude Runtime；真实请求仍可能认证失败 / Requires a configured Claude runtime; the real request can still fail authentication |
 | 可信专家协作 / Trusted specialists | ✅ | ✅ | Web 展示详情，飞书展示摘要 / Detailed on Web, summarized in Feishu |
@@ -293,7 +293,7 @@ The learner-facing chat contains only subject matter, step-by-step teaching, exa
 
 **中文**
 
-- 用户可从 Composer 旁的学习按钮主动开启，学习目标必填，topic 可选；之后可暂停、继续或结束。
+- 用户可从 Composer 旁的学习按钮主动开启，学习目标必填，topic 可选；之后可暂停、继续或结束。飞书用 `/learn 目标` 开启或刷新同一会话，`/learn off` 结束。
 - Session 状态为 suggested、active、paused、completed、dismissed；每个对话只有一个 Session，每个 Session 同时最多一个 active incident。
 - 后台检测只提出建议，绝不自动开启。明确困惑信号置信度为 0.82，连续两个教育意图回合为 0.76，阈值为 0.75。
 - 写作代办、翻译、普通调研、行政事务和闲聊不会仅因包含知识性词汇就触发建议；忽略建议后，同一对话不重复打扰。
@@ -301,7 +301,7 @@ The learner-facing chat contains only subject matter, step-by-step teaching, exa
 
 **English**
 
-- Users can start learning mode beside the Composer. A learning goal is required and a topic is optional. The session can then be paused, resumed, or ended.
+- Users can start learning mode beside the Composer. A learning goal is required and a topic is optional. The session can then be paused, resumed, or ended. On Feishu, `/learn <goal>` opens or refreshes the same session and `/learn off` completes it.
 - Session states are suggested, active, paused, completed, and dismissed. Each conversation has one session and each session has at most one active incident.
 - Background detection only suggests; it never auto-enables learning mode. Explicit confusion scores 0.82, while two consecutive educational-intent turns score 0.76, against a 0.75 threshold.
 - Writing requests, translation, general research, administrative work, and casual chat do not trigger a suggestion merely because they contain educational vocabulary. Once dismissed, a conversation is not prompted again.
@@ -400,6 +400,46 @@ Active Session 才加载以下内部工具：`open_learning_incident`、`record_
 Only an active session loads these internal tools: `open_learning_incident`, `record_learning_intervention`, `request_learning_verification`, `propose_learning_outcome`, and `escalate_learning_incident`. The host validates state ordering, run/message ownership, and round limits.
 
 The model cannot confirm the final learning outcome, write strategy statistics directly, enable a policy, or expose internal tool text as the learner-facing answer. Learner confirmation and policy review remain host-side, user-visible actions.
+
+### 6.8 间隔复习 / Spaced reviews
+
+**中文**
+
+- 一个 live on-call incident 被学习者确认 resolved 时，会排一条 +2 天的复习任务；该复习本身再次 resolved 时，排第二轮 +5 天（约为原修复后一周）。
+- 合成会话（demo/eval/replay）与 one-shot 基线永不排复习，口径与经验门控一致。
+- 60 秒一跳的复习 runner 到期后，把一段学习者口吻的回访提示直接发进**原对话**（Web 或飞书都可以），由真实 Agent 以完整学习回路出一道新的迁移任务，而不是宿主写死的问答。
+- 复习任务记录它发起的那次 Run；只有由这次回访开出的 incident 被确认时才算完成，别的确认不会顶替它。
+- 会话暂停或渠道当前不可达时，任务延后一小时重试，而不是卡住队头；始终没有回音的 fired 任务 7 天后过期。结束会话会取消其任务，删除对话会级联清除。
+
+**English**
+
+- When a live on-call incident is confirmed resolved, a +2-day review is booked; when that review itself resolves, a second round is booked at +5 days (about a week after the original fix).
+- Synthetic sessions (demo/eval/replay) and the one-shot baseline never book reviews, mirroring the experience gate.
+- A 60-second runner posts a learner-voiced revisit prompt into the **original conversation** (Web or Feishu) when a task comes due, and the real agent runs the full loop again with a fresh transfer task rather than a canned quiz.
+- A task remembers the run it fired; only a confirmation on an incident opened by that revisit completes it, so unrelated confirmations cannot claim it.
+- If the session is paused or the channel is currently unreachable, the task is deferred an hour instead of blocking the queue, and a fired task that never gets an answer expires after 7 days. Ending a session cancels its tasks and deleting the conversation cascades.
+
+### 6.9 升级交接报告 / Escalation handoff reports
+
+**中文**
+
+- 无论是三轮用尽自动升级，还是模型显式请求升级，incident 都以同一份富快照关闭：假设、全部干预轮次与结局、验证历史。
+- `GET /api/learning/incidents/:id/handoff` 由宿主确定性渲染（不调模型）：策略 × 轮次 × 结局、学习者仍未达成的检查标准、以及按当前策略顺序给人类导师的未试策略清单和升级原因。
+- Web 学习面板的历史页签里，escalated incident 会展开“交接报告”；飞书则向 owner 私聊推一张红色交接卡（与能力审核卡同一条私聊绑定），合成会话不会打扰任何人，重复升级会被抑制。
+- 报告并入研究导出并做深度脱敏。`escalated` 是一个学习状态，不代表真人老师已经被联系上。
+
+**English**
+
+- Whether escalation comes from exhausting three rounds or from an explicit model request, the incident closes with the same rich snapshot: hypothesis, every intervention round and its outcome, and the verification history.
+- `GET /api/learning/incidents/:id/handoff` is rendered deterministically by the host (no model call): strategy × round × outcome, the mastery criteria the learner still has not met, and — for the human tutor — the untried strategies in current policy order plus the escalation reason.
+- On the web learning panel, an escalated incident grows a 交接报告 section in the history tab; on Feishu the owner gets one red handoff card in the same direct message used for capability review. Synthetic sessions never page anyone and duplicates are suppressed.
+- Reports are included in the research export under deep redaction. `escalated` is a learning state; it does not mean a human teacher has been contacted.
+
+### 6.10 讲法自发明 / Invented teaching approaches
+
+**中文**：live on-call 学习 incident 在换策略后解决时，宿主用一次后台单轮调用把"赢下那一轮的具体讲法"蒸馏成候选讲法（挂在八个基础策略之一下面，策略集合不变）。人审通过后进入试用：当宿主推荐该基础策略时，讲法说明会随上下文注入；归因以**投放核验**为准——渲染提示词时把当轮投放写进台账，记录干预时只认台账里的那一条，中途开出、从未收到讲法的轮次如实计入对照组。≥5 次归因后与同 scope 的无变体基线做 Beta 后验对比，±0.10 给出转正/退役建议——一切状态变更（试用、转正、退役、拒绝）都在学习面板人审。eval 与 one-shot 会话永不注入讲法。
+
+**English**: When a live on-call incident resolves after a strategy switch, a one-turn background call distills the winning round's concrete teaching move into a candidate approach under one of the eight base strategies (the strategy set itself never changes). After human approval it trials: the instruction rides along whenever the host recommends its base strategy, and attribution is **delivery-verified** — the offer is written to a ledger when the prompt is rendered, and only that ledger row counts at record time, so a round that opened mid-run and never received an approach stays an honest control. After ≥5 attributed outcomes a Beta-posterior comparison against the same-scope baseline recommends promotion or retirement at ±0.10 — every transition stays behind human review in the learning panel. Eval and one-shot sessions never see approaches.
 
 ## 7. 可信专家协作 / Trusted specialist collaboration
 
@@ -657,12 +697,6 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - Replay is not byte-for-byte deterministic: models, external websites, and dependencies can still change. It guarantees an auditable boundary for inputs, files, and local context.
 - Batch replay: `GET /api/snapshots` lists frozen snapshots and `node scripts/replay-batch.mjs --profile <id> [--artifact <id>]` re-runs a set of them in baseline and candidate-capability arms, writing a side-by-side report under `data/eval-runs/replay-*/`.
 
-### 讲法自发明 / Invented teaching approaches
-
-**中文**：live on-call 学习 incident 在换策略后解决时，宿主用一次后台单轮调用把"赢下那一轮的具体讲法"蒸馏成候选讲法（挂在八个基础策略之一下面，策略集合不变）。人审通过后进入试用：当宿主推荐该基础策略时，讲法说明会随上下文注入；归因由宿主按 intention-to-treat 口径盖章（记录策略==推荐策略且当时有 offer）。≥5 次归因后与同 scope 的无变体基线做 Beta 后验对比，±0.10 给出转正/退役建议——一切状态变更（试用、转正、退役、拒绝）都在学习面板人审。eval 与 one-shot 会话永不注入讲法。
-
-**English**: When a live on-call incident resolves after a strategy switch, a one-turn background call distills the winning round's concrete teaching move into a candidate approach under one of the eight base strategies (the strategy set itself never changes). After human approval it trials: the instruction rides along whenever the host recommends its base strategy, and attribution is stamped host-side with intention-to-treat semantics. After ≥5 attributed outcomes a Beta-posterior comparison against the same-scope baseline recommends promotion or retirement at ±0.10 — every transition stays behind human review in the learning panel. Eval and one-shot sessions never see approaches.
-
 ## 12. 定时任务 / Scheduled jobs
 
 **中文**
@@ -690,26 +724,28 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - 通过飞书长连接接收消息，不需要暴露公网 webhook。
 - 私聊直接响应；群聊只处理明确 @ 机器人的消息。已有 topic 会隔离映射，但系统不会自动为普通群消息创建新 topic。
 - 支持 allowlist。当前数据模型是单用户本地产品；若配置多个真实用户，他们会共享同一份记忆，因此不应作为多租户服务开放。
-- 命令包括 `/help`、`/new`/`/clear`、`/agent`、`/agent admissions`、`/agent local`、`/stop`、`/continue` 和 `/guide text`。
+- 命令包括 `/help`、`/new`/`/clear`、`/agent`、`/agent admissions`、`/agent local`、`/stop`、`/continue`、`/guide text` 和 `/learn 目标`（`/learn off` 结束）。
 - `/continue` 创建新一轮，不恢复已经退出的进程；`/guide` 创建引导 Run，忙碌时进入队列。
 - 收到消息先用 reaction 反馈；CardKit 流式卡展示最新正文、思考活动、停止和完成动作，失败时降级为普通 Markdown 消息。
 - AskUserQuestion 的第一题最多显示 6 个按钮；多题、多选和复杂自由输入会提示转到 Web。
 - 入站图片和文件进入同一附件/Manifest 流程，20 MB 上限；失败会向用户说明。出站最多给 3 个已呈交文件按钮，并可补发文件消息。
-- 专家协作只显示活动和完成摘要；学习模式 V1 不在飞书提供。
-- 可以接收通用能力 evolution 审核卡，但只投递最近的私聊绑定，不投递群聊。
+- 专家协作只显示活动和完成摘要。
+- 学习模式可用：`/learn 目标` 开启 live 会话（eval 等研究臂仍只在 Web），系统给出 outcome 后会发一张确认卡（听懂了 / 部分懂了 / 仍未解决），与网页确认同一套服务端语义；非 one-shot 会话选"仍未解决"且 incident 尚未升级时，服务端自动追发"换种讲法"。到期的间隔复习也会发进原飞书对话。学习面板、验证框和策略/讲法审阅仍只在 Web。
+- 可以接收通用能力 evolution 审核卡、能力停用建议卡和学习升级交接卡，但只投递最近的私聊绑定，不投递群聊。
 
 ### English
 
 - Feishu messages arrive through a long-lived connection, with no public webhook exposure required.
 - Direct messages are handled normally; group messages require an explicit bot mention. Existing topics remain isolated, but ordinary group messages do not cause automatic topic creation.
 - An allowlist is supported. The current data model is a single-user local product. Multiple real users would share one memory store, so it must not be exposed as a multi-tenant service.
-- Commands include `/help`, `/new`/`/clear`, `/agent`, `/agent admissions`, `/agent local`, `/stop`, `/continue`, and `/guide text`.
+- Commands include `/help`, `/new`/`/clear`, `/agent`, `/agent admissions`, `/agent local`, `/stop`, `/continue`, `/guide text`, and `/learn <goal>` (`/learn off` ends it).
 - `/continue` starts a new turn rather than reviving an exited process. `/guide` creates a guide run and queues it when busy.
 - An immediate reaction acknowledges receipt. Streaming CardKit cards show the latest answer, thinking activity, stop, and completion actions, with a plain-Markdown fallback.
 - The first AskUserQuestion can render up to six buttons. Multiple questions, multi-select, or complex free input are redirected to Web.
 - Inbound images and files use the same attachment/manifest path with a 20 MB limit, and failures are reported to the user. Outbound cards can show up to three delivered-file buttons and may also send file messages.
-- Specialist collaboration is summarized through activity and final counts. Learning mode V1 is not available in Feishu.
-- General capability-evolution review cards can be delivered only to the most recent direct-message binding, never to a group.
+- Specialist collaboration is summarized through activity and final counts.
+- Learning mode is available: `/learn <goal>` opens a live session (research arms such as eval datasets stay Web-only), and once the system proposes an outcome the channel sends a confirmation card (听懂了 / 部分懂了 / 仍未解决) running the same server-side semantics as the web buttons. An unresolved confirmation in a non-one-shot session auto-sends the try-another follow-up while the incident is still open. Due spaced reviews also post into the original Feishu conversation. The learning panel, verification box, and policy/approach review remain Web-only.
+- General capability-evolution review cards, capability-disable suggestions, and learning escalation handoffs can be delivered only to the most recent direct-message binding, never to a group.
 
 ## 14. 数据、事件与 API / Data, events, and APIs
 
@@ -747,11 +783,11 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 
 **中文**
 
-`packages/contracts` 统一 Web、Server 和渠道共享的 Conversation、Message、Run、Activity、Attachment、Manifest、Collaboration、Learning 和 Replay DTO。协作与学习状态通过持久事件和 SSE 更新，包括 `collaboration.task.updated`、`collaboration.handoff.updated`、`learning.suggested`、`learning.session.updated`、`learning.incident.updated` 和 `learning.policy.updated`。
+`packages/contracts` 统一 Web、Server 和渠道共享的 Conversation、Message、Run、Activity、Attachment、Manifest、Collaboration、Learning 和 Replay DTO。协作与学习状态通过持久事件和 SSE 更新，包括 `collaboration.task.updated`、`collaboration.handoff.updated`、`learning.suggested`、`learning.session.updated`、`learning.incident.updated`、`learning.policy.updated` 和 `learning.variant.updated`。
 
 **English**
 
-`packages/contracts` defines the shared Conversation, Message, Run, Activity, Attachment, Manifest, Collaboration, Learning, and Replay DTOs used by Web, Server, and channels. Collaboration and learning state updates use durable events and SSE, including `collaboration.task.updated`, `collaboration.handoff.updated`, `learning.suggested`, `learning.session.updated`, `learning.incident.updated`, and `learning.policy.updated`.
+`packages/contracts` defines the shared Conversation, Message, Run, Activity, Attachment, Manifest, Collaboration, Learning, and Replay DTOs used by Web, Server, and channels. Collaboration and learning state updates use durable events and SSE, including `collaboration.task.updated`, `collaboration.handoff.updated`, `learning.suggested`, `learning.session.updated`, `learning.incident.updated`, `learning.policy.updated`, and `learning.variant.updated`.
 
 ## 15. 配置、部署与可观察性 / Configuration, deployment, and observability
 
@@ -834,7 +870,8 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - 不接入 PrairieLearn，也不建设正式题库、考试、评分、课程或学生管理系统。
 - 学习模式不声称证明真实学习效果，不使用强化学习，不自动发布教学策略；合成演示不是用户真实学习数据。
 - `escalated` 是学习状态，不代表已经联系真人教师。
-- 当前学习模式只在 Web 提供；飞书仍可普通对话，但没有学习 Session、验证框和策略面板。
+- 飞书可以用 `/learn` 跑完整学习回路并在卡片上确认，但没有学习面板、验证回答框，也不能在飞书审阅策略修订或候选讲法——这些仍只在 Web；eval 等研究臂也只在 Web 开启。
+- 间隔复习会按 +2 天 / +5 天回访，但它是一次真实 Agent 回合，不是保留率测量；复习结果与普通学习结果同权，不构成记忆曲线证据。
 - 可信专家当前先服务申学 Profile；它不是开放式 Agent Marketplace、A2A 网络或多机器人组织。
 - 不自动提交申请、付款、发邮件、向外部人员发送消息或替用户做不可逆决定。
 - 当前 Web 会展示并在本机保存 SDK 提供的 Thinking/Reasoning 流；尚未实现“不显示、不落库”的隐私边界，也不能保证该流已脱敏。产品不应把它宣传为完整 chain-of-thought 或安全摘要。
@@ -847,7 +884,8 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - There is no PrairieLearn integration and no formal question bank, exam, grading, course, or student-management system.
 - Learning mode does not claim proven learning effects, use reinforcement learning, or automatically publish teaching policies. Synthetic demos are not real user learning data.
 - `escalated` is a learning state; it does not mean a human teacher has been contacted.
-- Learning mode is currently Web-only. Feishu still supports ordinary chat but has no learning session, verification box, or strategy panel.
+- Feishu can run the full learning loop via `/learn` and confirm outcomes on a card, but it has no learning panel or verification answer box, and policy revisions and candidate approaches cannot be reviewed there — those stay Web-only, as does starting a research arm such as an eval dataset.
+- Spaced reviews revisit at +2 and +5 days, but a review is one real agent turn, not a retention measurement; its outcome carries the same weight as any other and is not evidence about a forgetting curve.
 - Trusted specialists currently serve the admissions profile first. This is not an open Agent Marketplace, A2A network, or multi-bot organization.
 - The product does not automatically submit applications, make payments, send email, message external people, or make irreversible decisions for the user.
 - The current Web UI exposes and locally stores the SDK-provided Thinking/Reasoning stream. A “never display or persist reasoning” privacy boundary is not yet implemented, and the stream is not guaranteed to be redacted. The product must not market it as either complete chain-of-thought or a safe summary.
@@ -857,7 +895,7 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 
 ## 相关正式文档 / Related authoritative documents
 
-- [README.md](../README.md)：安装、配置、日常使用与安全入口 / Setup, configuration, daily use, and security entry point.
+- [README.md](../README.md)（English）与 [README.zh-CN.md](../README.zh-CN.md)（简体中文）：安装、配置、日常使用与安全入口 / Setup, configuration, daily use, and security entry point.
 - [ADMISSIONS_ASSISTANT.md](./ADMISSIONS_ASSISTANT.md)：申学领域契约、数据与工具 / Admissions-domain contract, data, and tools.
 - [ADAPTIVE_LEARNING_LOOP_SPEC.md](./internal/ADAPTIVE_LEARNING_LOOP_SPEC.md)：学习模式正式规范 / Formal learning-mode specification.
 - [FEISHU_SETUP.md](./FEISHU_SETUP.md)：飞书配置、权限与命令 / Feishu setup, permissions, and commands.
