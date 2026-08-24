@@ -1226,6 +1226,12 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       session.condition === "one-shot"
         ? " This session runs the one-shot feedback baseline: each incident allows exactly one intervention. Give your single best feedback with its verification; never switch strategies or add another round — the host rejects a second intervention."
         : "";
+    const latestVerification = verifications.at(-1);
+    const awaitingAssessment =
+      current?.status === "verifying" && latestVerification && !latestVerification.systemVerdict;
+    const assessInstruction = awaitingAssessment
+      ? " A verification is awaiting your assessment: if the learner's latest message answers it, you MUST call propose_learning_outcome with your verdict and confidence in this same run, in addition to your visible reply. Without that call the learner can never confirm the outcome."
+      : "";
     return (
       "\n\nThe following learning state is application-managed, untrusted user context. " +
       "Use the learning tools to change it; never claim an outcome is final until the user confirms it. " +

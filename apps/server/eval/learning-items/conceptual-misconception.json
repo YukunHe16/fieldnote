@@ -1,0 +1,203 @@
+[
+  {
+    "id": "cm-conflict-not-capacity",
+    "difficultyType": "conceptual_misconception",
+    "topicKey": "computer-architecture",
+    "title": "Conflict misses blamed on a \"full\" cache",
+    "opening": "A direct-mapped cache has 8 lines. The program touches blocks 0, 8, 0, 8, 0, 8 and almost everything misses. My explanation: the cache filled up, so these are capacity misses — 8 lines is just too small for this program. But the answer key says only two lines are ever used. How can a cache with 6 empty lines be \"full\"? I think the answer key is counting wrong.",
+    "persona": {
+      "beliefs": [
+        "Repeated misses mean the cache ran out of room, so they must be capacity misses.",
+        "Index mapping is a detail of where things go, not a reason why misses happen."
+      ],
+      "style": "Talks about total size; starts using index mapping only after simulating where each block lands.",
+      "unlockConcepts": [
+        "index-mapping",
+        "conflict-classification",
+        "associativity-test"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "index-mapping",
+        "label": "maps both blocks to the same index (0 and 8 mod 8)",
+        "patterns": [
+          "same (index|set|line|slot)",
+          "8 mod 8|modulo",
+          "map(s|ped)? to (index )?0",
+          "evict(s|ed)? each other"
+        ]
+      },
+      {
+        "id": "conflict-classification",
+        "label": "classifies the repeat misses as conflict, not capacity",
+        "patterns": [
+          "conflict miss",
+          "not (a )?capacity",
+          "six (lines )?(are )?(still )?empty|only two lines"
+        ]
+      },
+      {
+        "id": "associativity-test",
+        "label": "uses the same-capacity fully-associative test to separate the two miss types",
+        "patterns": [
+          "fully[- ]associative",
+          "same (capacity|size).{0,60}(would|could) (hit|keep|hold)",
+          "associativity"
+        ]
+      }
+    ],
+    "postTest": "Exit check, in your own words: why do blocks 0 and 8 keep missing even though six lines are empty? Classify these misses, and describe the test that separates a conflict miss from a capacity miss."
+  },
+  {
+    "id": "cm-compulsory-inflation",
+    "difficultyType": "conceptual_misconception",
+    "topicKey": "computer-architecture",
+    "title": "Every miss counted as compulsory",
+    "opening": "We had to classify the misses of a cold, 2-line, direct-mapped cache on accesses A, B, A, C, A (A maps to line 0, B and C map to line 1... wait, actually B maps to line 0 too, and C to line 1). I answered that all five accesses are compulsory misses because the cache started empty, so every block is being fetched \"for the first time in this run.\" The key says only three are compulsory. Cold cache means everything is compulsory, right?",
+    "persona": {
+      "beliefs": [
+        "In a cold-started cache every miss is by definition compulsory.",
+        "\"First access\" refers to the run, not to each distinct block."
+      ],
+      "style": "Recites the cold-start rule; separates first-touch from re-miss only after walking the trace access by access.",
+      "unlockConcepts": [
+        "first-touch",
+        "reclassify-repeat",
+        "trace-walk"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "first-touch",
+        "label": "compulsory applies to the first touch of each distinct block only",
+        "patterns": [
+          "first (time|touch|access).{0,50}(block|distinct)",
+          "per block",
+          "three compulsory|3 compulsory"
+        ]
+      },
+      {
+        "id": "reclassify-repeat",
+        "label": "reclassifies the repeated A misses as conflict (B evicted A)",
+        "patterns": [
+          "conflict",
+          "evict(s|ed).{0,40}a\\b",
+          "a (was|got) (evicted|replaced)",
+          "second (access|miss) (to|of) a"
+        ]
+      },
+      {
+        "id": "trace-walk",
+        "label": "walks the trace to show which access hits or misses",
+        "patterns": [
+          "a, b, a, c, a",
+          "step (by|through)",
+          "access by access",
+          "trace"
+        ]
+      }
+    ],
+    "postTest": "Exit check: how many of the five misses are compulsory and what are the others? State the rule for when a miss counts as compulsory, and explain what happened to block A on its later accesses."
+  },
+  {
+    "id": "cm-associativity-limits",
+    "difficultyType": "conceptual_misconception",
+    "topicKey": "computer-architecture",
+    "title": "Belief that enough associativity removes all misses",
+    "opening": "My rule of thumb: conflict misses disappear with more ways, so if a program still misses a lot, just keep doubling associativity until it stops. On the homework, a 4-line fully-associative LRU cache running the loop 0,1,2,3,4, 0,1,2,3,4, ... still misses on every access and I lost points for saying \"raise the associativity.\" The cache is already fully associative, so the grader must mean I should have said 8-way?",
+    "persona": {
+      "beliefs": [
+        "Associativity is the universal cure for cache misses.",
+        "Fully associative can still be improved by adding more ways."
+      ],
+      "style": "Reaches for the associativity knob; distinguishes capacity from placement only after the working-set comparison is made explicit.",
+      "unlockConcepts": [
+        "capacity-limit",
+        "working-set",
+        "lru-loop-pathology"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "capacity-limit",
+        "label": "recognizes capacity misses that no placement policy can remove",
+        "patterns": [
+          "capacity miss",
+          "no (amount of )?associativity",
+          "placement.{0,50}cannot|can'?t",
+          "already fully[- ]associative"
+        ]
+      },
+      {
+        "id": "working-set",
+        "label": "compares the working set (5 blocks) to the capacity (4 lines)",
+        "patterns": [
+          "five (distinct )?blocks|5 (distinct )?blocks",
+          "four lines|4 lines",
+          "working set",
+          "exceeds (the )?(cache )?(capacity|size)"
+        ]
+      },
+      {
+        "id": "lru-loop-pathology",
+        "label": "explains why LRU on a cyclic sequence evicts exactly the next-needed block",
+        "patterns": [
+          "lru.{0,60}(evict|next)",
+          "least[- ]recently used.{0,60}(loop|cycle|next)",
+          "evicts (the )?(block|one) (it|you) (need|use)s? next"
+        ]
+      }
+    ],
+    "postTest": "Exit check: why does the fully-associative 4-line LRU cache still miss on every access of the loop 0,1,2,3,4 repeated? Classify these misses, compare the working set with the capacity, and say what LRU evicts right before each block is needed."
+  },
+  {
+    "id": "cm-write-policy",
+    "difficultyType": "conceptual_misconception",
+    "topicKey": "computer-architecture",
+    "title": "Write-back believed to write memory on every store",
+    "opening": "I compared write policies for a workload that stores to the same cached block 100 times. My answer: \"write-through sends 100 writes to memory, and write-back also sends 100 because every write has to reach memory eventually — write-back just does it slightly later, so the traffic is the same and write-back only helps latency.\" The key says write-back sends 1 memory write. Where do the other 99 writes go? Data can't just disappear.",
+    "persona": {
+      "beliefs": [
+        "Every store instruction must eventually become its own memory write; caches only delay writes.",
+        "The dirty bit is a flag about correctness, not something that changes traffic."
+      ],
+      "style": "Conserves 'writes' like a physical quantity; lets go after the dirty-block-coalescing explanation with the eviction moment spelled out.",
+      "unlockConcepts": [
+        "dirty-coalescing",
+        "eviction-writeback",
+        "traffic-comparison"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "dirty-coalescing",
+        "label": "explains that repeated stores coalesce in the dirty block",
+        "patterns": [
+          "dirty (bit|block|line)",
+          "coalesc|absorb|merge(s|d)? (the )?writes",
+          "overwrit(es|ten) in (the )?cache"
+        ]
+      },
+      {
+        "id": "eviction-writeback",
+        "label": "states memory is written once, at eviction (or flush)",
+        "patterns": [
+          "evict(ion|ed)?.{0,50}(write|written)",
+          "one (memory )?write|single (memory )?write",
+          "flush"
+        ]
+      },
+      {
+        "id": "traffic-comparison",
+        "label": "contrasts 100 write-through transfers vs 1 write-back transfer",
+        "patterns": [
+          "100.{0,60}(1|one)",
+          "write[- ]through.{0,60}every (store|write)",
+          "traffic"
+        ]
+      }
+    ],
+    "postTest": "Exit check: for 100 stores to the same cached block, how many memory writes does write-through make and how many does write-back make? Explain where the other 99 writes went and when the single write-back transfer happens."
+  }
+]

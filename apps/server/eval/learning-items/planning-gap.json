@@ -1,0 +1,206 @@
+[
+  {
+    "id": "pg-sum-nested",
+    "difficultyType": "planning_gap",
+    "topicKey": "programming-plans",
+    "title": "Nested list sum patched with isinstance guards",
+    "opening": "My function crashes and I keep adding checks but it still feels wrong.\n\n```python\ndef deep_sum(items):\n    total = 0\n    for x in items:\n        if isinstance(x, list):\n            total += x[0]\n        else:\n            total += x\n    return total\n```\n\n`deep_sum([1, [2, [3, 4]], 5])` returns 8 instead of 15. Should I add another isinstance check inside the if? How many levels of checks do I need?",
+    "persona": {
+      "beliefs": [
+        "Nesting can be handled by adding one more isinstance level each time a test fails.",
+        "Recursion is not on my radar; I think in terms of a single loop over the input."
+      ],
+      "style": "Asks for the next patch to apply; does not mention recursion until the tutor explains the plan.",
+      "unlockConcepts": [
+        "base-case",
+        "recursive-reduction",
+        "combine-results"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "base-case",
+        "label": "names the non-list / empty base case",
+        "patterns": [
+          "base case",
+          "not a list",
+          "plain number",
+          "empty list",
+          "just return (the )?(number|element|x)"
+        ]
+      },
+      {
+        "id": "recursive-reduction",
+        "label": "recursively handles arbitrarily deep sublists",
+        "patterns": [
+          "recurs",
+          "call (deep_sum|itself|the function) (on|with)",
+          "same function on the sublist"
+        ]
+      },
+      {
+        "id": "combine-results",
+        "label": "combines subresults by addition",
+        "patterns": [
+          "add(ing)? (the |up )?(results|sums|totals)",
+          "sum of the recursive",
+          "total \\+=? deep_sum"
+        ]
+      }
+    ],
+    "postTest": "Exit check, in your own words: what is the complete plan for deep_sum so it works for any depth of nesting? State what happens for a plain number or empty list, what the function does when it meets a sublist, and how the pieces are put together into the final total."
+  },
+  {
+    "id": "pg-count-leaves",
+    "difficultyType": "planning_gap",
+    "topicKey": "programming-plans",
+    "title": "Tree leaf count attempted as a half-finished while loop",
+    "opening": "I need to count the leaves of a binary tree (a node has .left and .right, a leaf has neither). I started with a loop because that is how I count things:\n\n```python\ndef count_leaves(node):\n    count = 0\n    while node is not None:\n        if node.left is None and node.right is None:\n            count += 1\n        node = node.left\n    return count\n```\n\nIt only ever finds one leaf. I think I need a second loop for the right side somehow?",
+    "persona": {
+      "beliefs": [
+        "A tree can be walked with one pointer and a while loop, like a linked list.",
+        "Each recursive call would just overwrite the same variables, so recursion cannot keep two sides separate."
+      ],
+      "style": "Suggests adding more loops or stacks; only accepts recursion once the tutor explains how each call has its own frame and how results combine.",
+      "unlockConcepts": [
+        "base-case",
+        "two-subproblems",
+        "combine-results"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "base-case",
+        "label": "states the base cases (empty tree 0, leaf 1)",
+        "patterns": [
+          "(none|empty) (tree|node).{0,40}(0|zero)",
+          "leaf.{0,40}(1|one)",
+          "base case"
+        ]
+      },
+      {
+        "id": "two-subproblems",
+        "label": "reduces to left and right subtrees",
+        "patterns": [
+          "left.{0,50}right",
+          "both (subtrees|sides|children)",
+          "count_leaves\\(node\\.left\\)"
+        ]
+      },
+      {
+        "id": "combine-results",
+        "label": "adds the two subtree counts",
+        "patterns": [
+          "add(s|ing)? (them|the (two )?(counts|results))",
+          "left.{0,30}\\+.{0,30}right",
+          "sum of (the )?(two|both)"
+        ]
+      }
+    ],
+    "postTest": "Exit check, in your own words: describe the plan for count_leaves. What are the base cases and what do they return, how does the problem get smaller, and how do the answers for node.left and node.right turn into the final count?"
+  },
+  {
+    "id": "pg-reverse-accumulator",
+    "difficultyType": "planning_gap",
+    "topicKey": "programming-plans",
+    "title": "Recursive reverse leaking through a global accumulator",
+    "opening": "My recursive string reverse only works once, then gives wrong answers:\n\n```python\nresult = \"\"\n\ndef reverse(s):\n    global result\n    if s:\n        result = s[0] + result\n        reverse(s[1:])\n    return result\n```\n\n`reverse(\"ab\")` gives \"ba\", but calling `reverse(\"cd\")` right after gives \"dcba\". I guess I need to remember to reset the global before every call? Is there a decorator that resets globals?",
+    "persona": {
+      "beliefs": [
+        "Recursion needs an external accumulator because a call cannot hand a value back to its caller.",
+        "The fix is to reset the global more carefully, not to restructure the function."
+      ],
+      "style": "Keeps proposing reset mechanisms; changes mind only when the tutor explains building the answer from return values.",
+      "unlockConcepts": [
+        "return-composition",
+        "base-case",
+        "no-shared-state"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "return-composition",
+        "label": "builds the result from the recursive return value",
+        "patterns": [
+          "return reverse\\(s\\[1:\\]\\)",
+          "reverse\\(rest\\).{0,30}\\+",
+          "use[s]? the return(ed)? value",
+          "combine.{0,40}return"
+        ]
+      },
+      {
+        "id": "base-case",
+        "label": "empty string returns itself as the base case",
+        "patterns": [
+          "empty string",
+          "if not s",
+          "s == \"\"",
+          "base case"
+        ]
+      },
+      {
+        "id": "no-shared-state",
+        "label": "explains why shared mutable state breaks repeated calls",
+        "patterns": [
+          "global",
+          "shared state",
+          "left over from the (previous|last) call",
+          "each call.{0,50}own"
+        ]
+      }
+    ],
+    "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, how the recursive call's return value is used to build the result, and why the global accumulator caused wrong answers on the second call."
+  },
+  {
+    "id": "pg-power-halving",
+    "difficultyType": "planning_gap",
+    "topicKey": "programming-plans",
+    "title": "Fast exponentiation with only the even-exponent plan",
+    "opening": "I read that pow(x, n) can be computed in O(log n) by squaring, and wrote this:\n\n```python\ndef fast_pow(x, n):\n    half = fast_pow(x, n // 2)\n    return half * half\n```\n\nIt recurses forever. I tried returning x when n == 1 but then fast_pow(2, 5) gives 16 instead of 32. I think O(log n) only works for powers of two and everyone just rounds?",
+    "persona": {
+      "beliefs": [
+        "The halving trick only applies to even exponents; odd exponents are a special unsupported case.",
+        "A missing stopping point is a minor detail, not a structural part of the plan."
+      ],
+      "style": "Wants a one-line patch; accepts the full plan only when base case and the odd-exponent reduction are both spelled out.",
+      "unlockConcepts": [
+        "base-case",
+        "odd-reduction",
+        "termination"
+      ]
+    },
+    "concepts": [
+      {
+        "id": "base-case",
+        "label": "defines the n == 0 (or n == 1) base case",
+        "patterns": [
+          "n == 0.{0,30}(1|one)",
+          "zeroth power",
+          "base case",
+          "n == 1.{0,30}x"
+        ]
+      },
+      {
+        "id": "odd-reduction",
+        "label": "handles odd n with an extra factor of x",
+        "patterns": [
+          "odd.{0,60}(extra|multiply|times) x",
+          "x \\* half \\* half",
+          "n - 1",
+          "odd exponent"
+        ]
+      },
+      {
+        "id": "termination",
+        "label": "explains why halving reaches the base case",
+        "patterns": [
+          "halv(es|ing).{0,60}(0|zero|base)",
+          "n // 2.{0,50}smaller",
+          "eventually reach",
+          "terminat"
+        ]
+      }
+    ],
+    "postTest": "Exit check, in your own words: state the full plan for fast_pow. What is the base case, how is an odd exponent handled differently from an even one, and why does the recursion always terminate?"
+  }
+]
