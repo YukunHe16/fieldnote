@@ -975,6 +975,13 @@ export function useWorkspace() {
         // One-shot baseline sessions end after the single round: recording "unresolved"
         // must not auto-request another strategy the host would reject anyway.
         if (learningSession?.condition === "one-shot") return true;
+        // Mirror the Feishu card guard: only a still-diagnosed incident gets the follow-up.
+        // The third unresolved round escalates the incident to a human — auto-sending the
+        // try-another prompt then would burn a run and reopen teaching mid-handoff.
+        const incident = learningSession?.incidents.find((item) =>
+          item.verifications.some((entry) => entry.id === verificationId)
+        );
+        if (incident && incident.status !== "diagnosed") return true;
         return verdict !== "unresolved" || (await sendMessage(t("learningTryAnotherPrompt"), "normal", []));
       } catch {
         toast(t("syncFailed"), "danger");

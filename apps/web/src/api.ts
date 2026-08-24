@@ -1152,7 +1152,9 @@ export const api = {
   async learningVariants(input: { profileId: string; topicKey?: string | null }) {
     const params = new URLSearchParams();
     params.set("profileId", input.profileId);
-    if (input.topicKey) params.set("topicKey", input.topicKey);
+    // A topicless session's scope is the empty topic, which is a real filter value —
+    // omitting the param would list every topic's variants for the profile.
+    if (input.topicKey !== undefined) params.set("topicKey", input.topicKey ?? "");
     const response = await request<{ variants: LearningStrategyVariantDto[] }>(`/api/learning/variants?${params}`);
     return response.variants;
   },
