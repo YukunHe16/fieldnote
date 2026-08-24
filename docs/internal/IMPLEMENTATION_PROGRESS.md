@@ -112,3 +112,15 @@
 - 每个 milestone 独立提交，提交前运行相关测试与 `git diff --check`。
 - Shared Runtime、Orchestrator、Replay 的合并和阶段完成判定由主代理负责。
 - `data/.runtime-plugins/`、`data/evolved/`、数据库和工作区运行数据不得提交。
+
+## 里程碑收尾清单
+
+- [ ] `pnpm typecheck` / `pnpm test` / `pnpm build` / `git diff --check` 全过，验证日志补一行。
+- [ ] 若改动了对外可声称的行为（新能力、新边界、新失败模式），更新**本机私有材料的能力账本**
+      （`~/Documents/fieldnote-private/FACULTY_RESEARCH_MATCH.md` §2.2）——那是"系统能做什么"的
+      唯一事实源，其余材料引用它。只改这一处，然后回看该目录 ROADMAP §0 的 delta 要不要补一行。
+      **不要**在多份材料里各抄一份能力描述：那正是它们上次几小时内就集体过期的原因。
+- [ ] 若改动影响学习回路的行为或评测口径，标记既有评测数字为待重跑——数字必须描述当前的回路。
+- [ ] 提交前复查公开仓不含任何本机私有材料里的人名（具体姓名与 grep 命令记在
+      `~/Documents/fieldnote-private/` 的 ROADMAP §5，**不写进本仓库**——否则这条清单本身
+      就成了泄漏点）。
