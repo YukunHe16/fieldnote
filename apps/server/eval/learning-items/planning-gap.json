@@ -11,41 +11,23 @@
         "Recursion is not on my radar; I think in terms of a single loop over the input."
       ],
       "style": "Asks for the next patch to apply; does not mention recursion until the tutor explains the plan.",
-      "unlockConcepts": [
-        "base-case",
-        "recursive-reduction",
-        "combine-results"
-      ]
+      "unlockConcepts": ["base-case", "recursive-reduction", "combine-results"]
     },
     "concepts": [
       {
         "id": "base-case",
         "label": "names the non-list / empty base case",
-        "patterns": [
-          "base case",
-          "not a list",
-          "plain number",
-          "empty list",
-          "just return (the )?(number|element|x)"
-        ]
+        "patterns": ["base case", "not a list", "plain number", "empty list", "just return (the )?(number|element|x)"]
       },
       {
         "id": "recursive-reduction",
         "label": "recursively handles arbitrarily deep sublists",
-        "patterns": [
-          "recurs",
-          "call (deep_sum|itself|the function) (on|with)",
-          "same function on the sublist"
-        ]
+        "patterns": ["recurs", "call (deep_sum|itself|the function) (on|with)", "same function on the sublist"]
       },
       {
         "id": "combine-results",
         "label": "combines subresults by addition",
-        "patterns": [
-          "add(ing)? (the |up )?(results|sums|totals)",
-          "sum of the recursive",
-          "total \\+=? deep_sum"
-        ]
+        "patterns": ["add(ing)? (the |up )?(results|sums|totals)", "sum of the recursive", "total \\+=? deep_sum"]
       }
     ],
     "postTest": "Exit check, in your own words: what is the complete plan for deep_sum so it works for any depth of nesting? State what happens for a plain number or empty list, what the function does when it meets a sublist, and how the pieces are put together into the final total.",
@@ -55,11 +37,7 @@
         "Recursion is not on my radar; I think in terms of a single loop over the input."
       ],
       "style": "Asks for the next patch to apply; does not mention recursion until the tutor explains the plan.",
-      "unlockConcepts": [
-        "base-case",
-        "recursive-reduction",
-        "combine-results"
-      ],
+      "unlockConcepts": ["base-case", "recursive-reduction", "combine-results"],
       "consolidationRules": [
         "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
         "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
@@ -78,30 +56,18 @@
         "Each recursive call would just overwrite the same variables, so recursion cannot keep two sides separate."
       ],
       "style": "Suggests adding more loops or stacks; only accepts recursion once the tutor explains how each call has its own frame and how results combine.",
-      "unlockConcepts": [
-        "base-case",
-        "two-subproblems",
-        "combine-results"
-      ]
+      "unlockConcepts": ["base-case", "two-subproblems", "combine-results"]
     },
     "concepts": [
       {
         "id": "base-case",
         "label": "states the base cases (empty tree 0, leaf 1)",
-        "patterns": [
-          "(none|empty) (tree|node).{0,40}(0|zero)",
-          "leaf.{0,40}(1|one)",
-          "base case"
-        ]
+        "patterns": ["(none|empty) (tree|node).{0,40}(0|zero)", "leaf.{0,40}(1|one)", "base case"]
       },
       {
         "id": "two-subproblems",
         "label": "reduces to left and right subtrees",
-        "patterns": [
-          "left.{0,50}right",
-          "both (subtrees|sides|children)",
-          "count_leaves\\(node\\.left\\)"
-        ]
+        "patterns": ["left.{0,50}right", "both (subtrees|sides|children)", "count_leaves\\(node\\.left\\)"]
       },
       {
         "id": "combine-results",
@@ -120,11 +86,7 @@
         "Each recursive call would just overwrite the same variables, so recursion cannot keep two sides separate."
       ],
       "style": "Suggests adding more loops or stacks; only accepts recursion once the tutor explains how each call has its own frame and how results combine.",
-      "unlockConcepts": [
-        "base-case",
-        "two-subproblems",
-        "combine-results"
-      ],
+      "unlockConcepts": ["base-case", "two-subproblems", "combine-results"],
       "consolidationRules": [
         "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
         "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
@@ -143,11 +105,7 @@
         "The fix is to reset the global more carefully, not to restructure the function."
       ],
       "style": "Keeps proposing reset mechanisms; changes mind only when the tutor explains building the answer from return values.",
-      "unlockConcepts": [
-        "return-composition",
-        "base-case",
-        "no-shared-state"
-      ]
+      "unlockConcepts": ["return-composition", "base-case", "no-shared-state"]
     },
     "concepts": [
       {
@@ -163,22 +121,12 @@
       {
         "id": "base-case",
         "label": "empty string returns itself as the base case",
-        "patterns": [
-          "empty string",
-          "if not s",
-          "s == \"\"",
-          "base case"
-        ]
+        "patterns": ["empty string", "if not s", "s == \"\"", "base case"]
       },
       {
         "id": "no-shared-state",
         "label": "explains why shared mutable state breaks repeated calls",
-        "patterns": [
-          "global",
-          "shared state",
-          "left over from the (previous|last) call",
-          "each call.{0,50}own"
-        ]
+        "patterns": ["global", "shared state", "left over from the (previous|last) call", "each call.{0,50}own"]
       }
     ],
     "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, how the recursive call's return value is used to build the result, and why the global accumulator caused wrong answers on the second call.",
@@ -188,11 +136,7 @@
         "The fix is to reset the global more carefully, not to restructure the function."
       ],
       "style": "Keeps proposing reset mechanisms; changes mind only when the tutor explains building the answer from return values.",
-      "unlockConcepts": [
-        "return-composition",
-        "base-case",
-        "no-shared-state"
-      ],
+      "unlockConcepts": ["return-composition", "base-case", "no-shared-state"],
       "consolidationRules": [
         "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
         "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
@@ -211,42 +155,23 @@
         "A missing stopping point is a minor detail, not a structural part of the plan."
       ],
       "style": "Wants a one-line patch; accepts the full plan only when base case and the odd-exponent reduction are both spelled out.",
-      "unlockConcepts": [
-        "base-case",
-        "odd-reduction",
-        "termination"
-      ]
+      "unlockConcepts": ["base-case", "odd-reduction", "termination"]
     },
     "concepts": [
       {
         "id": "base-case",
         "label": "defines the n == 0 (or n == 1) base case",
-        "patterns": [
-          "n == 0.{0,30}(1|one)",
-          "zeroth power",
-          "base case",
-          "n == 1.{0,30}x"
-        ]
+        "patterns": ["n == 0.{0,30}(1|one)", "zeroth power", "base case", "n == 1.{0,30}x"]
       },
       {
         "id": "odd-reduction",
         "label": "handles odd n with an extra factor of x",
-        "patterns": [
-          "odd.{0,60}(extra|multiply|times) x",
-          "x \\* half \\* half",
-          "n - 1",
-          "odd exponent"
-        ]
+        "patterns": ["odd.{0,60}(extra|multiply|times) x", "x \\* half \\* half", "n - 1", "odd exponent"]
       },
       {
         "id": "termination",
         "label": "explains why halving reaches the base case",
-        "patterns": [
-          "halv(es|ing).{0,60}(0|zero|base)",
-          "n // 2.{0,50}smaller",
-          "eventually reach",
-          "terminat"
-        ]
+        "patterns": ["halv(es|ing).{0,60}(0|zero|base)", "n // 2.{0,50}smaller", "eventually reach", "terminat"]
       }
     ],
     "postTest": "Exit check, in your own words: state the full plan for fast_pow. What is the base case, how is an odd exponent handled differently from an even one, and why does the recursion always terminate?",
@@ -256,11 +181,7 @@
         "A missing stopping point is a minor detail, not a structural part of the plan."
       ],
       "style": "Wants a one-line patch; accepts the full plan only when base case and the odd-exponent reduction are both spelled out.",
-      "unlockConcepts": [
-        "base-case",
-        "odd-reduction",
-        "termination"
-      ],
+      "unlockConcepts": ["base-case", "odd-reduction", "termination"],
       "consolidationRules": [
         "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
         "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."

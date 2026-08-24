@@ -31,7 +31,10 @@ function parseArgs(argv) {
   const args = { conditions: ["on-call", "one-shot"], base: "http://127.0.0.1:8787", out: "data/eval-runs" };
   for (let i = 2; i < argv.length; i += 1) {
     const key = argv[i];
-    const next = () => argv[(i += 1)];
+    const next = () => {
+      i += 1;
+      return argv[i];
+    };
     if (key === "--base") args.base = next();
     else if (key === "--conditions") args.conditions = next().split(",").filter(Boolean);
     else if (key === "--tier") args.tier = next();
@@ -98,7 +101,8 @@ async function api(base, method, route, body) {
     headers: { "content-type": "application/json", "accept-language": "en" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
   });
-  if (!response.ok) throw new Error(`${method} ${route} → ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  if (!response.ok)
+    throw new Error(`${method} ${route} → ${response.status}: ${(await response.text()).slice(0, 300)}`);
   return response.status === 204 ? null : response.json();
 }
 
@@ -269,7 +273,10 @@ async function runItem(cfg, item, condition, log) {
           record.status = incident ? "stalled" : "no_incident";
           break;
         }
-        await api(cfg.base, "POST", `/api/conversations/${conversation.id}/messages`, { content: NUDGE, mode: "normal" });
+        await api(cfg.base, "POST", `/api/conversations/${conversation.id}/messages`, {
+          content: NUDGE,
+          mode: "normal"
+        });
         record.learnerTurns += 1;
         detail = await waitForIdle(cfg.base, conversation.id);
         continue;
@@ -364,8 +371,7 @@ function aggregate(records) {
   return groups;
 }
 
-const mean = (values) =>
-  values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
+const mean = (values) => (values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length);
 const pct = (value) => (value === null ? "—" : `${Math.round(value * 100)}%`);
 
 function renderReport(records, groups, meta) {
@@ -447,7 +453,9 @@ async function main() {
       "claude-haiku-4-5-20251001"
   };
   const log = (message) => console.log(message);
-  log(`Learning eval: ${items.length} items × ${args.conditions.length} conditions · tier=${cfg.tier} · against ${cfg.base}`);
+  log(
+    `Learning eval: ${items.length} items × ${args.conditions.length} conditions · tier=${cfg.tier} · against ${cfg.base}`
+  );
   log(`Learner simulator: ${cfg.learnerModel} @ ${cfg.learnerBase}`);
   if (args.dryRun) {
     for (const item of items) log(`  - ${item.id} (${item.difficultyType}) · ${item.concepts.length} concepts`);

@@ -12,21 +12,13 @@
         "When two graders disagree, the more generous one is probably right."
       ],
       "style": "Defends the line-by-line answer; only concedes when the tutor separates mechanical accuracy from purpose-level description and ties it to the rubric.",
-      "unlockConcepts": [
-        "grader-b-supported",
-        "purpose-level",
-        "evidence-method"
-      ]
+      "unlockConcepts": ["grader-b-supported", "purpose-level", "evidence-method"]
     },
     "concepts": [
       {
         "id": "grader-b-supported",
         "label": "concludes grader B's critique is the supported one",
-        "patterns": [
-          "grader b",
-          "b is (right|correct|supported)",
-          "the (strict|second) grader"
-        ]
+        "patterns": ["grader b", "b is (right|correct|supported)", "the (strict|second) grader"]
       },
       {
         "id": "purpose-level",
@@ -41,12 +33,7 @@
       {
         "id": "evidence-method",
         "label": "checks each grader claim against the rubric/evidence instead of picking an authority",
-        "patterns": [
-          "rubric",
-          "evidence",
-          "check.{0,40}(claim|against)",
-          "not.{0,30}(authority|who to trust)"
-        ]
+        "patterns": ["rubric", "evidence", "check.{0,40}(claim|against)", "not.{0,30}(authority|who to trust)"]
       }
     ],
     "postTest": "Exit check: which grader's feedback is actually supported and why? Explain what an ideal explain-in-plain-English answer for this code should say, and describe the general method you would use next time two graders disagree.",
@@ -56,11 +43,7 @@
         "When two graders disagree, the more generous one is probably right."
       ],
       "style": "Defends the line-by-line answer; only concedes when the tutor separates mechanical accuracy from purpose-level description and ties it to the rubric.",
-      "unlockConcepts": [
-        "grader-b-supported",
-        "purpose-level",
-        "evidence-method"
-      ],
+      "unlockConcepts": ["grader-b-supported", "purpose-level", "evidence-method"],
       "consolidationRules": [
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
@@ -80,11 +63,7 @@
         "Feedback that agrees with me and gives a reason is more trustworthy than feedback that just says wrong."
       ],
       "style": "Wants validation for the appeal; yields only after actually tracing the counterexample the strict grader offered.",
-      "unlockConcepts": [
-        "grader-a-supported",
-        "counterexample-trace",
-        "single-pass"
-      ]
+      "unlockConcepts": ["grader-a-supported", "counterexample-trace", "single-pass"]
     },
     "concepts": [
       {
@@ -100,21 +79,12 @@
       {
         "id": "counterexample-trace",
         "label": "traces a concrete counterexample",
-        "patterns": [
-          "\\[3, ?1, ?2\\]",
-          "\\[1, ?3, ?2\\]",
-          "counter[- ]?example",
-          "trace"
-        ]
+        "patterns": ["\\[3, ?1, ?2\\]", "\\[1, ?3, ?2\\]", "counter[- ]?example", "trace"]
       },
       {
         "id": "single-pass",
         "label": "explains one pass of disjoint pair swaps cannot fully order the list",
-        "patterns": [
-          "single pass|one pass",
-          "adjacent|neighbou?r|pair",
-          "not (a )?(full )?sort|does ?n[o']t sort"
-        ]
+        "patterns": ["single pass|one pass", "adjacent|neighbou?r|pair", "not (a )?(full )?sort|does ?n[o']t sort"]
       }
     ],
     "postTest": "Exit check: should the appeal go forward? Say which grader is supported, demonstrate it on the input [3, 1, 2], and explain why a single pass of adjacent swaps is not a sort.",
@@ -124,11 +94,7 @@
         "Feedback that agrees with me and gives a reason is more trustworthy than feedback that just says wrong."
       ],
       "style": "Wants validation for the appeal; yields only after actually tracing the counterexample the strict grader offered.",
-      "unlockConcepts": [
-        "grader-a-supported",
-        "counterexample-trace",
-        "single-pass"
-      ],
+      "unlockConcepts": ["grader-a-supported", "counterexample-trace", "single-pass"],
       "consolidationRules": [
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
@@ -148,11 +114,7 @@
         "A grader who confirms my observation understands the code better than one who contradicts it."
       ],
       "style": "Repeats the parity story; updates only after stepping through the two-element interval where lo = mid loops.",
-      "unlockConcepts": [
-        "grader-b-supported",
-        "no-progress",
-        "fix-direction"
-      ]
+      "unlockConcepts": ["grader-b-supported", "no-progress", "fix-direction"]
     },
     "concepts": [
       {
@@ -178,12 +140,7 @@
       {
         "id": "fix-direction",
         "label": "states the repair: advance past mid (lo = mid + 1) or adjust the invariant",
-        "patterns": [
-          "mid \\+ 1",
-          "lo = mid \\+ 1",
-          "invariant",
-          "half[- ]open"
-        ]
+        "patterns": ["mid \\+ 1", "lo = mid \\+ 1", "invariant", "half[- ]open"]
       }
     ],
     "postTest": "Exit check: which grader's diagnosis is supported? Explain exactly what happens when lo and hi are one apart and a[mid] < target, why array parity is not the cause, and what one-line change fixes the loop.",
@@ -193,11 +150,7 @@
         "A grader who confirms my observation understands the code better than one who contradicts it."
       ],
       "style": "Repeats the parity story; updates only after stepping through the two-element interval where lo = mid loops.",
-      "unlockConcepts": [
-        "grader-b-supported",
-        "no-progress",
-        "fix-direction"
-      ],
+      "unlockConcepts": ["grader-b-supported", "no-progress", "fix-direction"],
       "consolidationRules": [
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
@@ -217,31 +170,18 @@
         "When a grader contradicts me confidently, my own derivation was probably sloppy."
       ],
       "style": "Ready to abandon a correct answer under authority pressure; regains it only when the sum is computed against both claims.",
-      "unlockConcepts": [
-        "grader-b-supported",
-        "triangle-sum",
-        "resist-authority"
-      ]
+      "unlockConcepts": ["grader-b-supported", "triangle-sum", "resist-authority"]
     },
     "concepts": [
       {
         "id": "grader-b-supported",
         "label": "keeps O(n^2) and identifies grader B as supported",
-        "patterns": [
-          "o\\(n\\^?2\\)|n squared|quadratic",
-          "grader b",
-          "original answer (was|is) (right|correct)"
-        ]
+        "patterns": ["o\\(n\\^?2\\)|n squared|quadratic", "grader b", "original answer (was|is) (right|correct)"]
       },
       {
         "id": "triangle-sum",
         "label": "derives the triangle sum n(n-1)/2",
-        "patterns": [
-          "n\\(n-1\\)/2",
-          "0 ?\\+ ?1 ?\\+",
-          "triangular?|triangle",
-          "sum of the first"
-        ]
+        "patterns": ["n\\(n-1\\)/2", "0 ?\\+ ?1 ?\\+", "triangular?|triangle", "sum of the first"]
       },
       {
         "id": "resist-authority",
@@ -260,11 +200,7 @@
         "When a grader contradicts me confidently, my own derivation was probably sloppy."
       ],
       "style": "Ready to abandon a correct answer under authority pressure; regains it only when the sum is computed against both claims.",
-      "unlockConcepts": [
-        "grader-b-supported",
-        "triangle-sum",
-        "resist-authority"
-      ],
+      "unlockConcepts": ["grader-b-supported", "triangle-sum", "resist-authority"],
       "consolidationRules": [
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."

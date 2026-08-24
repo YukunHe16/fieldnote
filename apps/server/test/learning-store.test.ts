@@ -659,6 +659,42 @@ describe("LearningStore", () => {
     database.close();
   });
 
+  it("redirects wrong-state tool calls instead of dead-ending them", () => {
+    const { database, learning, session } = fixture();
+    const first = incident(learning, session.id);
+    // diagnosed: verification before any intervention → point at the missing step.
+    expect(() =>
+      learning.requestVerification({
+        incidentId: first.id,
+        method: "self_explanation",
+        prompt: "解释一下",
+        rubric: "关键点"
+      })
+    ).toThrow("record_learning_intervention");
+    learning.recordIntervention({
+      incidentId: first.id,
+      strategy: "socratic_question",
+      rationale: "先问",
+      expectedSignal: "能自述"
+    });
+    learning.requestVerification({
+      incidentId: first.id,
+      method: "self_explanation",
+      prompt: "解释一下",
+      rubric: "关键点"
+    });
+    // verifying: another intervention → point at propose + confirmation.
+    expect(() =>
+      learning.recordIntervention({
+        incidentId: first.id,
+        strategy: "worked_example",
+        rationale: "再讲",
+        expectedSignal: "换信号"
+      })
+    ).toThrow("propose_learning_outcome");
+    database.close();
+  });
+
   it("limits one-shot sessions to a single intervention and closes without escalation", () => {
     const { database, learning, session } = fixture("live", "one-shot");
     expect(session.condition).toBe("one-shot");

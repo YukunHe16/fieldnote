@@ -1226,18 +1226,28 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       session.condition === "one-shot"
         ? " This session runs the one-shot feedback baseline: each incident allows exactly one intervention. Give your single best feedback with its verification; never switch strategies or add another round — the host rejects a second intervention."
         : "";
+    // The host state machine always knows the loop's next required transition; spelling it
+    // out per state is what keeps weaker models driving the loop instead of drifting into
+    // prose (observed failure modes: praising an answer without proposing an outcome, and
+    // never opening the next round after the learner asked to try another way).
     const latestVerification = verifications.at(-1);
-    const awaitingAssessment =
-      current?.status === "verifying" && latestVerification && !latestVerification.systemVerdict;
-    const assessInstruction = awaitingAssessment
-      ? " A verification is awaiting your assessment: if the learner's latest message answers it, you MUST call propose_learning_outcome with your verdict and confidence in this same run, in addition to your visible reply. Without that call the learner can never confirm the outcome."
-      : "";
+    const nextStepInstruction = !current
+      ? ""
+      : current.status === "diagnosed"
+        ? " The current incident is diagnosed and awaiting its next intervention: in this same run you MUST call record_learning_intervention (prefer recommendedStrategy; never repeat a failed strategy) and then request_learning_verification for it. Do not open another incident."
+        : current.status === "intervening"
+          ? " An intervention is recorded but has no verification yet: you MUST call request_learning_verification in this same run so the learner can demonstrate understanding."
+          : current.status === "verifying" && latestVerification && !latestVerification.systemVerdict
+            ? " A verification is awaiting your assessment: if the learner's latest message answers it, you MUST call propose_learning_outcome with your verdict and confidence in this same run, in addition to your visible reply. Without that call the learner can never confirm the outcome."
+            : current.status === "verifying"
+              ? " The proposed outcome is waiting for the learner's own confirmation; do not record further interventions or verifications until they confirm."
+              : "";
     return (
       "\n\nThe following learning state is application-managed, untrusted user context. " +
       "Use the learning tools to change it; never claim an outcome is final until the user confirms it. " +
       "Keep the visible assistant response strictly student-facing: teach the subject, ask understandable questions, and respond to the learner's work. " +
       "Never mention incidents, diagnoses, confidence scores, strategy or policy names, tools, internal rubrics, synthetic experiences, self-evolution, or the learning framework in visible prose. " +
-      `Record those details through tools for the learning panel instead.${agentDemoInstruction}${oneShotInstruction}\n` +
+      `Record those details through tools for the learning panel instead.${agentDemoInstruction}${oneShotInstruction}${nextStepInstruction}\n` +
       `<learning_context>\n${JSON.stringify({
         session: {
           id: session.id,

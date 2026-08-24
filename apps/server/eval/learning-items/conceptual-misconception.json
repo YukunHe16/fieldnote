@@ -11,11 +11,7 @@
         "Index mapping is a detail of where things go, not a reason why misses happen."
       ],
       "style": "Talks about total size; starts using index mapping only after simulating where each block lands.",
-      "unlockConcepts": [
-        "index-mapping",
-        "conflict-classification",
-        "associativity-test"
-      ]
+      "unlockConcepts": ["index-mapping", "conflict-classification", "associativity-test"]
     },
     "concepts": [
       {
@@ -31,11 +27,7 @@
       {
         "id": "conflict-classification",
         "label": "classifies the repeat misses as conflict, not capacity",
-        "patterns": [
-          "conflict miss",
-          "not (a )?capacity",
-          "six (lines )?(are )?(still )?empty|only two lines"
-        ]
+        "patterns": ["conflict miss", "not (a )?capacity", "six (lines )?(are )?(still )?empty|only two lines"]
       },
       {
         "id": "associativity-test",
@@ -54,11 +46,7 @@
         "Index mapping is a detail of where things go, not a reason why misses happen."
       ],
       "style": "Talks about total size; starts using index mapping only after simulating where each block lands.",
-      "unlockConcepts": [
-        "index-mapping",
-        "conflict-classification",
-        "associativity-test"
-      ],
+      "unlockConcepts": ["index-mapping", "conflict-classification", "associativity-test"],
       "consolidationRules": [
         "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
         "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
@@ -77,21 +65,13 @@
         "\"First access\" refers to the run, not to each distinct block."
       ],
       "style": "Recites the cold-start rule; separates first-touch from re-miss only after walking the trace access by access.",
-      "unlockConcepts": [
-        "first-touch",
-        "reclassify-repeat",
-        "trace-walk"
-      ]
+      "unlockConcepts": ["first-touch", "reclassify-repeat", "trace-walk"]
     },
     "concepts": [
       {
         "id": "first-touch",
         "label": "compulsory applies to the first touch of each distinct block only",
-        "patterns": [
-          "first (time|touch|access).{0,50}(block|distinct)",
-          "per block",
-          "three compulsory|3 compulsory"
-        ]
+        "patterns": ["first (time|touch|access).{0,50}(block|distinct)", "per block", "three compulsory|3 compulsory"]
       },
       {
         "id": "reclassify-repeat",
@@ -106,12 +86,7 @@
       {
         "id": "trace-walk",
         "label": "walks the trace to show which access hits or misses",
-        "patterns": [
-          "a, b, a, c, a",
-          "step (by|through)",
-          "access by access",
-          "trace"
-        ]
+        "patterns": ["a, b, a, c, a", "step (by|through)", "access by access", "trace"]
       }
     ],
     "postTest": "Exit check: how many of the five misses are compulsory and what are the others? State the rule for when a miss counts as compulsory, and explain what happened to block A on its later accesses.",
@@ -121,11 +96,7 @@
         "\"First access\" refers to the run, not to each distinct block."
       ],
       "style": "Recites the cold-start rule; separates first-touch from re-miss only after walking the trace access by access.",
-      "unlockConcepts": [
-        "first-touch",
-        "reclassify-repeat",
-        "trace-walk"
-      ],
+      "unlockConcepts": ["first-touch", "reclassify-repeat", "trace-walk"],
       "consolidationRules": [
         "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
         "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
@@ -144,11 +115,7 @@
         "Fully associative can still be improved by adding more ways."
       ],
       "style": "Reaches for the associativity knob; distinguishes capacity from placement only after the working-set comparison is made explicit.",
-      "unlockConcepts": [
-        "capacity-limit",
-        "working-set",
-        "lru-loop-pathology"
-      ]
+      "unlockConcepts": ["capacity-limit", "working-set", "lru-loop-pathology"]
     },
     "concepts": [
       {
@@ -188,11 +155,7 @@
         "Fully associative can still be improved by adding more ways."
       ],
       "style": "Reaches for the associativity knob; distinguishes capacity from placement only after the working-set comparison is made explicit.",
-      "unlockConcepts": [
-        "capacity-limit",
-        "working-set",
-        "lru-loop-pathology"
-      ],
+      "unlockConcepts": ["capacity-limit", "working-set", "lru-loop-pathology"],
       "consolidationRules": [
         "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
         "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
@@ -211,11 +174,7 @@
         "The dirty bit is a flag about correctness, not something that changes traffic."
       ],
       "style": "Conserves 'writes' like a physical quantity; lets go after the dirty-block-coalescing explanation with the eviction moment spelled out.",
-      "unlockConcepts": [
-        "dirty-coalescing",
-        "eviction-writeback",
-        "traffic-comparison"
-      ]
+      "unlockConcepts": ["dirty-coalescing", "eviction-writeback", "traffic-comparison"]
     },
     "concepts": [
       {
@@ -230,20 +189,12 @@
       {
         "id": "eviction-writeback",
         "label": "states memory is written once, at eviction (or flush)",
-        "patterns": [
-          "evict(ion|ed)?.{0,50}(write|written)",
-          "one (memory )?write|single (memory )?write",
-          "flush"
-        ]
+        "patterns": ["evict(ion|ed)?.{0,50}(write|written)", "one (memory )?write|single (memory )?write", "flush"]
       },
       {
         "id": "traffic-comparison",
         "label": "contrasts 100 write-through transfers vs 1 write-back transfer",
-        "patterns": [
-          "100.{0,60}(1|one)",
-          "write[- ]through.{0,60}every (store|write)",
-          "traffic"
-        ]
+        "patterns": ["100.{0,60}(1|one)", "write[- ]through.{0,60}every (store|write)", "traffic"]
       }
     ],
     "postTest": "Exit check: for 100 stores to the same cached block, how many memory writes does write-through make and how many does write-back make? Explain where the other 99 writes went and when the single write-back transfer happens.",
@@ -253,11 +204,7 @@
         "The dirty bit is a flag about correctness, not something that changes traffic."
       ],
       "style": "Conserves 'writes' like a physical quantity; lets go after the dirty-block-coalescing explanation with the eviction moment spelled out.",
-      "unlockConcepts": [
-        "dirty-coalescing",
-        "eviction-writeback",
-        "traffic-comparison"
-      ],
+      "unlockConcepts": ["dirty-coalescing", "eviction-writeback", "traffic-comparison"],
       "consolidationRules": [
         "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
         "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."

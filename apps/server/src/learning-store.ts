@@ -646,11 +646,16 @@ export class LearningStore {
   }): LearningInterventionDto {
     const incident = this.requireIncident(input.incidentId);
     this.assertIncidentCurrent(incident);
-    if (
-      !has(LEARNING_INTERVENTION_STRATEGIES, input.strategy) ||
-      !["diagnosed", "intervening"].includes(incident.status)
-    )
+    if (!has(LEARNING_INTERVENTION_STRATEGIES, input.strategy))
       throw learningConflict("Intervention is not allowed for this learning incident");
+    if (!["diagnosed", "intervening"].includes(incident.status))
+      throw learningConflict(
+        incident.status === "verifying"
+          ? // Redirect instead of dead-ending: models that only hear "not allowed" stop
+            // driving the loop altogether (observed in the offline evaluation).
+            "Intervention is not allowed while a verification is pending: propose_learning_outcome after the learner replies, then wait for the learner's confirmation before the next intervention round"
+          : `Intervention is not allowed for a ${incident.status} learning incident`
+      );
     const rationale = clean(input.rationale, 2_000);
     const expectedSignal = clean(input.expectedSignal, 1_000);
     if (!rationale || !expectedSignal) throw new Error("Intervention rationale and expected signal are required");
@@ -707,8 +712,14 @@ export class LearningStore {
   }): LearningVerificationDto {
     const incident = this.requireIncident(input.incidentId);
     this.assertIncidentCurrent(incident);
-    if (incident.status !== "intervening" || !has(LEARNING_VERIFICATION_METHODS, input.method))
+    if (!has(LEARNING_VERIFICATION_METHODS, input.method))
       throw learningConflict("Verification is not allowed for this learning incident");
+    if (incident.status !== "intervening")
+      throw learningConflict(
+        incident.status === "diagnosed"
+          ? "Verification requires an intervention first: call record_learning_intervention for this incident, then request the verification"
+          : `Verification is not allowed for a ${incident.status} learning incident`
+      );
     if (input.interventionId) {
       const row = this.database
         .prepare("SELECT incident_id FROM learning_interventions WHERE id = ?")
