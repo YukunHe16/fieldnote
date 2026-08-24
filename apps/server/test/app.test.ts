@@ -822,6 +822,15 @@ describe("HTTP API", () => {
       datasetKind: "live",
       status: "active"
     });
+    const variants = await app.inject({ method: "GET", url: "/api/learning/variants?profileId=local-operator" });
+    expect(variants.statusCode).toBe(200);
+    expect(variants.json()).toEqual({ variants: [] });
+    const missingReview = await app.inject({
+      method: "POST",
+      url: "/api/learning/variants/nonexistent/review",
+      payload: { verdict: "trial" }
+    });
+    expect(missingReview.statusCode).toBeGreaterThanOrEqual(400);
   });
 
   it("manages a web learning session and confirms a system-proposed outcome", async () => {

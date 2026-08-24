@@ -46,6 +46,7 @@ import type {
   LearningInterventionDto,
   LearningHandoffReportDto,
   LearningMetricsDto,
+  LearningStrategyVariantDto,
   LearningOutcome,
   LearningPolicyRevisionDto,
   LearningSessionDto,
@@ -1146,6 +1147,27 @@ export const api = {
     if (input.datasetKind) params.set("datasetKind", input.datasetKind);
     const response = await request<{ metrics: LearningMetricsDto }>(`/api/learning/metrics?${params}`);
     return response.metrics;
+  },
+
+  async learningVariants(input: { profileId: string; topicKey?: string | null }) {
+    const params = new URLSearchParams();
+    params.set("profileId", input.profileId);
+    if (input.topicKey) params.set("topicKey", input.topicKey);
+    const response = await request<{ variants: LearningStrategyVariantDto[] }>(`/api/learning/variants?${params}`);
+    return response.variants;
+  },
+
+  async reviewLearningVariant(
+    id: string,
+    verdict: "trial" | "reject" | "enable" | "retire" | "keep",
+    conversationId?: string
+  ) {
+    const response = await request<{ variant: LearningStrategyVariantDto }>(`/api/learning/variants/${id}/review`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ verdict, ...(conversationId ? { conversationId } : {}) })
+    });
+    return response.variant;
   },
 
   async learningHandoff(incidentId: string) {

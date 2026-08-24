@@ -951,6 +951,182 @@ describe("LearningStore", () => {
     manual.database.close();
   });
 
+  it("invents variants with dedupe, a single pending per scope, and rejection memory", () => {
+    const { database, learning } = fixture();
+    const base = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception" as const,
+      baseStrategy: "socratic_question" as const
+    };
+    const created = learning.createVariant({
+      ...base,
+      title: "栈帧追踪法",
+      instruction: "让学生画出每次调用的独立栈帧再比较循环变量"
+    });
+    expect(created).toMatchObject({ status: "pending", origin: "distilled" });
+    // Similar wording (any status) blocks re-proposal.
+    expect(
+      learning.createVariant({
+        ...base,
+        title: "栈帧追踪法",
+        instruction: "让学生画出每次调用的独立栈帧再比较循环变量。"
+      })
+    ).toBeNull();
+    // A scope+base pair holds one pending candidate at a time.
+    expect(
+      learning.createVariant({ ...base, title: "另一种问法", instruction: "从最小输入开始问学生每一步谁在调用谁" })
+    ).toBeNull();
+    learning.reviewVariant(created!.id, "reject");
+    // Rejection memory: similar wording stays blocked even after rejection.
+    expect(
+      learning.createVariant({
+        ...base,
+        title: "栈帧追踪法",
+        instruction: "让学生画出每次调用的独立栈帧再比较循环变量"
+      })
+    ).toBeNull();
+    database.close();
+  });
+
+  it("runs variant review transitions with the two-trial cap", () => {
+    const { database, learning } = fixture();
+    const base = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception" as const,
+      baseStrategy: "socratic_question" as const
+    };
+    const first = learning.createVariant({
+      ...base,
+      title: "第一讲法",
+      instruction: "先画栈帧图再对比循环快照理解调用链"
+    })!;
+    expect(learning.reviewVariant(first.id, "trial").status).toBe("trial");
+    const second = learning.createVariant({
+      ...base,
+      title: "第二讲法",
+      instruction: "用套娃比喻走一遍嵌套调用的进入与返回过程"
+    })!;
+    expect(learning.reviewVariant(second.id, "trial").status).toBe("trial");
+    const third = learning.createVariant({
+      ...base,
+      title: "第三讲法",
+      instruction: "让学生亲手展开三层调用并标注每层的返回值来源"
+    })!;
+    expect(() => learning.reviewVariant(third.id, "trial")).toThrow("two variants");
+    expect(() => learning.reviewVariant(first.id, "enable")).not.toThrow();
+    expect(learning.getVariant(first.id)?.status).toBe("enabled");
+    expect(() => learning.reviewVariant(first.id, "keep")).toThrow("trial");
+    expect(learning.reviewVariant(first.id, "retire").status).toBe("retired");
+    expect(learning.reviewVariant(second.id, "retire").status).toBe("retired");
+    database.close();
+  });
+
+  it("offers deterministically and only to live on-call scopes", () => {
+    const { database, learning } = fixture();
+    const base = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception" as const,
+      baseStrategy: "socratic_question" as const
+    };
+    const first = learning.createVariant({
+      ...base,
+      title: "第一讲法",
+      instruction: "先画栈帧图再对比循环快照理解调用链"
+    })!;
+    learning.reviewVariant(first.id, "trial");
+    const offerScope = { ...base, datasetKind: "live" as const, condition: "on-call" as const };
+    expect(learning.offerVariant(offerScope)?.id).toBe(first.id);
+    expect(learning.offerVariant({ ...offerScope, datasetKind: "eval" })).toBeNull();
+    expect(learning.offerVariant({ ...offerScope, datasetKind: "demo" })).toBeNull();
+    expect(learning.offerVariant({ ...offerScope, datasetKind: "replay" })).toBeNull();
+    expect(learning.offerVariant({ ...offerScope, condition: "one-shot" })).toBeNull();
+    const second = learning.createVariant({
+      ...base,
+      title: "第二讲法",
+      instruction: "用套娃比喻走一遍嵌套调用的进入与返回过程"
+    })!;
+    learning.reviewVariant(second.id, "trial");
+    // Ties break toward the older trial; an enabled variant beats every trial.
+    expect(learning.offerVariant(offerScope)?.id).toBe(first.id);
+    learning.reviewVariant(second.id, "enable");
+    expect(learning.offerVariant(offerScope)?.id).toBe(second.id);
+    database.close();
+  });
+
+  it("attributes interventions to the offered variant only when the recorded strategy matches", () => {
+    const attributed = fixture();
+    const variant = attributed.learning.createVariant({
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception",
+      baseStrategy: "socratic_question",
+      title: "栈帧追踪法",
+      instruction: "先画栈帧图再对比循环快照理解调用链"
+    })!;
+    attributed.learning.reviewVariant(variant.id, "trial");
+    const current = incident(attributed.learning, attributed.session.id);
+    // Fresh scope → default order recommends socratic_question; recording it attributes the round.
+    complete(attributed.learning, current.id, "socratic_question", "resolved");
+    const rounds = attributed.learning.listInterventions(current.id);
+    expect(rounds[0]?.strategyVariantId).toBe(variant.id);
+    const exported = attributed.learning.exportResearch();
+    expect(exported.strategyVariants).toHaveLength(1);
+    expect(exported.experiences.at(-1)?.strategyVariantId).toBe(variant.id);
+    attributed.database.close();
+
+    const deviated = fixture();
+    const other = deviated.learning.createVariant({
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception",
+      baseStrategy: "socratic_question",
+      title: "栈帧追踪法",
+      instruction: "先画栈帧图再对比循环快照理解调用链"
+    })!;
+    deviated.learning.reviewVariant(other.id, "trial");
+    const deviatedIncident = incident(deviated.learning, deviated.session.id);
+    // The tutor deviated from the recommendation: no attribution, honest ITT semantics.
+    complete(deviated.learning, deviatedIncident.id, "direct_explanation", "resolved");
+    expect(deviated.learning.listInterventions(deviatedIncident.id)[0]?.strategyVariantId).toBeNull();
+    deviated.database.close();
+  });
+
+  it("recommends promotion after five attributed outcomes and respects the keep memory", () => {
+    const { database, learning, session } = fixture();
+    const variant = learning.createVariant({
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception",
+      baseStrategy: "socratic_question",
+      title: "栈帧追踪法",
+      instruction: "先画栈帧图再对比循环快照理解调用链"
+    })!;
+    learning.reviewVariant(variant.id, "trial");
+    const scope = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception" as const
+    };
+    for (let index = 0; index < 4; index += 1) {
+      complete(learning, incident(learning, session.id).id, "socratic_question", "resolved");
+      expect(learning.maybeRecommendVariantPromotion(scope)).toHaveLength(0);
+    }
+    complete(learning, incident(learning, session.id).id, "socratic_question", "resolved");
+    const [recommended] = learning.maybeRecommendVariantPromotion(scope);
+    expect(recommended).toMatchObject({ id: variant.id, recommendation: "promote" });
+    expect(recommended!.recommendationSummary).toContain("建议转正");
+    // Keeping dismisses the recommendation and blocks the identical evidence set.
+    learning.reviewVariant(variant.id, "keep");
+    expect(learning.maybeRecommendVariantPromotion(scope)).toHaveLength(0);
+    // A sixth attributed outcome changes the evidence set; the recommendation returns.
+    complete(learning, incident(learning, session.id).id, "socratic_question", "resolved");
+    expect(learning.maybeRecommendVariantPromotion(scope)[0]?.recommendation).toBe("promote");
+    database.close();
+  });
+
   it("books a two-day spaced-review revisit only for live on-call resolutions", () => {
     const day = 24 * 60 * 60 * 1_000;
     const live = fixture();

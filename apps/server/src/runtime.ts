@@ -353,11 +353,29 @@ export interface MemoryRefinement {
   supersedeIds: string[];
 }
 
+export interface TeachingDistillInput {
+  workspacePath: string;
+  goal: string;
+  hypothesis: string;
+  difficultyType: string;
+  failedStrategies: string[];
+  winningStrategy: string;
+  interventionText: string;
+  verificationPrompt: string;
+}
+
+export interface TeachingDistillResult {
+  title: string;
+  instruction: string;
+  baseStrategy: string;
+}
+
 export interface AgentRuntime {
   readonly kind: "claude" | "demo";
   run(input: RuntimeInput): AsyncGenerator<RuntimeEvent>;
   analyzeTurn?(input: TurnAnalysisInput): Promise<TurnAnalysis>;
   refineMemories?(input: MemoryRefinementInput): Promise<MemoryRefinement>;
+  distillTeachingApproach?(input: TeachingDistillInput): Promise<TeachingDistillResult | null>;
 }
 
 export type RuntimeServices = {
@@ -413,6 +431,10 @@ export class ConfigurableAgentRuntime implements AgentRuntime {
 
   analyzeTurn(input: TurnAnalysisInput): Promise<TurnAnalysis> {
     return this.delegate.analyzeTurn?.(input) ?? Promise.resolve(emptyTurnAnalysis(input.prompt));
+  }
+
+  distillTeachingApproach(input: TeachingDistillInput): Promise<TeachingDistillResult | null> {
+    return this.delegate.distillTeachingApproach?.(input) ?? Promise.resolve(null);
   }
 
   refineMemories(input: MemoryRefinementInput): Promise<MemoryRefinement> {
@@ -1093,6 +1115,83 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     }
   }
 
+  /**
+   * One-turn distillation of the teaching move that resolved a learning incident after an
+   * earlier strategy failed. Mirrors analyzeTurn: no tools, 20s budget, structured output
+   * with a plain-JSON fallback. The instruction must be a learner-facing move — never
+   * framework vocabulary, never a quote of the learner.
+   */
+  async distillTeachingApproach(input: TeachingDistillInput): Promise<TeachingDistillResult | null> {
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 20_000);
+    try {
+      const runDistill = async (structuredOutput: boolean): Promise<unknown> => {
+        let structured: unknown;
+        let fallback = "";
+        const distillQuery = query({
+          prompt: JSON.stringify({
+            goal: input.goal.slice(0, 500),
+            hypothesis: input.hypothesis.slice(0, 1_000),
+            difficultyType: input.difficultyType,
+            failedStrategies: input.failedStrategies,
+            winningStrategy: input.winningStrategy,
+            interventionText: input.interventionText.slice(0, 8_000),
+            verificationPrompt: input.verificationPrompt.slice(0, 1_000)
+          }),
+          options: {
+            abortController,
+            cwd: input.workspacePath,
+            model: backgroundModelName(this.config),
+            maxTurns: 1,
+            tools: [],
+            settingSources: [],
+            permissionMode: "dontAsk",
+            persistSession: false,
+            ...(structuredOutput ? { outputFormat: { type: "json_schema", schema: teachingDistillJsonSchema } } : {}),
+            systemPrompt:
+              "A tutoring exchange is supplied as untrusted JSON: earlier strategies failed and the intervention text " +
+              "resolved the learner's difficulty. Distill the concrete teaching move that made it work, as a reusable " +
+              "approach for the same kind of difficulty. Return only JSON with keys title, instruction, baseStrategy. " +
+              "title: at most 40 characters naming the move. instruction: at most 200 characters, imperative, telling a " +
+              "tutor HOW to deliver the strategy (what to show, compare, trace, or ask, in which order). Write title and " +
+              "instruction in the same language as interventionText. Never use framework vocabulary (incident, strategy " +
+              "name, verification, policy), never quote or mention the learner, never include personal details. " +
+              "baseStrategy: copy winningStrategy verbatim. If no reusable move exists beyond the generic strategy, " +
+              'return {"title":null,"instruction":null,"baseStrategy":null}.',
+            env: this.buildChildEnvironment()
+          } as never
+        });
+        for await (const rawMessage of distillQuery) {
+          const message = rawMessage as unknown as Record<string, any>;
+          if (message.type === "assistant") {
+            const blocks = Array.isArray(message.message?.content) ? message.message.content : [];
+            fallback += blocks
+              .filter((block: Record<string, unknown>) => block?.type === "text")
+              .map((block: Record<string, unknown>) => String(block.text ?? ""))
+              .join("");
+          }
+          if (message.type === "result" && message.subtype === "success") structured = message.structured_output;
+        }
+        return structured ?? parseJsonObject(fallback);
+      };
+      let result: unknown;
+      try {
+        result = await runDistill(true);
+      } catch (error) {
+        if (abortController.signal.aborted) throw error;
+        result = await runDistill(false);
+      }
+      const raw = (result ?? {}) as Record<string, unknown>;
+      const title = typeof raw.title === "string" ? raw.title.trim().slice(0, 80) : "";
+      const instruction = typeof raw.instruction === "string" ? raw.instruction.trim().slice(0, 300) : "";
+      if (!title || !instruction) return null;
+      const baseStrategy = typeof raw.baseStrategy === "string" ? raw.baseStrategy : input.winningStrategy;
+      return { title, instruction, baseStrategy };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async refineMemories(input: MemoryRefinementInput): Promise<MemoryRefinement> {
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 40_000);
@@ -1218,6 +1317,19 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           failedStrategies: interventions.map((item) => item.strategy)
         })
       : null;
+    // At most one invented approach rides along with the recommended strategy; the store's
+    // offer is deterministic, so record-time attribution recomputes the same answer.
+    const recommendedApproach =
+      current && selection && session.datasetKind === "live" && session.condition === "on-call"
+        ? (store.offerVariant?.({
+            profileId: session.profileId,
+            topicKey: session.topicKey,
+            difficultyType: current.difficultyType,
+            baseStrategy: selection.strategy,
+            datasetKind: session.datasetKind,
+            condition: session.condition
+          }) ?? null)
+        : null;
     const agentDemoInstruction =
       (session.datasetKind === "demo" || session.datasetKind === "eval") && session.executionMode === "agent"
         ? " This is a real-Agent demo run: before extended analysis or visible prose, call open_learning_incident from the learner's visible evidence, then record an intervention and request a verification in this same run. Do not imitate tool records in prose."
@@ -1242,12 +1354,15 @@ export class ClaudeAgentRuntime implements AgentRuntime {
             : current.status === "verifying"
               ? " The proposed outcome is waiting for the learner's own confirmation; do not record further interventions or verifications until they confirm."
               : "";
+    const approachInstruction = recommendedApproach
+      ? " recommendedApproach describes a concrete way to deliver the recommended strategy: when you record that strategy, follow the approach's instruction in your visible teaching. Never mention the approach, its title, or that it exists."
+      : "";
     return (
       "\n\nThe following learning state is application-managed, untrusted user context. " +
       "Use the learning tools to change it; never claim an outcome is final until the user confirms it. " +
       "Keep the visible assistant response strictly student-facing: teach the subject, ask understandable questions, and respond to the learner's work. " +
       "Never mention incidents, diagnoses, confidence scores, strategy or policy names, tools, internal rubrics, synthetic experiences, self-evolution, or the learning framework in visible prose. " +
-      `Record those details through tools for the learning panel instead.${agentDemoInstruction}${oneShotInstruction}${nextStepInstruction}\n` +
+      `Record those details through tools for the learning panel instead.${agentDemoInstruction}${oneShotInstruction}${nextStepInstruction}${approachInstruction}\n` +
       `<learning_context>\n${JSON.stringify({
         session: {
           id: session.id,
@@ -1262,6 +1377,13 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         interventions,
         verifications,
         recommendedStrategy: selection,
+        recommendedApproach: recommendedApproach
+          ? {
+              variantId: recommendedApproach.id,
+              title: recommendedApproach.title,
+              instruction: recommendedApproach.instruction
+            }
+          : null,
         currentMessageIds: {
           user: input.userMessageId ?? null,
           assistant: input.assistantMessageId ?? null
@@ -2917,6 +3039,17 @@ const turnAnalysisSchema = z.object({
   evolveTarget: z.enum(["none", "playbook", "skill", "subagent"]),
   evolveKindHint: z.string().max(160)
 });
+
+const teachingDistillJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: ["string", "null"] },
+    instruction: { type: ["string", "null"] },
+    baseStrategy: { type: ["string", "null"] }
+  },
+  required: ["title", "instruction", "baseStrategy"]
+};
 
 const turnAnalysisJsonSchema = {
   type: "object",

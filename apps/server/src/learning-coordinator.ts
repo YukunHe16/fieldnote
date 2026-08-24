@@ -61,6 +61,9 @@ export class LearningCoordinator {
   escalateIncident(...args: Parameters<LearningStore["escalateIncident"]>) {
     return this.store.escalateIncident(...args);
   }
+  offerVariant(...args: Parameters<LearningStore["offerVariant"]>) {
+    return this.store.offerVariant(...args);
+  }
 
   advanceDemoTurn(input: DemoLearningTurnInput): DemoLearningTurnResult | null {
     const session = this.store.getSessionForConversation(input.conversationId);

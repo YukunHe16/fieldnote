@@ -92,6 +92,20 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 受控策略演进的修订记录：`orderedStrategies`（候选顺序）、`evidenceExperienceIds`（证据）、
 `status`（pending/enabled/rejected/disabled）、`previousRevisionId`（回滚链）。
 
+### strategyVariants
+
+讲法（自发明教学方式）：`id` / `profileId` / `topicKey` / `difficultyType` /
+`baseStrategy`（所细化的基础策略，八选一，集合不变）/ `title` / `instruction`（具体讲法，≤300 字）/
+`origin`（仅 distilled）/ `status`（pending 待审 / trial 试用中 / enabled 转正 / rejected / retired）/
+`sourceIncidentId`（蒸馏来源 incident）/ `recommendation`（promote/retire/null，宿主按后验给出的建议）/
+`recommendationSummary` / `evidenceExperienceIds` / `attributedCount` / 时间戳。
+
+**归因口径（intention-to-treat）**：interventions 与 experiences 的 `strategyVariantId`
+由宿主确定性盖章——当且仅当导师记录的策略恰为宿主推荐策略、且该 scope 当时确有讲法在
+offer（enabled 优先，否则归因数最少的 trial，平局取最老）。模型无自报参数。注意这是观察性
+数据：无变体的基础策略行会过采样变体出现之前的时期，转正的因果检查是人审门，不是后验差值本身。
+讲法只在 live on-call 会话中被 offer 与蒸馏；eval 保持序无关、one-shot 保持纯基线。
+
 ### handoffs
 
 升级事件的结构化交接报告（宿主从上述表确定性渲染，不调模型）：`incidentId` / `goal` /

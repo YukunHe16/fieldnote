@@ -5,6 +5,7 @@ import type {
   LearningMetricsCellDto,
   LearningMetricsDto
 } from "@fieldnote/contracts";
+import { methodsSimilar } from "./evolution-store.js";
 import type { SqliteDatabase } from "./database.js";
 
 export const LEARNING_SESSION_STATUSES = ["suggested", "active", "paused", "completed", "dismissed"] as const;
@@ -112,6 +113,7 @@ export interface LearningInterventionDto {
   rationale: string;
   expectedSignal: string;
   policyRevisionId: string | null;
+  strategyVariantId: string | null;
   runId: string | null;
   messageId: string | null;
   round: number;
@@ -148,7 +150,53 @@ export interface LearningExperienceDto {
   strategy: LearningInterventionStrategy;
   outcome: Exclude<LearningOutcome, "unknown">;
   datasetKind: LearningEvolvingDatasetKind;
+  strategyVariantId: string | null;
   createdAt: string;
+}
+
+export type LearningVariantStatus = "pending" | "trial" | "enabled" | "rejected" | "retired";
+
+/**
+ * An invented teaching approach (讲法): a concrete way of delivering one of the eight base
+ * strategies, distilled from a winning live intervention. It refines a base strategy and
+ * never replaces the closed strategy set.
+ */
+export interface LearningStrategyVariantDto {
+  id: string;
+  profileId: string;
+  topicKey: string;
+  difficultyType: LearningDifficultyType;
+  baseStrategy: LearningInterventionStrategy;
+  title: string;
+  instruction: string;
+  origin: "distilled";
+  status: LearningVariantStatus;
+  sourceIncidentId: string | null;
+  recommendation: "promote" | "retire" | null;
+  recommendationSummary: string;
+  evidenceExperienceIds: string[];
+  attributedCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface VariantRow {
+  id: string;
+  profile_id: string;
+  topic_key: string;
+  difficulty_type: string;
+  base_strategy: string;
+  title: string;
+  instruction: string;
+  origin: string;
+  status: string;
+  source_incident_id: string | null;
+  recommendation: string | null;
+  recommendation_summary: string;
+  evidence_experience_ids_json: string;
+  rejected_evidence_json: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface LearningPolicyRevisionDto {
@@ -294,6 +342,26 @@ CREATE TABLE IF NOT EXISTS learning_incidents (
 );
 CREATE INDEX IF NOT EXISTS idx_learning_incidents_session ON learning_incidents(session_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS learning_strategy_variants (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  topic_key TEXT NOT NULL DEFAULT '',
+  difficulty_type TEXT NOT NULL CHECK (difficulty_type IN ('planning_gap', 'conceptual_misconception', 'procedural_gap', 'feedback_uncertainty', 'prerequisite_gap', 'other')),
+  base_strategy TEXT NOT NULL CHECK (base_strategy IN ('socratic_question', 'conceptual_hint', 'contrastive_example', 'worked_example', 'analogical_example', 'direct_explanation', 'evidence_check', 'abstain_escalate')),
+  title TEXT NOT NULL,
+  instruction TEXT NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'distilled' CHECK (origin IN ('distilled')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'trial', 'enabled', 'rejected', 'retired')),
+  source_incident_id TEXT REFERENCES learning_incidents(id) ON DELETE SET NULL,
+  recommendation TEXT CHECK (recommendation IS NULL OR recommendation IN ('promote', 'retire')),
+  recommendation_summary TEXT NOT NULL DEFAULT '',
+  evidence_experience_ids_json TEXT NOT NULL DEFAULT '[]',
+  rejected_evidence_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learning_variants_scope ON learning_strategy_variants(profile_id, topic_key, difficulty_type, base_strategy, status, created_at);
+
 CREATE TABLE IF NOT EXISTS learning_interventions (
   id TEXT PRIMARY KEY,
   incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
@@ -301,6 +369,7 @@ CREATE TABLE IF NOT EXISTS learning_interventions (
   rationale TEXT NOT NULL,
   expected_signal TEXT NOT NULL,
   policy_revision_id TEXT REFERENCES learning_policy_revisions(id) ON DELETE SET NULL,
+  strategy_variant_id TEXT REFERENCES learning_strategy_variants(id) ON DELETE SET NULL,
   run_id TEXT,
   message_id TEXT,
   round INTEGER NOT NULL CHECK (round BETWEEN 1 AND 3),
@@ -342,6 +411,7 @@ CREATE TABLE IF NOT EXISTS learning_experiences (
   outcome TEXT NOT NULL CHECK (outcome IN ('resolved', 'partial', 'unresolved')),
   dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo')),
   snapshot_json TEXT NOT NULL DEFAULT '{}',
+  strategy_variant_id TEXT REFERENCES learning_strategy_variants(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_learning_experiences_selector ON learning_experiences(profile_id, topic_key, difficulty_type, dataset_kind, created_at DESC);
@@ -489,6 +559,17 @@ export class LearningStore {
           '{}'
         );
       `);
+    }
+    const interventionColumns = this.database.pragma("table_info(learning_interventions)") as Array<{ name: string }>;
+    if (!interventionColumns.some((column) => column.name === "strategy_variant_id")) {
+      this.database.exec(
+        "ALTER TABLE learning_interventions ADD COLUMN strategy_variant_id TEXT REFERENCES learning_strategy_variants(id) ON DELETE SET NULL"
+      );
+    }
+    if (!experienceColumns.some((column) => column.name === "strategy_variant_id")) {
+      this.database.exec(
+        "ALTER TABLE learning_experiences ADD COLUMN strategy_variant_id TEXT REFERENCES learning_strategy_variants(id) ON DELETE SET NULL"
+      );
     }
     this.database.exec(`
       CREATE TRIGGER IF NOT EXISTS learning_supersede_run
@@ -736,13 +817,38 @@ export class LearningStore {
     if (session.condition === "one-shot" && round > 1)
       throw learningConflict("One-shot learning sessions allow a single intervention");
     if (round > 3) throw learningConflict("Learning incidents allow at most three interventions");
+    // Host-side intention-to-treat attribution: when the tutor records exactly the strategy
+    // the host recommended AND a variant instruction was offered for it, the round counts
+    // toward that variant. No tool parameter — self-report by the model is not trustworthy.
+    let strategyVariantId: string | null = null;
+    if (session.datasetKind === "live" && session.condition === "on-call") {
+      const priorStrategies = this.listInterventions(incident.id).map((item) => item.strategy);
+      const selection = this.selectStrategy({
+        profileId: session.profileId,
+        topicKey: session.topicKey,
+        difficultyType: incident.difficultyType,
+        datasetKind: session.datasetKind,
+        failedStrategies: priorStrategies
+      });
+      if (input.strategy === selection.strategy) {
+        strategyVariantId =
+          this.offerVariant({
+            profileId: session.profileId,
+            topicKey: session.topicKey,
+            difficultyType: incident.difficultyType,
+            baseStrategy: input.strategy,
+            datasetKind: session.datasetKind,
+            condition: session.condition
+          })?.id ?? null;
+      }
+    }
     const id = randomUUID();
     const now = this.clock();
     this.database.transaction(() => {
       this.database
         .prepare(
-          `INSERT INTO learning_interventions (id, incident_id, strategy, rationale, expected_signal, policy_revision_id, run_id, message_id, round, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO learning_interventions (id, incident_id, strategy, rationale, expected_signal, policy_revision_id, strategy_variant_id, run_id, message_id, round, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -751,6 +857,7 @@ export class LearningStore {
           rationale,
           expectedSignal,
           input.policyRevisionId ?? null,
+          strategyVariantId,
           input.runId ?? null,
           input.messageId ?? null,
           round,
@@ -1024,8 +1131,8 @@ export class LearningStore {
         this.database
           .prepare(
             `INSERT INTO learning_experiences
-           (id, verification_id, incident_id, profile_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, verification_id, incident_id, profile_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, strategy_variant_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             randomUUID(),
@@ -1038,6 +1145,7 @@ export class LearningStore {
             verdict,
             session.datasetKind,
             JSON.stringify(closedSnapshot),
+            intervention.strategyVariantId,
             now
           );
       }
@@ -1081,6 +1189,263 @@ export class LearningStore {
     this.database
       .prepare("UPDATE learning_review_tasks SET status = ?, updated_at = ? WHERE id = ?")
       .run(status, this.clock(), id);
+  }
+
+  private variantAttributedCounts(variantIds: string[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    if (variantIds.length === 0) return counts;
+    const placeholders = variantIds.map(() => "?").join(", ");
+    const rows = this.database
+      .prepare(
+        `SELECT e.strategy_variant_id AS variant_id, COUNT(*) AS count
+       FROM learning_experiences e
+       JOIN learning_incidents i ON i.id = e.incident_id
+      WHERE e.strategy_variant_id IN (${placeholders}) AND i.superseded_at IS NULL
+      GROUP BY e.strategy_variant_id`
+      )
+      .all(...variantIds) as Array<{ variant_id: string; count: number }>;
+    for (const row of rows) counts.set(row.variant_id, row.count);
+    return counts;
+  }
+
+  getVariant(id: string): LearningStrategyVariantDto | null {
+    const row = this.database.prepare("SELECT * FROM learning_strategy_variants WHERE id = ?").get(id) as
+      | VariantRow
+      | undefined;
+    if (!row) return null;
+    return this.toVariant(row, this.variantAttributedCounts([row.id]).get(row.id) ?? 0);
+  }
+
+  listVariants(input: {
+    profileId: string;
+    topicKey?: string | null;
+    difficultyType?: LearningDifficultyType;
+  }): LearningStrategyVariantDto[] {
+    const conditions = ["profile_id = ?"];
+    const values: unknown[] = [clean(input.profileId, 100)];
+    if (input.topicKey !== undefined) {
+      conditions.push("topic_key = ?");
+      values.push(topic(input.topicKey));
+    }
+    if (input.difficultyType) {
+      conditions.push("difficulty_type = ?");
+      values.push(input.difficultyType);
+    }
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM learning_strategy_variants WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC LIMIT 100`
+      )
+      .all(...values) as VariantRow[];
+    const counts = this.variantAttributedCounts(rows.map((row) => row.id));
+    return rows.map((row) => this.toVariant(row, counts.get(row.id) ?? 0));
+  }
+
+  /**
+   * Distills a candidate teaching approach. Similar wording anywhere in the scope —
+   * including rejected and retired variants — blocks re-proposal (the rejection memory),
+   * and a scope+base pair holds at most one pending candidate at a time.
+   */
+  createVariant(input: {
+    profileId: string;
+    topicKey?: string | null;
+    difficultyType: LearningDifficultyType;
+    baseStrategy: LearningInterventionStrategy;
+    title: string;
+    instruction: string;
+    sourceIncidentId?: string | null;
+  }): LearningStrategyVariantDto | null {
+    if (
+      !has(LEARNING_DIFFICULTY_TYPES, input.difficultyType) ||
+      !has(LEARNING_INTERVENTION_STRATEGIES, input.baseStrategy)
+    )
+      throw new Error("Invalid learning variant scope");
+    const profileId = clean(input.profileId, 100);
+    const title = clean(input.title, 80);
+    const instruction = clean(input.instruction, 300);
+    if (!profileId || !title || !instruction) return null;
+    const topicKey = topic(input.topicKey);
+    const scoped = this.database
+      .prepare(
+        "SELECT * FROM learning_strategy_variants WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ?"
+      )
+      .all(profileId, topicKey, input.difficultyType) as VariantRow[];
+    for (const row of scoped) {
+      if (methodsSimilar(`${row.title} ${row.instruction}`, `${title} ${instruction}`)) return null;
+    }
+    if (scoped.some((row) => row.status === "pending" && row.base_strategy === input.baseStrategy)) return null;
+    const now = this.clock();
+    const id = randomUUID();
+    this.database
+      .prepare(
+        `INSERT INTO learning_strategy_variants
+         (id, profile_id, topic_key, difficulty_type, base_strategy, title, instruction, origin, status, source_incident_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'distilled', 'pending', ?, ?, ?)`
+      )
+      .run(
+        id,
+        profileId,
+        topicKey,
+        input.difficultyType,
+        input.baseStrategy,
+        title,
+        instruction,
+        input.sourceIncidentId ?? null,
+        now,
+        now
+      );
+    return this.getVariant(id);
+  }
+
+  /**
+   * The deterministic offer for one (scope, base strategy): the enabled variant if any,
+   * else the trial variant with the fewest attributed experiences (oldest on ties), so the
+   * context-time offer and the record-time attribution always agree. Only live on-call
+   * sessions ever see variants — eval stays order-independent and one-shot stays a pure
+   * baseline.
+   */
+  offerVariant(input: {
+    profileId: string;
+    topicKey?: string | null;
+    difficultyType: LearningDifficultyType;
+    baseStrategy: LearningInterventionStrategy;
+    datasetKind: LearningDatasetKind;
+    condition: LearningCondition;
+  }): LearningStrategyVariantDto | null {
+    if (input.datasetKind !== "live" || input.condition !== "on-call") return null;
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM learning_strategy_variants
+       WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ?
+         AND status IN ('enabled', 'trial')
+       ORDER BY created_at ASC`
+      )
+      .all(
+        clean(input.profileId, 100),
+        topic(input.topicKey),
+        input.difficultyType,
+        input.baseStrategy
+      ) as VariantRow[];
+    if (rows.length === 0) return null;
+    const enabled = rows.find((row) => row.status === "enabled");
+    if (enabled) return this.toVariant(enabled, this.variantAttributedCounts([enabled.id]).get(enabled.id) ?? 0);
+    const counts = this.variantAttributedCounts(rows.map((row) => row.id));
+    const trial = [...rows].sort(
+      (left, right) => (counts.get(left.id) ?? 0) - (counts.get(right.id) ?? 0) || left.created_at - right.created_at
+    )[0]!;
+    return this.toVariant(trial, counts.get(trial.id) ?? 0);
+  }
+
+  reviewVariant(id: string, verdict: "trial" | "reject" | "enable" | "retire" | "keep"): LearningStrategyVariantDto {
+    const row = this.database.prepare("SELECT * FROM learning_strategy_variants WHERE id = ?").get(id) as
+      | VariantRow
+      | undefined;
+    if (!row) throw new Error("Learning strategy variant not found");
+    const now = this.clock();
+    const update = (fields: string, values: unknown[]) =>
+      this.database
+        .prepare(`UPDATE learning_strategy_variants SET ${fields}, updated_at = ? WHERE id = ?`)
+        .run(...values, now, id);
+    if (verdict === "trial") {
+      if (row.status !== "pending") throw learningConflict("Only pending variants can enter a trial");
+      const trials = (
+        this.database
+          .prepare(
+            `SELECT COUNT(*) AS count FROM learning_strategy_variants
+           WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ? AND status = 'trial'`
+          )
+          .get(row.profile_id, row.topic_key, row.difficulty_type, row.base_strategy) as { count: number }
+      ).count;
+      if (trials >= 2) throw learningConflict("At most two variants may trial per strategy and difficulty");
+      update("status = 'trial'", []);
+    } else if (verdict === "reject") {
+      if (row.status !== "pending") throw learningConflict("Only pending variants can be rejected");
+      update("status = 'rejected'", []);
+    } else if (verdict === "enable") {
+      if (row.status !== "trial") throw learningConflict("Only trial variants can be promoted");
+      update("status = 'enabled', recommendation = NULL", []);
+    } else if (verdict === "retire") {
+      if (row.status !== "trial" && row.status !== "enabled")
+        throw learningConflict("Only trial or enabled variants can retire");
+      update("status = 'retired', recommendation = NULL", []);
+    } else {
+      // keep: dismiss the current recommendation and remember its evidence set so the
+      // identical recommendation is not re-raised (mirrors the policy rejection memory).
+      if (row.status !== "trial") throw learningConflict("Only trial variants can be kept as-is");
+      update("recommendation = NULL, rejected_evidence_json = ?", [row.evidence_experience_ids_json]);
+    }
+    return this.getVariant(id)!;
+  }
+
+  /**
+   * After ≥5 attributed non-superseded outcomes, compare the variant's Beta posterior with
+   * same-scope experiences of its base strategy recorded without the variant; a ±0.10 gap
+   * recommends promotion or retirement. The recommendation is advice — every transition
+   * stays behind reviewVariant.
+   */
+  maybeRecommendVariantPromotion(input: {
+    profileId: string;
+    topicKey?: string | null;
+    difficultyType: LearningDifficultyType;
+  }): LearningStrategyVariantDto[] {
+    const profileId = clean(input.profileId, 100);
+    const topicKey = topic(input.topicKey);
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM learning_strategy_variants
+       WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND status = 'trial'`
+      )
+      .all(profileId, topicKey, input.difficultyType) as VariantRow[];
+    const changed: LearningStrategyVariantDto[] = [];
+    for (const row of rows) {
+      const experiences = this.database
+        .prepare(
+          `SELECT e.id, e.outcome, e.strategy_variant_id FROM learning_experiences e
+         JOIN learning_incidents i ON i.id = e.incident_id
+        WHERE e.profile_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.strategy = ?
+          AND e.dataset_kind = 'live' AND i.superseded_at IS NULL`
+        )
+        .all(profileId, topicKey, input.difficultyType, row.base_strategy) as Array<{
+        id: string;
+        outcome: string;
+        strategy_variant_id: string | null;
+      }>;
+      const posterior = (subset: Array<{ outcome: string }>) => {
+        let success = 0;
+        let failure = 0;
+        for (const item of subset) {
+          if (item.outcome === "resolved") success += 1;
+          else if (item.outcome === "partial") {
+            success += 0.5;
+            failure += 0.5;
+          } else failure += 1;
+        }
+        return (1 + success) / (2 + success + failure);
+      };
+      const attributed = experiences.filter((item) => item.strategy_variant_id === row.id);
+      if (attributed.length < 5) continue;
+      const bare = experiences.filter((item) => item.strategy_variant_id === null);
+      const evidenceIds = attributed.map((item) => item.id).sort();
+      const rejected = row.rejected_evidence_json ? parseJson<string[]>(row.rejected_evidence_json, []) : null;
+      if (rejected && JSON.stringify([...rejected].sort()) === JSON.stringify(evidenceIds)) continue;
+      const variantPosterior = posterior(attributed);
+      const basePosterior = posterior(bare);
+      const diff = variantPosterior - basePosterior;
+      const recommendation = diff >= 0.1 ? "promote" : diff <= -0.1 ? "retire" : null;
+      if (!recommendation) continue;
+      const summary =
+        `讲法后验 ${variantPosterior.toFixed(2)}（${attributed.length} 条归因），` +
+        `基础策略后验 ${basePosterior.toFixed(2)}（${bare.length} 条对照）→ ` +
+        (recommendation === "promote" ? "建议转正" : "建议退役");
+      this.database
+        .prepare(
+          `UPDATE learning_strategy_variants
+         SET recommendation = ?, recommendation_summary = ?, evidence_experience_ids_json = ?, updated_at = ?
+         WHERE id = ?`
+        )
+        .run(recommendation, summary, JSON.stringify(evidenceIds), this.clock(), row.id);
+      changed.push(this.getVariant(row.id)!);
+    }
+    return changed;
   }
 
   selectStrategy(input: {
@@ -1650,6 +2015,7 @@ export class LearningStore {
     experiences: LearningExperienceDto[];
     policyRevisions: LearningPolicyRevisionDto[];
     handoffs: LearningHandoffReportDto[];
+    strategyVariants: LearningStrategyVariantDto[];
   } {
     const all = <T>(table: string, map: (row: Record<string, unknown>) => T): T[] =>
       (this.database.prepare(`SELECT * FROM ${table} ORDER BY created_at ASC`).all() as Record<string, unknown>[]).map(
@@ -1666,7 +2032,10 @@ export class LearningStore {
       handoffs: incidents
         .filter((incident) => incident.status === "escalated")
         .map((incident) => this.handoffReport(incident.id))
-        .filter((report): report is LearningHandoffReportDto => report !== null)
+        .filter((report): report is LearningHandoffReportDto => report !== null),
+      strategyVariants: (
+        this.database.prepare("SELECT * FROM learning_strategy_variants ORDER BY created_at ASC").all() as VariantRow[]
+      ).map((row) => this.toVariant(row))
     };
   }
 
@@ -2027,6 +2396,10 @@ export class LearningStore {
       rationale: String(row.rationale),
       expectedSignal: String(row.expected_signal),
       policyRevisionId: row.policy_revision_id === null ? null : String(row.policy_revision_id),
+      strategyVariantId:
+        row.strategy_variant_id === null || row.strategy_variant_id === undefined
+          ? null
+          : String(row.strategy_variant_id),
       runId: row.run_id === null ? null : String(row.run_id),
       messageId: row.message_id === null ? null : String(row.message_id),
       round: Number(row.round),
@@ -2073,7 +2446,31 @@ export class LearningStore {
       strategy: String(row.strategy) as LearningInterventionStrategy,
       outcome: String(row.outcome) as Exclude<LearningOutcome, "unknown">,
       datasetKind: String(row.dataset_kind) as LearningEvolvingDatasetKind,
+      strategyVariantId:
+        row.strategy_variant_id === null || row.strategy_variant_id === undefined
+          ? null
+          : String(row.strategy_variant_id),
       createdAt: iso(Number(row.created_at))!
+    };
+  }
+  private toVariant(row: VariantRow, attributedCount = 0): LearningStrategyVariantDto {
+    return {
+      id: row.id,
+      profileId: row.profile_id,
+      topicKey: row.topic_key,
+      difficultyType: row.difficulty_type as LearningDifficultyType,
+      baseStrategy: row.base_strategy as LearningInterventionStrategy,
+      title: row.title,
+      instruction: row.instruction,
+      origin: "distilled",
+      status: row.status as LearningVariantStatus,
+      sourceIncidentId: row.source_incident_id,
+      recommendation: row.recommendation === "promote" || row.recommendation === "retire" ? row.recommendation : null,
+      recommendationSummary: row.recommendation_summary,
+      evidenceExperienceIds: parseJson<string[]>(row.evidence_experience_ids_json, []),
+      attributedCount,
+      createdAt: iso(row.created_at)!,
+      updatedAt: iso(row.updated_at)!
     };
   }
   private toPolicy(row: PolicyRow): LearningPolicyRevisionDto {

@@ -616,7 +616,12 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!before) return reply.code(404).send({ error: "Learning verification not found" });
     const input = z.object({ verdict: z.enum(["resolved", "partial", "unresolved"]) }).parse(request.body ?? {});
     const { verification, incident, policy } = confirmLearningVerification(
-      { learning, store, events },
+      {
+        learning,
+        store,
+        events,
+        invention: { learning, store, runtime, workspaceRoot: config.workspaceRoot }
+      },
       id,
       input.verdict
     );
@@ -628,6 +633,45 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const report = learning.handoffReport(id);
     if (!report) return reply.code(404).send({ error: "Handoff reports exist only for escalated incidents" });
     return { report };
+  });
+
+  app.get("/api/learning/variants", async (request, reply) => {
+    const query = request.query as { profileId?: string; topicKey?: string; difficultyType?: string };
+    const profileId = requestedProfileId(query.profileId);
+    if (!profileId) return reply.code(400).send({ error: "讲法列表需要指定助手" });
+    const difficultyType =
+      query.difficultyType && LEARNING_DIFFICULTY_TYPES.includes(query.difficultyType as LearningDifficultyType)
+        ? (query.difficultyType as LearningDifficultyType)
+        : undefined;
+    return {
+      variants: learning.listVariants({
+        profileId,
+        ...(query.topicKey !== undefined ? { topicKey: query.topicKey } : {}),
+        ...(difficultyType ? { difficultyType } : {})
+      })
+    };
+  });
+
+  app.post("/api/learning/variants/:id/review", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const input = z
+      .object({
+        verdict: z.enum(["trial", "reject", "enable", "retire", "keep"]),
+        conversationId: z.string().optional()
+      })
+      .parse(request.body ?? {});
+    if (!learning.getVariant(id)) return reply.code(404).send({ error: "Learning strategy variant not found" });
+    const variant = learning.reviewVariant(id, input.verdict);
+    const conversation = input.conversationId ? store.getConversation(input.conversationId) : null;
+    if (conversation) {
+      events.append({
+        type: "learning.variant.updated",
+        conversationId: conversation.id,
+        branchId: conversation.activeBranchId,
+        payload: { variant }
+      });
+    }
+    return { variant };
   });
 
   app.get("/api/learning/policies", async (request, reply) => {

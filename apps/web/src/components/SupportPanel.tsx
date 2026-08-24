@@ -18,6 +18,7 @@ import type {
   LearningMetricsCellDto,
   LearningHandoffReportDto,
   LearningMetricsDto,
+  LearningStrategyVariantDto,
   LearningPolicyRevisionDto,
   LearningVerificationDto,
   ScheduledJob,
@@ -1529,6 +1530,7 @@ function LearningPanel({
   const { t } = useLocale();
   const [tab, setTab] = useState<"current" | "history" | "policies" | "metrics">("current");
   const [policies, setPolicies] = useState<LearningPolicyRevisionDto[]>([]);
+  const [variants, setVariants] = useState<LearningStrategyVariantDto[]>([]);
   const [loadingPolicies, setLoadingPolicies] = useState(false);
   const [metrics, setMetrics] = useState<LearningMetricsDto>();
   const [metricsScope, setMetricsScope] = useState<"topic" | "all">("topic");
@@ -1552,6 +1554,7 @@ function LearningPanel({
           includeDisabled: true
         })
       );
+      setVariants(await api.learningVariants({ profileId, topicKey: session.topicKey }).catch(() => []));
     } finally {
       setLoadingPolicies(false);
     }
@@ -1607,6 +1610,18 @@ function LearningPanel({
     setBusy(policy.id);
     try {
       await api.rollbackLearningPolicy(policy.id, conversation?.id);
+      await loadPolicies();
+    } finally {
+      setBusy(undefined);
+    }
+  }
+  async function reviewVariantAction(
+    variant: LearningStrategyVariantDto,
+    verdict: "trial" | "reject" | "enable" | "retire" | "keep"
+  ) {
+    setBusy(variant.id);
+    try {
+      await api.reviewLearningVariant(variant.id, verdict, conversation?.id);
       await loadPolicies();
     } finally {
       setBusy(undefined);
@@ -1757,7 +1772,7 @@ function LearningPanel({
           />
         ) : loadingPolicies ? (
           <div className="support-loading">{t("loading")}</div>
-        ) : policies.length ? (
+        ) : policies.length || variants.length ? (
           <div className="learning-policy-list">
             {policies.map((policy) => (
               <article key={policy.id}>
@@ -1811,6 +1826,82 @@ function LearningPanel({
                 )}
               </article>
             ))}
+            {variants.length > 0 && (
+              <div className="learning-variant-list">
+                <h4>{t("learningVariants")}</h4>
+                {variants.map((variant) => (
+                  <article key={variant.id}>
+                    <header>
+                      <span className={`learning-state state-${variant.status}`}>{learningLabel(variant.status)}</span>
+                      <small>
+                        {learningLabel(variant.baseStrategy)} · {learningLabel(variant.difficultyType)}
+                      </small>
+                    </header>
+                    <b>{variant.title}</b>
+                    <p>{variant.instruction}</p>
+                    <small>
+                      {t("learningVariantEvidence", { count: variant.attributedCount })}
+                      {variant.recommendationSummary ? ` · ${variant.recommendationSummary}` : ""}
+                    </small>
+                    {variant.status === "pending" && (
+                      <footer>
+                        <button
+                          disabled={busy === variant.id}
+                          onClick={() => void reviewVariantAction(variant, "trial")}
+                        >
+                          {t("learningVariantTryOut")}
+                        </button>
+                        <button
+                          disabled={busy === variant.id}
+                          className="danger"
+                          onClick={() => void reviewVariantAction(variant, "reject")}
+                        >
+                          {t("learningReject")}
+                        </button>
+                      </footer>
+                    )}
+                    {variant.status === "trial" && (
+                      <footer>
+                        {variant.recommendation === "promote" && (
+                          <button
+                            disabled={busy === variant.id}
+                            onClick={() => void reviewVariantAction(variant, "enable")}
+                          >
+                            {t("learningVariantPromote")}
+                          </button>
+                        )}
+                        {variant.recommendation && (
+                          <button
+                            disabled={busy === variant.id}
+                            onClick={() => void reviewVariantAction(variant, "keep")}
+                          >
+                            {t("learningVariantKeep")}
+                          </button>
+                        )}
+                        <button
+                          disabled={busy === variant.id}
+                          className="danger"
+                          onClick={() => void reviewVariantAction(variant, "retire")}
+                        >
+                          {t("learningVariantRetire")}
+                        </button>
+                      </footer>
+                    )}
+                    {variant.status === "enabled" && (
+                      <footer>
+                        <button
+                          disabled={busy === variant.id}
+                          className="danger"
+                          onClick={() => void reviewVariantAction(variant, "retire")}
+                        >
+                          {t("learningVariantRetire")}
+                        </button>
+                      </footer>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <EmptySupport title={t("learningNoPolicies")} detail={t("learningNoPoliciesDetail")} />

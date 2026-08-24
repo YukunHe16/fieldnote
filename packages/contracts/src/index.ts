@@ -36,6 +36,7 @@ export type AgentEventType =
   | "learning.session.updated"
   | "learning.incident.updated"
   | "learning.policy.updated"
+  | "learning.variant.updated"
   | "collaboration.task.updated"
   | "collaboration.handoff.updated"
   | "conversation.updated"

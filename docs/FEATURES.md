@@ -657,6 +657,12 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - Replay is not byte-for-byte deterministic: models, external websites, and dependencies can still change. It guarantees an auditable boundary for inputs, files, and local context.
 - Batch replay: `GET /api/snapshots` lists frozen snapshots and `node scripts/replay-batch.mjs --profile <id> [--artifact <id>]` re-runs a set of them in baseline and candidate-capability arms, writing a side-by-side report under `data/eval-runs/replay-*/`.
 
+### 讲法自发明 / Invented teaching approaches
+
+**中文**：live on-call 学习 incident 在换策略后解决时，宿主用一次后台单轮调用把"赢下那一轮的具体讲法"蒸馏成候选讲法（挂在八个基础策略之一下面，策略集合不变）。人审通过后进入试用：当宿主推荐该基础策略时，讲法说明会随上下文注入；归因由宿主按 intention-to-treat 口径盖章（记录策略==推荐策略且当时有 offer）。≥5 次归因后与同 scope 的无变体基线做 Beta 后验对比，±0.10 给出转正/退役建议——一切状态变更（试用、转正、退役、拒绝）都在学习面板人审。eval 与 one-shot 会话永不注入讲法。
+
+**English**: When a live on-call incident resolves after a strategy switch, a one-turn background call distills the winning round's concrete teaching move into a candidate approach under one of the eight base strategies (the strategy set itself never changes). After human approval it trials: the instruction rides along whenever the host recommends its base strategy, and attribution is stamped host-side with intention-to-treat semantics. After ≥5 attributed outcomes a Beta-posterior comparison against the same-scope baseline recommends promotion or retirement at ±0.10 — every transition stays behind human review in the learning panel. Eval and one-shot sessions never see approaches.
+
 ## 12. 定时任务 / Scheduled jobs
 
 **中文**

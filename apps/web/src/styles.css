@@ -911,6 +911,11 @@
   .learning-state { padding: .16rem .38rem; border-radius: .32rem; color: var(--ink-soft); background: var(--fill-secondary); font-size: .56rem; font-weight: 650; }
   .learning-state.state-active, .learning-state.state-resolved, .learning-state.state-enabled { color: var(--success); background: color-mix(in srgb, var(--success) 13%, transparent); }
   .learning-state.state-unresolved, .learning-state.state-escalated, .learning-state.state-rejected { color: var(--danger); background: var(--danger-soft); }
+  .learning-state.state-trial { color: var(--accent, #2563eb); background: color-mix(in srgb, var(--accent, #2563eb) 13%, transparent); }
+  .learning-variant-list { margin-top: .8rem; padding-top: .55rem; border-top: 1px solid var(--line); }
+  .learning-variant-list h4 { margin: 0 0 .35rem; font-size: .62rem; color: var(--ink-faint); }
+  .learning-variant-list article b { display: block; margin-top: .3rem; font-size: .72rem; }
+  .learning-variant-list article p { margin: .18rem 0; font-size: .64rem; color: var(--ink-soft); }
   .learning-incident { padding: .15rem 0 .5rem; }
   .learning-incident > header, .learning-policy-list article > header { display: flex; align-items: center; justify-content: space-between; }
   .learning-incident header small, .learning-policy-list header small { color: var(--ink-faint); font-size: .58rem; }

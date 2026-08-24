@@ -465,6 +465,27 @@ export interface LearningMetricsDto {
   generatedAt: string;
 }
 
+export type LearningVariantStatus = "pending" | "trial" | "enabled" | "rejected" | "retired";
+
+export interface LearningStrategyVariantDto {
+  id: string;
+  profileId: string;
+  topicKey: string;
+  difficultyType: LearningDifficultyType;
+  baseStrategy: LearningInterventionStrategy;
+  title: string;
+  instruction: string;
+  origin: "distilled";
+  status: LearningVariantStatus;
+  sourceIncidentId: string | null;
+  recommendation: "promote" | "retire" | null;
+  recommendationSummary: string;
+  evidenceExperienceIds: string[];
+  attributedCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LearningHandoffAttemptDto {
   round: number;
   strategy: LearningInterventionStrategy;
