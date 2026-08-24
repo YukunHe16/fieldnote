@@ -9,6 +9,14 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # @types/node must describe a runtime this project actually supports and
+      # tests — engines is >=20 and CI runs Node 22 and 24. Typing against a
+      # newer Node lets code compile against APIs that are missing at run time
+      # on every version we ship to, which no test would catch.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
     open-pull-requests-limit: 5
   - package-ecosystem: github-actions
     directory: "/"
