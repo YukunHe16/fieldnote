@@ -69,7 +69,7 @@ looping model）、全局累加器泄漏（pg-reverse-accumulator，return-compo
 要求目的层描述而非逐行复述，是该系列工作的核心 rubric 区分；自动评分会犯错，
 学生如何对待与自己一致/不一致、听起来权威/朴素的反馈是研究对象。
 
-- Fowler et al., [Autograding "Explain in Plain English" questions using NLP](https://zilles.cs.illinois.edu/papers/fowler_EiPE_NLP_SIGCSE_2021.pdf) (SIGCSE '21)。
+- [Autograding "Explain in Plain English" questions using NLP](https://zilles.cs.illinois.edu/papers/fowler_EiPE_NLP_SIGCSE_2021.pdf) (SIGCSE '21)。
 - [Code Generation Based Grading for EiPE](https://arxiv.org/html/2311.14903)；[SIGCSE '24 版本](https://doi.org/10.1145/3626253.3635542)。
 - [Evaluating AI Models for Autograding EiPE Questions](https://dl.acm.org/doi/10.1145/3774752) (ACM TiiS)。
 
