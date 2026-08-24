@@ -421,6 +421,36 @@ export interface LearningMetricsDto {
   generatedAt: string;
 }
 
+export interface LearningHandoffAttemptDto {
+  round: number;
+  strategy: LearningInterventionStrategy;
+  rationale: string;
+  expectedSignal: string;
+  verificationPrompt: string | null;
+  outcome: LearningOutcome | null;
+}
+
+/**
+ * Structured handoff for an escalated learning incident — the educational analog of an SRE
+ * escalation report: what was tried, what is still open, and where a human should start.
+ */
+export interface LearningHandoffReportDto {
+  incidentId: string;
+  goal: string;
+  topicKey: string;
+  difficultyType: LearningDifficultyType;
+  hypothesis: string;
+  confidence: number;
+  severity: number;
+  escalationReason: string | null;
+  attempts: LearningHandoffAttemptDto[];
+  /** Mastery criteria (verification rubrics) the learner has not met yet. */
+  stillOpen: string[];
+  /** Untried strategies in the current policy order, for the human tutor to start from. */
+  suggestedNextStrategies: LearningInterventionStrategy[];
+  closedAt: string | null;
+}
+
 export interface LearningDemoScenarioDto {
   id: string;
   title: string;

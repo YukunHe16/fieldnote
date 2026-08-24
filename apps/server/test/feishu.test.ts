@@ -741,6 +741,78 @@ describe("Feishu commands", () => {
     database.close();
   });
 
+  it("pages the owner once with a handoff card when a live incident escalates", async () => {
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const learning = new LearningStore(database);
+    const events = new EventStore(database);
+    const conversation = store.createConversation("web", "网页学习", { profileId: "local-operator" });
+    const feishuConversation = store.createConversation("feishu", "飞书单聊");
+    store.setChannelBinding("feishu", "p2p:ou_me", feishuConversation.id, { chatId: "oc_owner", group: false });
+    const session = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "理解递归",
+      datasetKind: "live",
+      status: "active"
+    });
+    const run = store.createRun(conversation.id, "我不懂递归", "normal");
+    const incident = learning.openIncident({
+      sessionId: session.id,
+      difficultyType: "conceptual_misconception",
+      hypothesis: "把递归当循环",
+      confidence: 0.8,
+      severity: 3,
+      evidenceMessageIds: [run.userMessageId]
+    });
+    learning.recordIntervention({
+      incidentId: incident.id,
+      strategy: "direct_explanation",
+      rationale: "讲出口",
+      expectedSignal: "能解释出口"
+    });
+    const escalated = learning.escalateIncident(incident.id, "超出当前能力");
+    const sent: any[] = [];
+    const feishu = new FeishuChannel(
+      undefined,
+      store,
+      events,
+      {} as never,
+      undefined,
+      "",
+      undefined,
+      undefined,
+      learning
+    );
+    (feishu as any).channel = {
+      async send(...args: any[]) {
+        sent.push(args);
+      }
+    };
+    events.append({
+      type: "learning.incident.updated",
+      conversationId: conversation.id,
+      branchId: conversation.activeBranchId,
+      payload: { incident: escalated }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.[0]).toBe("oc_owner");
+    const card = JSON.stringify(sent[0]?.[1]);
+    expect(card).toContain("需要人工接手");
+    expect(card).toContain("超出当前能力");
+    // The same escalation event never pages twice.
+    events.append({
+      type: "learning.incident.updated",
+      conversationId: conversation.id,
+      branchId: conversation.activeBranchId,
+      payload: { incident: escalated }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(sent).toHaveLength(1);
+    database.close();
+  });
+
   it("parses the learn command and learning confirm card values", () => {
     expect(parseCommand("/learn 理解递归出口")).toEqual({ name: "learn", argument: "理解递归出口" });
     expect(parseCommand("/learn off")).toEqual({ name: "learn", argument: "off" });

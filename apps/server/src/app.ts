@@ -623,6 +623,13 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return { verification, incident, policy };
   });
 
+  app.get("/api/learning/incidents/:id/handoff", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const report = learning.handoffReport(id);
+    if (!report) return reply.code(404).send({ error: "Handoff reports exist only for escalated incidents" });
+    return { report };
+  });
+
   app.get("/api/learning/policies", async (request, reply) => {
     const query = request.query as {
       profileId?: string;

@@ -92,6 +92,16 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 受控策略演进的修订记录：`orderedStrategies`（候选顺序）、`evidenceExperienceIds`（证据）、
 `status`（pending/enabled/rejected/disabled）、`previousRevisionId`（回滚链）。
 
+### handoffs
+
+升级事件的结构化交接报告（宿主从上述表确定性渲染，不调模型）：`incidentId` / `goal` /
+`topicKey` / `difficultyType` / `hypothesis` / `confidence` / `severity` /
+`escalationReason`（工具升级时的原因，三轮自动升级为 null）/ `attempts[]`
+（round / strategy / rationale / expectedSignal / verificationPrompt / outcome）/
+`stillOpen[]`（未通过验证的 rubric，即学习者尚未达到的掌握标准）/
+`suggestedNextStrategies[]`（按当时策略序排列的未尝试策略，供接手的人类导师起步）/ `closedAt`。
+两条升级路径（escalate 工具、三轮耗尽自动升级）写入同构的 closed snapshot。
+
 ### messages（可选）
 
 `includeMessages=true` 时附带：`id` / `conversationId` / `runId` / `role` / `content` / `createdAt`。

@@ -899,6 +899,58 @@ describe("LearningStore", () => {
     database.close();
   });
 
+  it("writes the same rich snapshot on both escalation paths and renders a handoff report", () => {
+    const auto = fixture();
+    const autoIncident = incident(auto.learning, auto.session.id);
+    for (const strategy of ["socratic_question", "conceptual_hint", "worked_example"] as const) {
+      complete(auto.learning, autoIncident.id, strategy, "unresolved");
+    }
+    expect(auto.learning.getIncident(autoIncident.id)?.status).toBe("escalated");
+    const autoReport = auto.learning.handoffReport(autoIncident.id);
+    expect(autoReport).not.toBeNull();
+    expect(autoReport!.attempts.map((attempt) => attempt.strategy)).toEqual([
+      "socratic_question",
+      "conceptual_hint",
+      "worked_example"
+    ]);
+    expect(autoReport!.attempts.every((attempt) => attempt.outcome === "unresolved")).toBe(true);
+    expect(autoReport!.stillOpen).toContain("说明何时停止调用");
+    expect(autoReport!.suggestedNextStrategies).not.toContain("abstain_escalate");
+    expect(autoReport!.suggestedNextStrategies).not.toContain("socratic_question");
+    expect(autoReport!.suggestedNextStrategies.length).toBeGreaterThan(0);
+    auto.database.close();
+
+    const manual = fixture();
+    const manualIncident = incident(manual.learning, manual.session.id);
+    manual.learning.recordIntervention({
+      incidentId: manualIncident.id,
+      strategy: "evidence_check",
+      rationale: "先核对证据",
+      expectedSignal: "能指出哪份反馈可信"
+    });
+    manual.learning.escalateIncident(manualIncident.id, "学习者反复回到旧模型，超出当前能力");
+    const escalated = manual.learning.getIncident(manualIncident.id)!;
+    expect(escalated.status).toBe("escalated");
+    // The tool path now closes with the rich snapshot too, not just {reason, closedAt}.
+    expect(escalated.closedSnapshot).toMatchObject({
+      hypothesis: "把递归调用和循环迭代混为一谈",
+      reason: "学习者反复回到旧模型，超出当前能力",
+      interventions: [expect.objectContaining({ strategy: "evidence_check" })]
+    });
+    const manualReport = manual.learning.handoffReport(manualIncident.id);
+    expect(manualReport).toMatchObject({
+      escalationReason: "学习者反复回到旧模型，超出当前能力",
+      attempts: [expect.objectContaining({ strategy: "evidence_check", outcome: null })]
+    });
+    expect(manual.learning.exportResearch().handoffs).toHaveLength(1);
+    // Non-escalated incidents have no handoff.
+    const open = fixture();
+    const openIncident = incident(open.learning, open.session.id);
+    expect(open.learning.handoffReport(openIncident.id)).toBeNull();
+    open.database.close();
+    manual.database.close();
+  });
+
   it("books a two-day spaced-review revisit only for live on-call resolutions", () => {
     const day = 24 * 60 * 60 * 1_000;
     const live = fixture();

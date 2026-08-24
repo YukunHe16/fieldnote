@@ -44,6 +44,7 @@ import type {
   LearningIncidentDto,
   LearningDemoScenarioDto,
   LearningInterventionDto,
+  LearningHandoffReportDto,
   LearningMetricsDto,
   LearningOutcome,
   LearningPolicyRevisionDto,
@@ -1145,6 +1146,13 @@ export const api = {
     if (input.datasetKind) params.set("datasetKind", input.datasetKind);
     const response = await request<{ metrics: LearningMetricsDto }>(`/api/learning/metrics?${params}`);
     return response.metrics;
+  },
+
+  async learningHandoff(incidentId: string) {
+    const response = await request<{ report: LearningHandoffReportDto }>(
+      `/api/learning/incidents/${incidentId}/handoff`
+    );
+    return response.report;
   },
 
   researchSettings: () => request<{ enabled: boolean }>("/api/research/settings"),

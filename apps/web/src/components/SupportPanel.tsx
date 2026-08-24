@@ -16,6 +16,7 @@ import type {
   AdmissionsTask,
   ConversationDetail,
   LearningMetricsCellDto,
+  LearningHandoffReportDto,
   LearningMetricsDto,
   LearningPolicyRevisionDto,
   LearningVerificationDto,
@@ -1446,6 +1447,72 @@ function LearningAssessment({ verification }: { verification: LearningVerificati
   );
 }
 
+function LearningHandoffSection({ incidentId }: { incidentId: string }) {
+  const { t } = useLocale();
+  const [report, setReport] = useState<LearningHandoffReportDto | null>(null);
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    if (report || loading) return;
+    setLoading(true);
+    try {
+      setReport(await api.learningHandoff(incidentId));
+    } catch {
+      // The report only exists for escalated incidents; keep the section quiet otherwise.
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <details
+      className="learning-rubric learning-handoff"
+      onToggle={(event) => {
+        if ((event.target as HTMLDetailsElement).open) void load();
+      }}
+    >
+      <summary>{t("learningHandoffTitle")}</summary>
+      {loading && <p>{t("loading")}</p>}
+      {report && (
+        <div className="learning-handoff-body">
+          {report.escalationReason && (
+            <p>
+              <b>{t("learningHandoffReason")}</b>: {report.escalationReason}
+            </p>
+          )}
+          <p>
+            <b>{t("learningHandoffAttempts")}</b>
+          </p>
+          <ul>
+            {report.attempts.map((attempt) => (
+              <li key={attempt.round}>
+                {t("learningRound", { count: attempt.round })} · {learningLabel(attempt.strategy)} →{" "}
+                {attempt.outcome ? learningLabel(attempt.outcome) : t("learningHandoffUnverified")}
+              </li>
+            ))}
+          </ul>
+          {report.stillOpen.length > 0 && (
+            <>
+              <p>
+                <b>{t("learningHandoffStillOpen")}</b>
+              </p>
+              <ul>
+                {report.stillOpen.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {report.suggestedNextStrategies.length > 0 && (
+            <p>
+              <b>{t("learningHandoffNext")}</b>:{" "}
+              {report.suggestedNextStrategies.map((strategy) => learningLabel(strategy)).join(" · ")}
+            </p>
+          )}
+        </div>
+      )}
+    </details>
+  );
+}
+
 function LearningPanel({
   conversation,
   onSessionUpdate,
@@ -1598,6 +1665,7 @@ function LearningPanel({
           ))}
         </section>
       )}
+      {incident.status === "escalated" && <LearningHandoffSection incidentId={incident.id} />}
     </article>
   );
   return (

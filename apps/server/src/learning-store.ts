@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { LearningCalibrationBinDto, LearningMetricsCellDto, LearningMetricsDto } from "@fieldnote/contracts";
+import type {
+  LearningCalibrationBinDto,
+  LearningHandoffReportDto,
+  LearningMetricsCellDto,
+  LearningMetricsDto
+} from "@fieldnote/contracts";
 import type { SqliteDatabase } from "./database.js";
 
 export const LEARNING_SESSION_STATUSES = ["suggested", "active", "paused", "completed", "dismissed"] as const;
@@ -897,12 +902,55 @@ export class LearningStore {
     if (TERMINAL_INCIDENTS.has(incident.status)) throw learningConflict("Learning incident is already closed");
     this.assertSessionActive(this.sessionForIncident(incident.id));
     const now = this.clock();
+    // The tool path closes with the same rich snapshot the three-round auto-escalation
+    // writes, so the handoff report never depends on which path escalated.
+    const verification = this.listVerifications(incident.id).at(-1) ?? null;
+    const snapshot = {
+      ...this.buildClosedSnapshot(incident, verification, verification?.userVerdict ?? null, now),
+      reason: clean(reason, 2_000)
+    };
     this.database
       .prepare(
         "UPDATE learning_incidents SET status = 'escalated', updated_at = ?, closed_at = ?, closed_snapshot_json = ? WHERE id = ?"
       )
-      .run(now, now, JSON.stringify({ reason: clean(reason, 2_000), closedAt: now }), id);
+      .run(now, now, JSON.stringify(snapshot), id);
     return this.requireIncident(id);
+  }
+
+  private buildClosedSnapshot(
+    incident: LearningIncidentDto,
+    verification: LearningVerificationDto | null,
+    userVerdict: Exclude<LearningOutcome, "unknown"> | null,
+    now: number
+  ): Record<string, unknown> {
+    return {
+      difficultyType: incident.difficultyType,
+      hypothesis: incident.hypothesis,
+      confidence: incident.confidence,
+      severity: incident.severity,
+      evidenceMessageIds: incident.evidenceMessageIds,
+      interventions: this.listInterventions(incident.id).map((item) => ({
+        strategy: item.strategy,
+        rationale: item.rationale,
+        expectedSignal: item.expectedSignal,
+        round: item.round,
+        policyRevisionId: item.policyRevisionId
+      })),
+      ...(verification
+        ? {
+            verification: {
+              method: verification.method,
+              prompt: verification.prompt,
+              rubric: verification.rubric,
+              systemVerdict: verification.systemVerdict,
+              systemConfidence: verification.systemConfidence,
+              userVerdict: userVerdict ?? verification.userVerdict,
+              finalVerdict: userVerdict ?? verification.finalVerdict
+            }
+          }
+        : {}),
+      closedAt: now
+    };
   }
 
   confirmVerification(id: string, verdict: Exclude<LearningOutcome, "unknown">): LearningVerificationDto {
@@ -919,30 +967,7 @@ export class LearningStore {
     if (!intervention) throw new Error("A verified learning outcome requires an intervention");
     const session = this.sessionForIncident(incident.id);
     const now = this.clock();
-    const closedSnapshot = {
-      difficultyType: incident.difficultyType,
-      hypothesis: incident.hypothesis,
-      confidence: incident.confidence,
-      severity: incident.severity,
-      evidenceMessageIds: incident.evidenceMessageIds,
-      interventions: this.listInterventions(incident.id).map((item) => ({
-        strategy: item.strategy,
-        rationale: item.rationale,
-        expectedSignal: item.expectedSignal,
-        round: item.round,
-        policyRevisionId: item.policyRevisionId
-      })),
-      verification: {
-        method: verification.method,
-        prompt: verification.prompt,
-        rubric: verification.rubric,
-        systemVerdict: verification.systemVerdict,
-        systemConfidence: verification.systemConfidence,
-        userVerdict: verdict,
-        finalVerdict: verdict
-      },
-      closedAt: now
-    };
+    const closedSnapshot = this.buildClosedSnapshot(incident, verification, verdict, now);
     this.database.transaction(() => {
       this.database
         .prepare("UPDATE learning_verifications SET user_verdict = ?, final_verdict = ?, confirmed_at = ? WHERE id = ?")
@@ -1345,6 +1370,70 @@ export class LearningStore {
     return { verification, incident, finalRound: session.condition === "one-shot" || interventionCount >= 3 };
   }
 
+  /**
+   * The structured handoff for an escalated incident: what was tried round by round, what
+   * the learner still cannot do, and which strategies a human tutor has not seen fail yet.
+   * Deterministically rendered from the live tables — no model call.
+   */
+  handoffReport(incidentId: string): LearningHandoffReportDto | null {
+    const incident = this.getIncident(incidentId);
+    if (!incident || incident.status !== "escalated") return null;
+    const session = this.getSessionForIncident(incidentId);
+    if (!session) return null;
+    const interventions = this.listInterventions(incidentId);
+    const verifications = this.listVerifications(incidentId);
+    const attempts = interventions.map((item) => {
+      const verification = verifications.filter((entry) => entry.interventionId === item.id).at(-1) ?? null;
+      return {
+        round: item.round,
+        strategy: item.strategy,
+        rationale: item.rationale,
+        expectedSignal: item.expectedSignal,
+        verificationPrompt: verification?.prompt ?? null,
+        outcome: verification?.finalVerdict ?? verification?.systemVerdict ?? null
+      };
+    });
+    const stillOpen = [
+      ...new Set(
+        verifications
+          .filter((entry) => {
+            const outcome = entry.finalVerdict ?? entry.systemVerdict;
+            return outcome !== null && outcome !== "resolved" && entry.rubric.trim().length > 0;
+          })
+          .map((entry) => entry.rubric.trim())
+      )
+    ];
+    const tried = [...new Set(interventions.map((item) => item.strategy))];
+    const selection = this.selectStrategy({
+      profileId: session.profileId,
+      topicKey: session.topicKey,
+      difficultyType: incident.difficultyType,
+      datasetKind: session.datasetKind,
+      failedStrategies: tried
+    });
+    const suggestedNextStrategies = selection.orderedStrategies
+      .filter((strategy) => !tried.includes(strategy) && strategy !== "abstain_escalate")
+      .slice(0, 3);
+    const snapshot =
+      incident.closedSnapshot && typeof incident.closedSnapshot === "object"
+        ? (incident.closedSnapshot as Record<string, unknown>)
+        : null;
+    return {
+      incidentId: incident.id,
+      goal: session.goal,
+      topicKey: session.topicKey ?? "",
+      difficultyType: incident.difficultyType,
+      hypothesis: incident.hypothesis,
+      confidence: incident.confidence,
+      severity: incident.severity,
+      escalationReason: typeof snapshot?.reason === "string" ? snapshot.reason : null,
+      attempts,
+      stillOpen,
+      suggestedNextStrategies,
+      closedAt: incident.closedAt
+    };
+  }
+
   getPolicyRevision(id: string): LearningPolicyRevisionDto | null {
     const row = this.database.prepare("SELECT * FROM learning_policy_revisions WHERE id = ?").get(id) as
       | PolicyRow
@@ -1560,18 +1649,24 @@ export class LearningStore {
     verifications: LearningVerificationDto[];
     experiences: LearningExperienceDto[];
     policyRevisions: LearningPolicyRevisionDto[];
+    handoffs: LearningHandoffReportDto[];
   } {
     const all = <T>(table: string, map: (row: Record<string, unknown>) => T): T[] =>
       (this.database.prepare(`SELECT * FROM ${table} ORDER BY created_at ASC`).all() as Record<string, unknown>[]).map(
         map
       );
+    const incidents = all("learning_incidents", (row) => this.toIncident(row));
     return {
       sessions: all("learning_sessions", (row) => this.toSession(row)),
-      incidents: all("learning_incidents", (row) => this.toIncident(row)),
+      incidents,
       interventions: all("learning_interventions", (row) => this.toIntervention(row)),
       verifications: all("learning_verifications", (row) => this.toVerification(row)),
       experiences: all("learning_experiences", (row) => this.toExperience(row)),
-      policyRevisions: all("learning_policy_revisions", (row) => this.toPolicy(row))
+      policyRevisions: all("learning_policy_revisions", (row) => this.toPolicy(row)),
+      handoffs: incidents
+        .filter((incident) => incident.status === "escalated")
+        .map((incident) => this.handoffReport(incident.id))
+        .filter((report): report is LearningHandoffReportDto => report !== null)
     };
   }
 

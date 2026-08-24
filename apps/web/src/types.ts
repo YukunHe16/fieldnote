@@ -463,6 +463,30 @@ export interface LearningMetricsDto {
   generatedAt: string;
 }
 
+export interface LearningHandoffAttemptDto {
+  round: number;
+  strategy: LearningInterventionStrategy;
+  rationale: string;
+  expectedSignal: string;
+  verificationPrompt: string | null;
+  outcome: LearningOutcome | null;
+}
+
+export interface LearningHandoffReportDto {
+  incidentId: string;
+  goal: string;
+  topicKey: string;
+  difficultyType: LearningDifficultyType;
+  hypothesis: string;
+  confidence: number;
+  severity: number;
+  escalationReason: string | null;
+  attempts: LearningHandoffAttemptDto[];
+  stillOpen: string[];
+  suggestedNextStrategies: LearningInterventionStrategy[];
+  closedAt: string | null;
+}
+
 export interface LearningDemoScenarioDto {
   id: string;
   title: string;

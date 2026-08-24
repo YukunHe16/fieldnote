@@ -549,7 +549,7 @@ function englishStrategy(strategy?: LearningInterventionStrategy): string {
   return (strategy ?? "contrastive_example").replaceAll("_", " ");
 }
 
-function chineseStrategy(strategy?: LearningInterventionStrategy): string {
+export function chineseStrategy(strategy?: LearningInterventionStrategy): string {
   const labels: Record<LearningInterventionStrategy, string> = {
     socratic_question: "苏格拉底式追问",
     conceptual_hint: "概念提示",

@@ -14,6 +14,8 @@ import { readUiLocale, type UiLocale } from "./locale.js";
 import type { CollaborationStore } from "./collaboration-store.js";
 import type { LearningStore, LearningSessionDto } from "./learning-store.js";
 import { LEARNING_TRY_ANOTHER_PROMPT, confirmLearningVerification } from "./learning-confirm.js";
+import { chineseStrategy } from "./learning-coordinator.js";
+import type { LearningHandoffReportDto } from "@fieldnote/contracts";
 import { MAX_INPUT_FILE_BYTES } from "./input-file-manifest.js";
 import {
   askUserAnswersFromCard,
@@ -190,6 +192,8 @@ export class FeishuChannel implements ChannelAdapter {
   private readonly streamingRuns = new Set<string>();
   /** One refusal per open_id per process; a rejected sender is not worth repeating to. */
   private readonly notifiedUnauthorized = new Set<string>();
+  /** One handoff card per escalated incident; both escalation paths emit the same event. */
+  private readonly notifiedEscalations = new Set<string>();
   private senderCandidateList: FeishuSenderCandidate[] = [];
   // Retained for symmetric teardown in stop(); flagged as unused only because assignment is conditional.
   private unsubscribeEvents: (() => void) | undefined;
@@ -219,7 +223,45 @@ export class FeishuChannel implements ChannelAdapter {
         if (event.type === "run.completed" && event.runId) {
           void this.mirrorCompletedRun(event.conversationId, event.runId);
         }
+        if (event.type === "learning.incident.updated") {
+          const incident = (event.payload as Record<string, unknown> | undefined)?.incident as
+            | Record<string, unknown>
+            | undefined;
+          if (incident && incident.status === "escalated" && typeof incident.id === "string") {
+            void this.notifyLearningEscalation(incident.id);
+          }
+        }
       });
+    }
+  }
+
+  /**
+   * Escalation is the loop admitting it needs a human: DM the owner a structured handoff
+   * card, the same owner-lookup route the evolution approval card takes. Synthetic sessions
+   * (demo/eval/replay) never page anyone.
+   */
+  private async notifyLearningEscalation(incidentId: string): Promise<void> {
+    if (!this.channel || !this.learning || this.notifiedEscalations.has(incidentId)) return;
+    try {
+      const session = this.learning.getSessionForIncident(incidentId);
+      if (!session || session.datasetKind !== "live") return;
+      const report = this.learning.handoffReport(incidentId);
+      if (!report) return;
+      const binding = this.store.database
+        .prepare(
+          `SELECT metadata_json FROM channel_bindings
+         WHERE channel = 'feishu' AND external_key LIKE 'p2p:%'
+         ORDER BY updated_at DESC LIMIT 1`
+        )
+        .get() as { metadata_json: string } | undefined;
+      if (!binding) return;
+      this.notifiedEscalations.add(incidentId);
+      const metadata = JSON.parse(binding.metadata_json) as FeishuBindingMetadata;
+      await this.channel.send(metadata.chatId, {
+        card: buildFeishuLearningHandoffCard(report, session.goal, this.webAppUrl)
+      });
+    } catch (error) {
+      console.error("[feishu] learning handoff card failed", safeMessage(error));
     }
   }
 
@@ -1592,6 +1634,45 @@ export function buildFeishuLearningOutcomeCard(input: {
     ],
     { title: { tag: "plain_text", content: "学习确认" }, template: "turquoise" }
   );
+}
+
+/** Structured escalation handoff sent to the owner when the learning loop gives up. */
+export function buildFeishuLearningHandoffCard(
+  report: LearningHandoffReportDto,
+  goal: string,
+  webAppUrl: string
+): object {
+  const attempts = report.attempts
+    .map(
+      (attempt) =>
+        `${attempt.round}. ${chineseStrategy(attempt.strategy)} → ${
+          attempt.outcome === "resolved"
+            ? "已解决"
+            : attempt.outcome === "partial"
+              ? "部分理解"
+              : attempt.outcome === "unresolved"
+                ? "未解决"
+                : "未验证"
+        }`
+    )
+    .join("\n");
+  const stillOpen = report.stillOpen
+    .slice(0, 2)
+    .map((item) => `- ${item}`)
+    .join("\n");
+  const suggestions = report.suggestedNextStrategies.map((strategy) => chineseStrategy(strategy)).join("、");
+  const lines = [
+    `**目标**：${goal}`,
+    `**诊断**：${report.hypothesis}`,
+    attempts ? `**已尝试**：\n${attempts}` : "",
+    stillOpen ? `**学习者仍未达到**：\n${stillOpen}` : "",
+    suggestions ? `**建议接手讲法**：${suggestions}` : "",
+    report.escalationReason ? `**升级原因**：${report.escalationReason}` : ""
+  ].filter(Boolean);
+  return buildFeishuCard(lines.join("\n"), [openUrlButton("去往网页端查看", "handoff_open", webAppUrl)], {
+    title: { tag: "plain_text", content: "学习升级 · 需要人工接手" },
+    template: "red"
+  });
 }
 
 /** Terminal state of the outcome card after a click (or after a stale double-click). */
