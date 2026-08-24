@@ -67,6 +67,8 @@ type FeishuCardActionValue = {
     | "profile"
     | "evolution_approve"
     | "evolution_reject"
+    | "evolution_disable"
+    | "evolution_keep"
     | "ask_answer"
     | "learning_confirm";
   conversationId?: string;
@@ -391,6 +393,33 @@ export class FeishuChannel implements ChannelAdapter {
     return true;
   }
 
+  async notifyUsageSuggestion(input: {
+    artifact: EvolvedArtifactDto;
+    uses: number;
+    retriedRuns: number;
+    reason: string;
+  }): Promise<boolean> {
+    if (!this.channel) return false;
+    const binding = this.store.database
+      .prepare(
+        `SELECT metadata_json FROM channel_bindings
+       WHERE channel = 'feishu' AND external_key LIKE 'p2p:%'
+       ORDER BY updated_at DESC LIMIT 1`
+      )
+      .get() as { metadata_json: string } | undefined;
+    if (!binding) return false;
+    const metadata = JSON.parse(binding.metadata_json) as FeishuBindingMetadata;
+    await this.channel.send(metadata.chatId, {
+      card: buildFeishuUsageSuggestionCard({
+        artifact: input.artifact,
+        uses: input.uses,
+        retriedRuns: input.retriedRuns,
+        reason: input.reason
+      })
+    });
+    return true;
+  }
+
   canNotifyEvolution(): boolean {
     if (!this.channel) return false;
     try {
@@ -577,6 +606,23 @@ export class FeishuChannel implements ChannelAdapter {
       }
       return;
     }
+    if (value.action === "evolution_disable" || value.action === "evolution_keep") {
+      if (!value.artifactId || !this.evolution) return;
+      const artifact =
+        value.action === "evolution_disable"
+          ? await this.evolution.setEnabled(value.artifactId, false)
+          : this.evolution.keepArtifact(value.artifactId);
+      if (!artifact || !this.channel.updateCard) return;
+      await this.channel.updateCard(
+        event.messageId,
+        buildFeishuUsageSuggestionCard({
+          artifact,
+          resolved: value.action === "evolution_disable" ? "disabled" : "kept"
+        })
+      );
+      return;
+    }
+
     if (!value.conversationId) return;
     const conversation = this.store.getConversation(value.conversationId);
     if (!conversation || conversation.channel !== "feishu") return;
@@ -1587,13 +1633,20 @@ export function parseCardActionValue(value: unknown): FeishuCardActionValue | nu
       "profile",
       "evolution_approve",
       "evolution_reject",
+      "evolution_disable",
+      "evolution_keep",
       "ask_answer",
       "learning_confirm"
     ]).has(String(raw.action))
   )
     return null;
-  const evolutionAction = raw.action === "evolution_approve" || raw.action === "evolution_reject";
+  const evolutionAction =
+    raw.action === "evolution_approve" ||
+    raw.action === "evolution_reject" ||
+    raw.action === "evolution_disable" ||
+    raw.action === "evolution_keep";
   const askAction = raw.action === "ask_answer";
+  if (evolutionAction && (typeof raw.artifactId !== "string" || !raw.artifactId)) return null;
   if (!evolutionAction && !askAction && (typeof raw.conversationId !== "string" || !raw.conversationId)) return null;
   if (askAction && (typeof raw.runId !== "string" || typeof raw.answer !== "string")) return null;
   const learningVerdict = ["resolved", "partial", "unresolved"].includes(String(raw.verdict))
@@ -1633,6 +1686,39 @@ export function buildFeishuLearningOutcomeCard(input: {
       callbackButton(input.finalRound ? "仍未解决" : "仍未解决，换种讲法", "learning_unresolved", value("unresolved"))
     ],
     { title: { tag: "plain_text", content: "学习确认" }, template: "turquoise" }
+  );
+}
+
+/** Post-enablement outcome alert: a capability that keeps getting retried, awaiting the owner. */
+export function buildFeishuUsageSuggestionCard(input: {
+  artifact: EvolvedArtifactDto;
+  uses?: number;
+  retriedRuns?: number;
+  reason?: string;
+  resolved?: "disabled" | "kept";
+}): object {
+  const kindLabel = input.artifact.kind === "skill" ? "Skill" : "子代理";
+  if (input.resolved) {
+    return buildFeishuCard(
+      `${kindLabel}「${input.artifact.name}」${input.resolved === "disabled" ? "已停用。" : "已保留，两周内不再提醒。"}`,
+      [],
+      {
+        title: { tag: "plain_text", content: "能力效果提醒" },
+        template: input.resolved === "disabled" ? "grey" : "green"
+      }
+    );
+  }
+  const value = (action: "evolution_disable" | "evolution_keep"): FeishuCardActionValue => ({
+    action,
+    artifactId: input.artifact.id
+  });
+  return buildFeishuCard(
+    `${kindLabel}「${input.artifact.name}」\n${input.reason ?? ""}\n表现明显差于该助手的平均水平；停用后随时可在能力页重新启用。`,
+    [
+      callbackButton("停用", "evolution_disable", value("evolution_disable")),
+      callbackButton("保留", "evolution_keep", value("evolution_keep"))
+    ],
+    { title: { tag: "plain_text", content: "能力效果提醒" }, template: "orange" }
   );
 }
 

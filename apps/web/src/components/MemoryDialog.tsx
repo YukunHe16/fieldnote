@@ -1075,6 +1075,17 @@ function CapabilitiesPanel({
     }
   }
 
+  async function keep(item: EquipmentItem) {
+    if (!item.artifactId) return;
+    try {
+      await api.keepEvolvedArtifact(item.artifactId);
+      await reload();
+      toast(t("capabilityKept"), "success");
+    } catch {
+      toast(t("capabilityUpdateFailed"), "danger");
+    }
+  }
+
   if (!equipment)
     return (
       <div className="memory-loading" role="status">
@@ -1132,8 +1143,24 @@ function CapabilitiesPanel({
           ))}
         </div>
       )}
-      <CapabilityGroup title="Skills" items={equipment.skills} onToggle={toggle} onPreview={showPreview} />
-      <CapabilityGroup title={t("subagent")} items={equipment.delegates} onToggle={toggle} onPreview={showPreview} />
+      <CapabilityGroup
+        title="Skills"
+        items={equipment.skills}
+        onToggle={toggle}
+        onPreview={showPreview}
+        onKeep={keep}
+        usage={equipment.usage}
+        suggestions={equipment.suggestions}
+      />
+      <CapabilityGroup
+        title={t("subagent")}
+        items={equipment.delegates}
+        onToggle={toggle}
+        onPreview={showPreview}
+        onKeep={keep}
+        usage={equipment.usage}
+        suggestions={equipment.suggestions}
+      />
       <AnimatePresence>
         {preview && (
           <motion.div
@@ -1163,12 +1190,18 @@ function CapabilityGroup({
   title,
   items,
   onToggle,
-  onPreview
+  onPreview,
+  onKeep,
+  usage,
+  suggestions
 }: {
   title: string;
   items: EquipmentItem[];
   onToggle: (item: EquipmentItem) => void;
   onPreview: (item: EquipmentItem) => void;
+  onKeep?: (item: EquipmentItem) => void;
+  usage?: Record<string, { uses: number; retriedRuns: number }>;
+  suggestions?: Record<string, string>;
 }) {
   const { t } = useLocale();
   return (
@@ -1182,23 +1215,41 @@ function CapabilityGroup({
       {items.length === 0 ? (
         <p className="handbook-hint">{t("noItems", { title })}</p>
       ) : (
-        items.map((item) => (
-          <article key={`${item.origin}-${item.id}`} className="capability-item">
-            <div className="capability-item-top">
-              <span>{item.origin === "official" ? t("official") : t("evolved")}</span>
-              <em>{item.enabled ? t("enabled") : t("disabled")}</em>
-            </div>
-            <h3>{item.name}</h3>
-            <p>{item.description}</p>
-            <footer>
-              {item.origin === "evolved" && (
-                <button onClick={() => onToggle(item)}>{item.enabled ? t("turnOff") : t("enable")}</button>
+        items.map((item) => {
+          const stats = item.origin === "evolved" && item.artifactId ? usage?.[item.artifactId] : undefined;
+          const suggestion = item.origin === "evolved" && item.artifactId ? suggestions?.[item.artifactId] : undefined;
+          return (
+            <article key={`${item.origin}-${item.id}`} className="capability-item">
+              <div className="capability-item-top">
+                <span>{item.origin === "official" ? t("official") : t("evolved")}</span>
+                <em>{item.enabled ? t("enabled") : t("disabled")}</em>
+              </div>
+              <h3>{item.name}</h3>
+              <p>{item.description}</p>
+              {stats && (
+                <small className="capability-usage">
+                  {t("capabilityUsage", { uses: stats.uses, retried: stats.retriedRuns })}
+                </small>
               )}
-              {item.origin === "evolved" && <button onClick={() => onPreview(item)}>{t("preview")}</button>}
-              {item.origin === "official" && <small>{t("officialReadonly")}</small>}
-            </footer>
-          </article>
-        ))
+              {suggestion && (
+                <div className="capability-suggestion" role="note">
+                  <small>{suggestion}</small>
+                  <button className="danger" onClick={() => onToggle(item)}>
+                    {t("turnOff")}
+                  </button>
+                  <button onClick={() => onKeep?.(item)}>{t("capabilityKeep")}</button>
+                </div>
+              )}
+              <footer>
+                {item.origin === "evolved" && (
+                  <button onClick={() => onToggle(item)}>{item.enabled ? t("turnOff") : t("enable")}</button>
+                )}
+                {item.origin === "evolved" && <button onClick={() => onPreview(item)}>{t("preview")}</button>}
+                {item.origin === "official" && <small>{t("officialReadonly")}</small>}
+              </footer>
+            </article>
+          );
+        })
       )}
     </div>
   );

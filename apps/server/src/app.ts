@@ -983,6 +983,13 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return artifact;
   });
 
+  app.post("/api/evolved-artifacts/:id/keep", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const artifact = evolutionCoordinator.keepArtifact(id);
+    if (!artifact) return reply.code(404).send({ error: "Artifact not found or not enabled" });
+    return artifact;
+  });
+
   app.put("/api/channels/feishu", async (request, reply) => {
     if (!feishu) return reply.code(503).send({ error: "Feishu configuration is unavailable" });
     const input = feishuSettingsSchema.parse(request.body ?? {});

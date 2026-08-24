@@ -89,6 +89,8 @@ export interface ProfileEquipment {
   skills: EquipmentItem[];
   delegates: EquipmentItem[];
   pending: EvolvedArtifact[];
+  usage?: Record<string, { uses: number; retriedRuns: number }>;
+  suggestions?: Record<string, string>;
 }
 export type AgentProfileId = "graduate-admissions" | "local-operator" | string;
 export type AssistantBlockStatus = "queued" | "running" | "completed" | "failed" | "interrupted";

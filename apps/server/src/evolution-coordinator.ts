@@ -10,7 +10,12 @@ import type { AppConfig } from "./config.js";
 import { evaluateArtifactProgrammatically } from "./evolution-evaluator.js";
 import { runShadowCheck, skillMatchesPrompt } from "./domain-evolution-check.js";
 import type { RunReplayStore } from "./run-replay.js";
-import { methodsSimilar, preparePlaybookInstruction, type EvolutionStore } from "./evolution-store.js";
+import {
+  DISABLE_SUGGESTION_PREFIX,
+  methodsSimilar,
+  preparePlaybookInstruction,
+  type EvolutionStore
+} from "./evolution-store.js";
 import { evolvedSkillDescription, renderEvolvedSkillBody, syncEvolvedOverlay } from "./evolved-overlay.js";
 import type { MemoryStore } from "./memory-store.js";
 import { scoreOverlayText } from "./overlay-context.js";
@@ -28,7 +33,19 @@ export interface EvolutionNotifier {
     enabled: boolean;
     replayRunId?: string | null;
   }): Promise<boolean>;
+  notifyUsageSuggestion?(input: {
+    artifact: EvolvedArtifactDto;
+    uses: number;
+    retriedRuns: number;
+    reason: string;
+  }): Promise<boolean>;
 }
+
+/** An enabled capability earns a disable suggestion after this many eligible runs... */
+const USAGE_SUGGESTION_MIN_USES = 5;
+/** ...when at least this share of them were retried or edited away. */
+const USAGE_SUGGESTION_RETRY_RATE = 0.4;
+const USAGE_SUGGESTION_SUPPRESS_MS = 14 * 24 * 60 * 60_000;
 
 const EXPLICIT_SKILL_REQUEST = /做成\s*(skill|技能)|做成子代理|交给子代理/i;
 
@@ -150,6 +167,13 @@ export class EvolutionCoordinator {
         enabled: item.status === "enabled",
         artifactId: item.id
       }));
+    const usage = this.evolution.artifactUsageStats(profileId);
+    const suggestions: Record<string, string> = {};
+    for (const item of evolved) {
+      if (item.status !== "enabled") continue;
+      const suggestion = this.evolution.openDisableSuggestion(item.id);
+      if (suggestion) suggestions[item.id] = suggestion;
+    }
     return {
       profileId,
       skills: [
@@ -160,7 +184,9 @@ export class EvolutionCoordinator {
         ...official.delegates.map((item) => ({ ...item, origin: "official" as const, enabled: true })),
         ...evolvedDelegates
       ],
-      pending: evolved.filter((item) => item.status === "pending")
+      pending: evolved.filter((item) => item.status === "pending"),
+      usage,
+      suggestions
     };
   }
 
@@ -354,11 +380,53 @@ export class EvolutionCoordinator {
       this.evolution.markReviewRunning(profileId, now);
       try {
         await this.proposeFromReview(profileId);
+        await this.maybeSuggestDisable(profileId, now);
         this.evolution.markReviewCompleted(profileId, now, now);
       } catch (error) {
         this.evolution.markReviewFailed(profileId, error instanceof Error ? error.message : String(error), now);
       }
     }
+  }
+
+  /**
+   * The other half of the evolution loop: after a capability is enabled, its outcomes are
+   * watched, and one that keeps getting retried earns a human-reviewed disable suggestion.
+   * The suggestion never changes status by itself.
+   */
+  private async maybeSuggestDisable(profileId: string, now: number): Promise<void> {
+    const stats = this.evolution.artifactUsageStats(profileId);
+    const totals = Object.values(stats).reduce(
+      (acc, item) => ({ uses: acc.uses + item.uses, retried: acc.retried + item.retriedRuns }),
+      { uses: 0, retried: 0 }
+    );
+    const baseline = totals.uses > 0 ? totals.retried / totals.uses : 0;
+    for (const artifact of this.evolution.listArtifacts(profileId, "enabled")) {
+      const stat = stats[artifact.id];
+      if (!stat || stat.uses < USAGE_SUGGESTION_MIN_USES) continue;
+      const rate = stat.retriedRuns / stat.uses;
+      if (rate < USAGE_SUGGESTION_RETRY_RATE || rate <= baseline) continue;
+      if (this.evolution.hasRecentUsageReview(artifact.id, now - USAGE_SUGGESTION_SUPPRESS_MS)) continue;
+      const reason = `${DISABLE_SUGGESTION_PREFIX}启用后 ${stat.uses} 次使用、${stat.retriedRuns} 次被重试。`;
+      this.evolution.recordDisableSuggestion(artifact.id, reason);
+      try {
+        await this.notifier?.notifyUsageSuggestion?.({
+          artifact,
+          uses: stat.uses,
+          retriedRuns: stat.retriedRuns,
+          reason
+        });
+      } catch {
+        // The web equipment panel shows the suggestion even when Feishu is unreachable.
+      }
+    }
+  }
+
+  /** The human dismissed a disable suggestion: remember it so it is not re-raised soon. */
+  keepArtifact(id: string): EvolvedArtifactDto | null {
+    const artifact = this.evolution.getArtifact(id);
+    if (!artifact || artifact.status !== "enabled") return null;
+    this.evolution.recordKeepReview(id);
+    return this.evolution.getArtifact(id);
   }
 
   private writePlaybooksFromAccept(input: {

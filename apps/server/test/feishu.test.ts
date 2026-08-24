@@ -352,7 +352,8 @@ describe("Feishu commands", () => {
       action: "evolution_approve",
       artifactId: "artifact-1"
     });
-    expect(parseCardActionValue({ action: "evolution_approve" })).toMatchObject({ action: "evolution_approve" });
+    // An evolution action without its artifact is unusable; parsing rejects it outright now.
+    expect(parseCardActionValue({ action: "evolution_approve" })).toBeNull();
     const pending = buildFeishuEvolutionCard({
       artifact: {
         id: "artifact-1",

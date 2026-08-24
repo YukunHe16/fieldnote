@@ -653,6 +653,10 @@ export interface ProfileEquipmentDto {
   skills: EquipmentItemDto[];
   delegates: EquipmentItemDto[];
   pending: EvolvedArtifactDto[];
+  /** Per-artifact runs-injected / runs-retried counts since the last status change. */
+  usage?: Record<string, { uses: number; retriedRuns: number }>;
+  /** Open disable suggestions for enabled artifacts, keyed by artifact id. */
+  suggestions?: Record<string, string>;
 }
 
 export interface MemoryMaintenanceStatusDto {

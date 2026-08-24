@@ -716,6 +716,9 @@
   .capability-pending > p, .capability-group + .capability-group { margin-top: 1rem; }
   .capability-pending > p { margin: 0 0 .35rem; font-size: .78rem; font-weight: 650; }
   .capability-item { padding: .75rem 0; border-bottom: 1px solid var(--line); }
+  .capability-usage { display: block; margin-top: .2rem; color: var(--ink-faint); font-size: .62rem; }
+  .capability-suggestion { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-top: .35rem; padding: .4rem .55rem; border: 1px solid var(--warn, #d97706); border-radius: 8px; font-size: .64rem; }
+  .capability-suggestion small { flex: 1 1 12rem; }
   .capability-item-top { display: flex; justify-content: space-between; color: var(--ink-faint); font-size: .58rem; }
   .capability-item h3 { margin: .28rem 0 .2rem; font-size: .8rem; }
   .capability-item p, .capability-item small { margin: 0; color: var(--ink-soft); font-size: .66rem; line-height: 1.45; }

@@ -1385,6 +1385,8 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify({ enabled })
     }),
+  keepEvolvedArtifact: (id: string) =>
+    request<EvolvedArtifact>(`/api/evolved-artifacts/${id}/keep`, { method: "POST", headers: JSON_HEADERS }),
   reviewEvolvedArtifact: (id: string, verdict: "pass" | "reject", reason: string) =>
     request<EvolvedArtifact>(`/api/evolved-artifacts/${id}/review`, {
       method: "POST",

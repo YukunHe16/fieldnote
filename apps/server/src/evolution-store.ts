@@ -123,6 +123,9 @@ export function preparePlaybookInstruction(value: string): string {
 
 export const EVOLUTION_REVIEW_TASK_THRESHOLD = 15;
 export const EVOLUTION_REVIEW_INTERVAL_MS = 7 * 24 * 60 * 60_000;
+/** Marker prefixes for usage-based review rows; queries and UI detection key off them. */
+export const DISABLE_SUGGESTION_PREFIX = "建议停用：";
+export const KEEP_REVIEW_REASON = "已确认保留该能力";
 
 export interface EvolutionReviewStatus {
   profileId: string;
@@ -587,6 +590,111 @@ export class EvolutionStore {
           .prepare("SELECT * FROM evolved_artifacts WHERE status = 'pending' ORDER BY updated_at DESC")
           .all() as ArtifactRow[]);
     return rows.map((row) => this.toArtifact(row));
+  }
+
+  /**
+   * Usage since the artifact's last status change, over overlay revisions of runs that are
+   * evolution-eligible (conversations with non-live learning sessions and replay
+   * conversations are excluded via SQL, mirroring isEvolutionEligibleConversation).
+   */
+  artifactUsageStats(profileId: string): Record<string, { uses: number; retriedRuns: number }> {
+    const artifacts = this.listArtifacts(profileId);
+    if (artifacts.length === 0) return {};
+    const enabledSince = new Map<string, number>();
+    for (const artifact of artifacts) enabledSince.set(artifact.id, Date.parse(artifact.updatedAt) || 0);
+    const hasTable = (name: string): boolean =>
+      Boolean(this.database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+    const exclusions = [
+      hasTable("learning_sessions")
+        ? "AND r.conversation_id NOT IN (SELECT conversation_id FROM learning_sessions WHERE dataset_kind != 'live')"
+        : "",
+      hasTable("replay_marks") ? "AND r.conversation_id NOT IN (SELECT conversation_id FROM replay_marks)" : ""
+    ].join("\n         ");
+    const rows = this.database
+      .prepare(
+        `SELECT o.run_id, o.snapshot_json, o.created_at
+       FROM overlay_revisions o
+       JOIN runs r ON r.id = o.run_id
+       WHERE o.profile_id = ?
+         ${exclusions}
+       ORDER BY o.created_at DESC LIMIT 500`
+      )
+      .all(profileId) as Array<{ run_id: string | null; snapshot_json: string; created_at: number }>;
+    const retriedRunIds = new Set(
+      (
+        this.database
+          .prepare(
+            "SELECT DISTINCT run_id FROM evolution_signals WHERE kind IN ('retry', 'edit') AND run_id IS NOT NULL"
+          )
+          .all() as Array<{ run_id: string }>
+      ).map((row) => row.run_id)
+    );
+    const stats: Record<string, { uses: number; retriedRuns: number }> = {};
+    for (const row of rows) {
+      let artifactIds: string[] = [];
+      try {
+        const snapshot = JSON.parse(row.snapshot_json) as { artifactIds?: unknown };
+        if (Array.isArray(snapshot.artifactIds))
+          artifactIds = snapshot.artifactIds.filter((value): value is string => typeof value === "string");
+      } catch {
+        continue;
+      }
+      for (const artifactId of artifactIds) {
+        const since = enabledSince.get(artifactId);
+        if (since === undefined || row.created_at < since) continue;
+        let entry = stats[artifactId];
+        if (!entry) {
+          entry = { uses: 0, retriedRuns: 0 };
+          stats[artifactId] = entry;
+        }
+        entry.uses += 1;
+        if (row.run_id && retriedRunIds.has(row.run_id)) entry.retriedRuns += 1;
+      }
+    }
+    return stats;
+  }
+
+  /**
+   * Disable suggestions live only in the append-only review audit — writing them through
+   * setArtifactStatus would bump updated_at and reset the usage window above.
+   */
+  recordDisableSuggestion(artifactId: string, reason: string): void {
+    this.database
+      .prepare(
+        "INSERT INTO evolution_reviews (id, artifact_id, verdict, reason, notified, created_at) VALUES (?, ?, 'needs_human', ?, 0, ?)"
+      )
+      .run(randomUUID(), artifactId, reason, Date.now());
+  }
+
+  recordKeepReview(artifactId: string): void {
+    this.database
+      .prepare(
+        `INSERT INTO evolution_reviews (id, artifact_id, verdict, reason, notified, created_at) VALUES (?, ?, 'pass', '${KEEP_REVIEW_REASON}', 0, ?)`
+      )
+      .run(randomUUID(), artifactId, Date.now());
+  }
+
+  /** The still-open disable suggestion for an artifact: the newest review row, if it is one. */
+  openDisableSuggestion(artifactId: string): string | null {
+    const row = this.database
+      .prepare(
+        "SELECT reason FROM evolution_reviews WHERE artifact_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1"
+      )
+      .get(artifactId) as { reason: string | null } | undefined;
+    return row?.reason?.startsWith(DISABLE_SUGGESTION_PREFIX) ? row.reason : null;
+  }
+
+  /** True when a suggestion was raised or dismissed recently — suppresses re-paging. */
+  hasRecentUsageReview(artifactId: string, since: number): boolean {
+    const row = this.database
+      .prepare(
+        `SELECT 1 FROM evolution_reviews
+       WHERE artifact_id = ? AND created_at >= ?
+         AND (reason LIKE '${DISABLE_SUGGESTION_PREFIX}%' OR reason = '${KEEP_REVIEW_REASON}')
+       LIMIT 1`
+      )
+      .get(artifactId, since);
+    return Boolean(row);
   }
 
   setArtifactStatus(

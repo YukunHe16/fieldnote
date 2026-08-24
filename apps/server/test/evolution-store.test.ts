@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/database.js";
 import { EvolutionStore, methodsSimilar } from "../src/evolution-store.js";
 import { AgentStore } from "../src/store.js";
+import { LearningStore } from "../src/learning-store.js";
 
 describe("EvolutionStore", () => {
   it("keeps the latest thumb per message and decorates conversation ratings", () => {
@@ -134,6 +135,85 @@ describe("EvolutionStore", () => {
     expect(evolution.hasRetryOrEditForRun(second.id)).toBe(false);
     expect(methodsSimilar("先核官方页面再写进材料", "先核官方页面再写进材料")).toBe(true);
     expect(methodsSimilar("先核官方", "核官方任职")).toBe(false);
+    database.close();
+  });
+
+  it("counts artifact usage since enablement, skips synthetic runs, and tallies retried runs", () => {
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const evolution = new EvolutionStore(database);
+    const learning = new LearningStore(database);
+    const artifact = evolution.createArtifact({
+      profileId: "local-operator",
+      kind: "skill",
+      slug: "usage-tracked-method",
+      name: "被追踪的方法",
+      description: "用于统计",
+      body: "步骤",
+      origin: "distilled",
+      status: "enabled"
+    });
+    const overlayFor = (conversationTitle: string, options?: { evalSession?: boolean; retried?: boolean }) => {
+      const conversation = store.createConversation("web", conversationTitle, { profileId: "local-operator" });
+      if (options?.evalSession) {
+        learning.createSession({
+          conversationId: conversation.id,
+          profileId: "local-operator",
+          goal: "评测",
+          datasetKind: "eval"
+        });
+      }
+      const run = store.createRun(conversation.id, "做点事", "normal");
+      evolution.createOverlayRevision({
+        runId: run.id,
+        profileId: "local-operator",
+        playbooks: [],
+        artifactIds: [artifact.id]
+      });
+      if (options?.retried) {
+        evolution.createSignal({
+          source: "implicit",
+          kind: "retry",
+          polarity: "down",
+          conversationId: conversation.id,
+          profileId: "local-operator",
+          runId: run.id
+        });
+      }
+      return run;
+    };
+    overlayFor("正常一");
+    overlayFor("正常二", { retried: true });
+    overlayFor("评测对话", { evalSession: true });
+    const stats = evolution.artifactUsageStats("local-operator");
+    expect(stats[artifact.id]).toEqual({ uses: 2, retriedRuns: 1 });
+    database.close();
+  });
+
+  it("keeps disable suggestions in the review audit and suppresses re-raising after a keep", () => {
+    const database = openDatabase(":memory:");
+    const evolution = new EvolutionStore(database);
+    const artifact = evolution.createArtifact({
+      profileId: "local-operator",
+      kind: "skill",
+      slug: "weak-method",
+      name: "表现不佳的方法",
+      description: "统计对象",
+      body: "步骤",
+      origin: "distilled",
+      status: "enabled"
+    });
+    const before = evolution.getArtifact(artifact.id)!.updatedAt;
+    const reason = "建议停用：启用后 6 次使用、3 次被重试。";
+    evolution.recordDisableSuggestion(artifact.id, reason);
+    // Writing the suggestion must not reset the usage window.
+    expect(evolution.getArtifact(artifact.id)!.updatedAt).toBe(before);
+    expect(evolution.openDisableSuggestion(artifact.id)).toBe(reason);
+    expect(evolution.hasRecentUsageReview(artifact.id, Date.now() - 1_000)).toBe(true);
+    evolution.recordKeepReview(artifact.id);
+    expect(evolution.openDisableSuggestion(artifact.id)).toBeNull();
+    expect(evolution.hasRecentUsageReview(artifact.id, Date.now() - 1_000)).toBe(true);
+    expect(evolution.hasRecentUsageReview(artifact.id, Date.now() + 60_000)).toBe(false);
     database.close();
   });
 });
