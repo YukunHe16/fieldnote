@@ -12,6 +12,8 @@ import type { EvolutionCoordinator } from "./evolution-coordinator.js";
 import type { EvolvedArtifactDto, EvolutionReviewVerdict, FeishuSenderCandidateDto } from "@fieldnote/contracts";
 import { readUiLocale, type UiLocale } from "./locale.js";
 import type { CollaborationStore } from "./collaboration-store.js";
+import type { LearningStore, LearningSessionDto } from "./learning-store.js";
+import { LEARNING_TRY_ANOTHER_PROMPT, confirmLearningVerification } from "./learning-confirm.js";
 import { MAX_INPUT_FILE_BYTES } from "./input-file-manifest.js";
 import {
   askUserAnswersFromCard,
@@ -56,13 +58,23 @@ type FeishuCardActionEvent = {
 };
 
 type FeishuCardActionValue = {
-  action: "stop" | "retry" | "new" | "profile" | "evolution_approve" | "evolution_reject" | "ask_answer";
+  action:
+    | "stop"
+    | "retry"
+    | "new"
+    | "profile"
+    | "evolution_approve"
+    | "evolution_reject"
+    | "ask_answer"
+    | "learning_confirm";
   conversationId?: string;
   runId?: string;
   assistantMessageId?: string;
   profileId?: AgentProfileId;
   artifactId?: string;
   answer?: string;
+  verificationId?: string;
+  verdict?: "resolved" | "partial" | "unresolved";
 };
 
 type FeishuBindingMetadata = {
@@ -190,7 +202,8 @@ export class FeishuChannel implements ChannelAdapter {
     private readonly webAppUrl = "http://127.0.0.1:5173",
     private readonly workspaceRoot = "",
     private evolution?: EvolutionCoordinator,
-    private readonly collaboration?: CollaborationStore
+    private readonly collaboration?: CollaborationStore,
+    private readonly learning?: LearningStore
   ) {
     this.evolutionCards = new FeishuEvolutionCardIndex(
       () => this.readSetting(FEISHU_EVOLUTION_CARDS_SETTING),
@@ -587,6 +600,52 @@ export class FeishuChannel implements ChannelAdapter {
       return;
     }
 
+    if (value.action === "learning_confirm") {
+      if (!this.learning || !value.verificationId || !value.verdict) return;
+      let result: ReturnType<typeof confirmLearningVerification>;
+      try {
+        result = confirmLearningVerification(
+          { learning: this.learning, store: this.store, events: this.events },
+          value.verificationId,
+          value.verdict
+        );
+      } catch {
+        // A double-click or stale card: show the terminal state instead of silent failure.
+        if (this.channel.updateCard) {
+          await this.channel.updateCard(
+            event.messageId,
+            buildFeishuLearningConfirmedCard(null, "该确认已处理过，以对话中的最新状态为准。")
+          );
+        }
+        return;
+      }
+      if (this.channel.updateCard) {
+        await this.channel.updateCard(event.messageId, buildFeishuLearningConfirmedCard(value.verdict));
+      }
+      // The web client auto-sends the try-another follow-up after an unresolved on-call
+      // confirmation; the card does the same server-side so the next round starts here too.
+      if (
+        value.verdict === "unresolved" &&
+        result.session.condition !== "one-shot" &&
+        result.incident.status === "diagnosed"
+      ) {
+        const mode = this.orchestrator.isConversationBusy(value.conversationId) ? "queue" : "normal";
+        const run = this.orchestrator.submit(value.conversationId, LEARNING_TRY_ANOTHER_PROMPT, mode);
+        this.streamingRuns.add(run.id);
+        void this.streamReply(
+          {
+            messageId: event.messageId,
+            chatId: event.chatId,
+            chatType: metadata.group === true ? "group" : "p2p",
+            senderId: event.operator.openId,
+            content: LEARNING_TRY_ANOTHER_PROMPT
+          },
+          run
+        ).finally(() => this.streamingRuns.delete(run.id));
+      }
+      return;
+    }
+
     const assistant = value.assistantMessageId ? this.store.getMessage(value.assistantMessageId) : null;
     if (!assistant || assistant.role !== "assistant" || assistant.conversationId !== value.conversationId) return;
     if (!assistant.runId) return;
@@ -627,7 +686,7 @@ export class FeishuChannel implements ChannelAdapter {
         message.chatId,
         {
           markdown:
-            "可用命令：`/new` 或 `/clear` 新建会话 · `/agent` 切换助手 · `/stop` 暂停 · `/continue` 继续 · `/guide 文本` 引导当前任务"
+            "可用命令：`/new` 或 `/clear` 新建会话 · `/agent` 切换助手 · `/learn 目标` 开启学习模式（`/learn off` 结束） · `/stop` 暂停 · `/continue` 继续 · `/guide 文本` 引导当前任务"
         },
         this.replyTarget(message)
       );
@@ -693,6 +752,11 @@ export class FeishuChannel implements ChannelAdapter {
       return;
     }
 
+    if (command.name === "learn") {
+      await this.handleLearnCommand(conversationId, command.argument, message);
+      return;
+    }
+
     const rawText =
       command.name === "continue"
         ? "继续刚才的任务。"
@@ -722,6 +786,84 @@ export class FeishuChannel implements ChannelAdapter {
     void this.streamReply(message, run).finally(() => this.streamingRuns.delete(run.id));
   }
 
+  /** `/learn 目标` opens (or refreshes) a live learning session; `/learn off` completes it. */
+  private async handleLearnCommand(
+    conversationId: string,
+    argument: string,
+    message: NormalizedFeishuMessage
+  ): Promise<void> {
+    if (!this.channel) return;
+    const replyTo = this.replyTarget(message);
+    if (!this.learning) {
+      await this.channel.send(message.chatId, { markdown: "学习模式暂不可用。" }, replyTo);
+      return;
+    }
+    const conversation = this.store.getConversation(conversationId);
+    if (!conversation) return;
+    const goal = argument.trim();
+    const existing = this.learning.getSessionForConversation(conversationId);
+    const announce = (session: LearningSessionDto) => {
+      this.events.append({
+        type: "learning.session.updated",
+        conversationId,
+        branchId: conversation.activeBranchId,
+        payload: { session }
+      });
+    };
+    if (goal === "off" || goal === "结束") {
+      if (existing && (existing.status === "active" || existing.status === "paused")) {
+        const session = this.learning.transitionSession(existing.id, "completed");
+        announce(session);
+        await this.channel.send(message.chatId, { markdown: "学习会话已结束。" }, replyTo);
+      } else {
+        await this.channel.send(message.chatId, { markdown: "当前没有进行中的学习会话。" }, replyTo);
+      }
+      return;
+    }
+    if (!goal) {
+      await this.channel.send(
+        message.chatId,
+        {
+          markdown:
+            "用法：`/learn 学习目标`（例如 `/learn 理解递归的出口条件`）开启学习模式；`/learn off` 结束当前学习会话。"
+        },
+        replyTo
+      );
+      return;
+    }
+    let session: LearningSessionDto;
+    if (existing?.status === "suggested" || existing?.status === "paused") {
+      session = this.learning.updateSessionDetails(existing.id, { goal });
+      session = this.learning.transitionSession(session.id, "active");
+    } else if (existing?.status === "active") {
+      session = this.learning.updateSessionDetails(existing.id, { goal });
+    } else if (existing) {
+      // Terminal sessions cannot restart and a conversation holds at most one.
+      await this.channel.send(
+        message.chatId,
+        { markdown: "该对话的学习会话已结束；用 `/new` 开一个新对话再 `/learn`。" },
+        replyTo
+      );
+      return;
+    } else {
+      session = this.learning.createSession({
+        conversationId,
+        profileId: conversation.profileId,
+        goal,
+        datasetKind: "live",
+        status: "active"
+      });
+    }
+    announce(session);
+    await this.channel.send(
+      message.chatId,
+      {
+        markdown: `学习模式已开启：${session.goal}\n直接描述你的困难，我会按学习回路来帮你；出练习之后会请你确认效果。`
+      },
+      replyTo
+    );
+  }
+
   private async streamReply(message: NormalizedFeishuMessage, run: RunRecord): Promise<void> {
     if (!this.channel) return;
     let accumulated = "";
@@ -744,6 +886,7 @@ export class FeishuChannel implements ChannelAdapter {
               let latestActivityText = "";
               let sawAnswer = false;
               const activityLabels = new Map<string, string>();
+              const hiddenActivityBlocks = new Set<string>();
               const cards = createFeishuCardPump(stream);
               let timer: ReturnType<typeof setInterval> | undefined;
               const stopThinking = () => {
@@ -761,6 +904,12 @@ export class FeishuChannel implements ChannelAdapter {
                   if (event.type === "activity.started") {
                     stopThinking();
                     const block = event.payload.block as Record<string, any> | undefined;
+                    // Learning MCP activity stays invisible to the learner on every channel.
+                    if (isLearningFrameworkActivity(block)) {
+                      const hiddenId = String(block?.id ?? "");
+                      if (hiddenId) hiddenActivityBlocks.add(hiddenId);
+                      continue;
+                    }
                     const activity = block?.activity as Record<string, any> | undefined;
                     const blockId = String(block?.id ?? "");
                     latestActivityLabel = String(activity?.displayName ?? "正在处理");
@@ -773,6 +922,7 @@ export class FeishuChannel implements ChannelAdapter {
                   if (event.type === "activity.text.delta") {
                     stopThinking();
                     const blockId = String(event.payload.blockId ?? "");
+                    if (hiddenActivityBlocks.has(blockId)) continue;
                     latestActivityLabel = activityLabels.get(blockId) ?? (latestActivityLabel || "正在处理");
                     latestActivityText = `${latestActivityText}${String(event.payload.delta ?? "")}`.slice(-800);
                     if (!accumulated) {
@@ -785,6 +935,7 @@ export class FeishuChannel implements ChannelAdapter {
                     event.type === "activity.failed"
                   ) {
                     const block = event.payload.block as Record<string, any> | undefined;
+                    if (isLearningFrameworkActivity(block)) continue;
                     const activity = block?.activity as Record<string, any> | undefined;
                     latestActivityLabel = String(activity?.displayName ?? (latestActivityLabel || "正在处理"));
                     if (!accumulated) {
@@ -840,6 +991,7 @@ export class FeishuChannel implements ChannelAdapter {
               const body = this.withCollaborationSummary(accumulated || "（未生成内容）", run.assistantMessageId);
               await stream.update(buildFeishuReplyCard(body, context, files));
               await this.sendGeneratedFiles(message.chatId, run.conversationId, files, this.replyTarget(message));
+              await this.maybeSendLearningOutcomeCard(message.chatId, run.conversationId, this.replyTarget(message));
             }
           }
         },
@@ -858,6 +1010,7 @@ export class FeishuChannel implements ChannelAdapter {
           this.replyTarget(message)
         );
         await this.sendGeneratedFiles(message.chatId, run.conversationId, files, this.replyTarget(message));
+        await this.maybeSendLearningOutcomeCard(message.chatId, run.conversationId, this.replyTarget(message));
       } catch (fallbackError) {
         try {
           await this.channel.send(message.chatId, { markdown: fallback }, this.replyTarget(message));
@@ -865,6 +1018,35 @@ export class FeishuChannel implements ChannelAdapter {
           console.error("[feishu] fallback reply failed", safeMessage(fallbackError));
         }
       }
+    }
+  }
+
+  /**
+   * When a run leaves a system verdict waiting for the learner's own confirmation, the
+   * outcome card is the Feishu twin of the web confirm buttons.
+   */
+  private async maybeSendLearningOutcomeCard(
+    chatId: string,
+    conversationId: string,
+    options: { replyTo?: string; replyInThread?: boolean }
+  ): Promise<void> {
+    if (!this.channel || !this.learning) return;
+    try {
+      const pending = this.learning.pendingLearnerConfirmation(conversationId);
+      if (!pending) return;
+      await this.channel.send(
+        chatId,
+        {
+          card: buildFeishuLearningOutcomeCard({
+            conversationId,
+            verificationId: pending.verification.id,
+            finalRound: pending.finalRound
+          })
+        },
+        options
+      );
+    } catch (error) {
+      console.error("[feishu] learning outcome card failed", safeMessage(error));
     }
   }
 
@@ -969,6 +1151,7 @@ export class FeishuChannel implements ChannelAdapter {
     if (metadata && files.length > 0) {
       await this.sendGeneratedFiles(metadata.chatId, conversationId, files, this.replyTarget(metadata));
     }
+    if (metadata) await this.maybeSendLearningOutcomeCard(metadata.chatId, conversationId, this.replyTarget(metadata));
   }
 
   private async sendGeneratedFiles(
@@ -1355,15 +1538,26 @@ export function parseCardActionValue(value: unknown): FeishuCardActionValue | nu
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   if (
-    !new Set(["stop", "retry", "new", "profile", "evolution_approve", "evolution_reject", "ask_answer"]).has(
-      String(raw.action)
-    )
+    !new Set([
+      "stop",
+      "retry",
+      "new",
+      "profile",
+      "evolution_approve",
+      "evolution_reject",
+      "ask_answer",
+      "learning_confirm"
+    ]).has(String(raw.action))
   )
     return null;
   const evolutionAction = raw.action === "evolution_approve" || raw.action === "evolution_reject";
   const askAction = raw.action === "ask_answer";
   if (!evolutionAction && !askAction && (typeof raw.conversationId !== "string" || !raw.conversationId)) return null;
   if (askAction && (typeof raw.runId !== "string" || typeof raw.answer !== "string")) return null;
+  const learningVerdict = ["resolved", "partial", "unresolved"].includes(String(raw.verdict))
+    ? (raw.verdict as "resolved" | "partial" | "unresolved")
+    : null;
+  if (raw.action === "learning_confirm" && (typeof raw.verificationId !== "string" || !learningVerdict)) return null;
   return {
     action: raw.action as FeishuCardActionValue["action"],
     ...(typeof raw.conversationId === "string" ? { conversationId: raw.conversationId } : {}),
@@ -1371,8 +1565,63 @@ export function parseCardActionValue(value: unknown): FeishuCardActionValue | nu
     ...(typeof raw.runId === "string" ? { runId: raw.runId } : {}),
     ...(typeof raw.assistantMessageId === "string" ? { assistantMessageId: raw.assistantMessageId } : {}),
     ...(typeof raw.profileId === "string" && isAgentProfileId(raw.profileId) ? { profileId: raw.profileId } : {}),
-    ...(typeof raw.answer === "string" ? { answer: raw.answer } : {})
+    ...(typeof raw.answer === "string" ? { answer: raw.answer } : {}),
+    ...(typeof raw.verificationId === "string" ? { verificationId: raw.verificationId } : {}),
+    ...(learningVerdict ? { verdict: learningVerdict } : {})
   };
+}
+
+/** The outcome-confirmation card for the learning loop; mirrors the web confirm buttons. */
+export function buildFeishuLearningOutcomeCard(input: {
+  conversationId: string;
+  verificationId: string;
+  finalRound: boolean;
+}): object {
+  const value = (verdict: "resolved" | "partial" | "unresolved"): FeishuCardActionValue => ({
+    action: "learning_confirm",
+    conversationId: input.conversationId,
+    verificationId: input.verificationId,
+    verdict
+  });
+  return buildFeishuCard(
+    "刚才的讲解和练习之后，这个难点你自己觉得解决了吗？",
+    [
+      callbackButton("听懂了", "learning_resolved", value("resolved")),
+      callbackButton("部分懂了", "learning_partial", value("partial")),
+      callbackButton(input.finalRound ? "仍未解决" : "仍未解决，换种讲法", "learning_unresolved", value("unresolved"))
+    ],
+    { title: { tag: "plain_text", content: "学习确认" }, template: "turquoise" }
+  );
+}
+
+/** Terminal state of the outcome card after a click (or after a stale double-click). */
+export function buildFeishuLearningConfirmedCard(
+  verdict: "resolved" | "partial" | "unresolved" | null,
+  note?: string
+): object {
+  const label =
+    verdict === "resolved"
+      ? "听懂了"
+      : verdict === "partial"
+        ? "部分懂了"
+        : verdict === "unresolved"
+          ? "仍未解决"
+          : "已处理";
+  return buildFeishuCard(note ? `${note}` : `已记录：${label}`, [], {
+    title: { tag: "plain_text", content: "学习确认" },
+    template: verdict === "resolved" ? "green" : verdict === "partial" ? "yellow" : "grey"
+  });
+}
+
+/**
+ * Learning MCP activity must stay invisible to the learner on every channel — the same
+ * rule the web enforces with isLearningFrameworkBlock.
+ */
+function isLearningFrameworkActivity(block: Record<string, any> | undefined): boolean {
+  const activity = block?.activity as Record<string, any> | undefined;
+  return /mcp__learning__|open_learning_incident|record_learning_intervention|request_learning_verification|propose_learning_outcome|escalate_learning_incident/i.test(
+    `${block?.technicalName ?? ""} ${block?.name ?? ""} ${block?.title ?? ""} ${activity?.technicalName ?? ""} ${activity?.displayName ?? ""}`
+  );
 }
 
 function summarizeCard(content: string): string {
@@ -1381,7 +1630,10 @@ function summarizeCard(content: string): string {
   return clean.length <= 60 ? clean : `${clean.slice(0, 59)}…`;
 }
 
-type Command = { name: "new" | "stop" | "continue" | "guide" | "help" | "agent" | "message"; argument: string };
+type Command = {
+  name: "new" | "stop" | "continue" | "guide" | "help" | "agent" | "learn" | "message";
+  argument: string;
+};
 
 export function parseCommand(content: string): Command {
   const value = content.trim();
@@ -1390,6 +1642,7 @@ export function parseCommand(content: string): Command {
   if (value === "/continue") return { name: "continue", argument: "" };
   if (value === "/help") return { name: "help", argument: "" };
   if (value === "/agent" || value.startsWith("/agent ")) return { name: "agent", argument: value.slice(6).trim() };
+  if (value === "/learn" || value.startsWith("/learn ")) return { name: "learn", argument: value.slice(6).trim() };
   if (value.startsWith("/guide")) return { name: "guide", argument: value.slice(6).trim() };
   return { name: "message", argument: value };
 }

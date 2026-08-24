@@ -765,6 +765,59 @@ describe("HTTP API", () => {
     ).toBe(false);
   });
 
+  it("opens live learning sessions on Feishu conversations but keeps research datasets web-only", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-learning-feishu-"));
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const memories = new MemoryStore(database);
+    const events = new EventStore(database);
+    const learning = new LearningStore(database);
+    const config: AppConfig = {
+      ...testConfig(root),
+      runtime: "claude",
+      claudeAuthConfigured: true,
+      claudeAuthSource: "process-env"
+    };
+    const learningCoordinator = new LearningCoordinator(learning);
+    const runtime = new ConfigurableAgentRuntime(
+      config,
+      new SqliteSessionStore(database),
+      memories,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { learning: learningCoordinator }
+    );
+    const orchestrator = new RunOrchestrator(config, store, events, runtime);
+    const app = await buildApp({ config, store, events, orchestrator, runtime, memories, learning });
+    cleanups.push(async () => {
+      await orchestrator.stop();
+      await app.close();
+      database.close();
+      await fs.rm(root, { recursive: true });
+    });
+    const conversation = store.createConversation("feishu", "飞书学习", { profileId: "local-operator" });
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${conversation.id}/learning-session`,
+      payload: { goal: "评测目标", datasetKind: "eval" }
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ error: expect.stringContaining("web only") });
+    const started = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${conversation.id}/learning-session`,
+      payload: { goal: "理解递归出口" }
+    });
+    expect(started.statusCode).toBe(201);
+    expect(learning.getSessionForConversation(conversation.id)).toMatchObject({
+      datasetKind: "live",
+      status: "active"
+    });
+  });
+
   it("manages a web learning session and confirms a system-proposed outcome", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-learning-api-"));
     const database = openDatabase(":memory:");

@@ -32,6 +32,7 @@ import type { ScheduledJobRunner } from "./scheduler.js";
 import { registerSchedulerRoutes } from "./scheduler-routes.js";
 import { EvolutionStore } from "./evolution-store.js";
 import { isEvolutionEligibleConversation } from "./evolution-eligibility.js";
+import { confirmLearningVerification } from "./learning-confirm.js";
 import { handbookDocument, parseHandbook } from "./handbook.js";
 import { buildDomainCard } from "./domain-card.js";
 import { EvolutionCoordinator } from "./evolution-coordinator.js";
@@ -535,8 +536,6 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const { id } = request.params as { id: string };
     const conversation = store.getConversation(id);
     if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-    if (conversation.channel !== "web")
-      return reply.code(400).send({ error: "Learning mode v1 is available on the web only" });
     const input = z
       .object({
         goal: z.string().trim().min(1).max(500),
@@ -546,6 +545,11 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         datasetKind: z.enum(["live", "eval"]).optional()
       })
       .parse(request.body ?? {});
+    if (conversation.channel !== "web" && conversation.channel !== "feishu")
+      return reply.code(400).send({ error: "Learning mode is available on web and Feishu only" });
+    // Research arms stay a web affair; Feishu carries only ordinary live sessions.
+    if (conversation.channel !== "web" && (input.datasetKind ?? "live") !== "live")
+      return reply.code(400).send({ error: "Research datasets are available on the web only" });
     let session = learning.getSessionForConversation(id);
     if (session?.status === "suggested") {
       session = learning.updateSessionDetails(session.id, {
@@ -611,32 +615,11 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const before = learning.getVerification(id);
     if (!before) return reply.code(404).send({ error: "Learning verification not found" });
     const input = z.object({ verdict: z.enum(["resolved", "partial", "unresolved"]) }).parse(request.body ?? {});
-    const verification = learning.confirmVerification(id, input.verdict);
-    const incident = learning.getIncident(verification.incidentId)!;
-    const session = learning.getSessionForIncident(incident.id)!;
-    const conversation = store.getConversation(session.conversationId);
-    if (conversation) {
-      events.append({
-        type: "learning.incident.updated",
-        conversationId: conversation.id,
-        branchId: conversation.activeBranchId,
-        payload: { incident }
-      });
-    }
-    const policy = learning.maybeCreatePendingPolicyRevision({
-      profileId: session.profileId,
-      topicKey: session.topicKey,
-      difficultyType: incident.difficultyType,
-      datasetKind: session.datasetKind
-    });
-    if (policy && conversation) {
-      events.append({
-        type: "learning.policy.updated",
-        conversationId: conversation.id,
-        branchId: conversation.activeBranchId,
-        payload: { policy }
-      });
-    }
+    const { verification, incident, policy } = confirmLearningVerification(
+      { learning, store, events },
+      id,
+      input.verdict
+    );
     return { verification, incident, policy };
   });
 

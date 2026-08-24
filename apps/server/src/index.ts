@@ -134,7 +134,8 @@ const feishu = new FeishuChannel(
   config.webAppUrl,
   config.workspaceRoot,
   evolutionCoordinator,
-  collaboration
+  collaboration,
+  learning
 );
 evolutionCoordinator.setNotifier(feishu);
 evolutionCoordinator.setReplay(replay);

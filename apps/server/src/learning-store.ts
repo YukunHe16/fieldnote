@@ -1312,6 +1312,39 @@ export class LearningStore {
     }
   }
 
+  /**
+   * The verification currently waiting for the learner's own confirmation in this
+   * conversation, if any — the server-side twin of the web's confirm-button gate.
+   */
+  pendingLearnerConfirmation(conversationId: string): {
+    verification: LearningVerificationDto;
+    incident: LearningIncidentDto;
+    finalRound: boolean;
+  } | null {
+    const session = this.getSessionForConversation(conversationId);
+    if (!session || session.status !== "active") return null;
+    const row = this.database
+      .prepare(
+        `SELECT v.id FROM learning_verifications v
+           JOIN learning_incidents i ON i.id = v.incident_id
+          WHERE i.session_id = ? AND i.superseded_at IS NULL AND i.status = 'verifying'
+            AND v.system_verdict IS NOT NULL AND v.user_verdict IS NULL
+          ORDER BY v.created_at DESC LIMIT 1`
+      )
+      .get(session.id) as { id: string } | undefined;
+    if (!row) return null;
+    const verification = this.getVerification(row.id);
+    if (!verification) return null;
+    const incident = this.getIncident(verification.incidentId);
+    if (!incident) return null;
+    const interventionCount = (
+      this.database
+        .prepare("SELECT COUNT(*) AS count FROM learning_interventions WHERE incident_id = ?")
+        .get(incident.id) as { count: number }
+    ).count;
+    return { verification, incident, finalRound: session.condition === "one-shot" || interventionCount >= 3 };
+  }
+
   getPolicyRevision(id: string): LearningPolicyRevisionDto | null {
     const row = this.database.prepare("SELECT * FROM learning_policy_revisions WHERE id = ?").get(id) as
       | PolicyRow

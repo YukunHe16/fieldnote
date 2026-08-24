@@ -4,6 +4,7 @@ import {
   buildFeishuReplyCard,
   buildFeishuActivityCard,
   buildFeishuEvolutionCard,
+  buildFeishuLearningOutcomeCard,
   buildFeishuProfilePickerCard,
   buildFeishuScheduledReportCard,
   buildFeishuThinkingCard,
@@ -15,6 +16,8 @@ import { MemoryStore } from "../src/memory-store.js";
 import { AgentStore } from "../src/store.js";
 import { CollaborationStore } from "../src/collaboration-store.js";
 import { MAX_INPUT_FILE_BYTES } from "../src/input-file-manifest.js";
+import { EventStore } from "../src/event-store.js";
+import { LearningStore } from "../src/learning-store.js";
 
 describe("Feishu commands", () => {
   it("parses control commands without swallowing normal messages", () => {
@@ -635,6 +638,140 @@ describe("Feishu commands", () => {
     expect(store.getChannelBinding("feishu", "p2p:ou_me")).not.toBe(conversation.id);
     expect(memories.get(sharedMemory.id)).not.toBeNull();
     database.close();
+  });
+
+  it("confirms a learning verification from the outcome card and starts the next round", async () => {
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const learning = new LearningStore(database);
+    const events = new EventStore(database);
+    const conversation = store.createConversation("feishu", "飞书学习", { profileId: "local-operator" });
+    store.setChannelBinding("feishu", "p2p:ou_me", conversation.id, { chatId: "oc_chat", group: false });
+    const session = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "理解递归",
+      datasetKind: "live",
+      status: "active"
+    });
+    const run = store.createRun(conversation.id, "我不懂递归出口", "normal");
+    const incident = learning.openIncident({
+      sessionId: session.id,
+      difficultyType: "conceptual_misconception",
+      hypothesis: "把递归当循环",
+      confidence: 0.8,
+      severity: 3,
+      evidenceMessageIds: [run.userMessageId]
+    });
+    const intervention = learning.recordIntervention({
+      incidentId: incident.id,
+      strategy: "direct_explanation",
+      rationale: "先讲清楚出口",
+      expectedSignal: "能解释出口条件"
+    });
+    const verification = learning.requestVerification({
+      incidentId: incident.id,
+      interventionId: intervention.id,
+      method: "self_explanation",
+      prompt: "请解释递归何时停止",
+      rubric: "说明出口条件"
+    });
+    learning.proposeSystemOutcome(verification.id, "unresolved", 0.55);
+    expect(learning.pendingLearnerConfirmation(conversation.id)?.verification.id).toBe(verification.id);
+
+    const submissions: any[] = [];
+    const updated: any[] = [];
+    const orchestrator = {
+      isConversationBusy: () => false,
+      submit(...args: any[]) {
+        submissions.push(args);
+        return {
+          id: "next-run",
+          conversationId: conversation.id,
+          branchId: "branch",
+          userMessageId: "user",
+          assistantMessageId: "assistant",
+          mode: "normal",
+          status: "queued"
+        };
+      }
+    };
+    const feishu = new FeishuChannel(
+      undefined,
+      store,
+      events,
+      orchestrator as never,
+      undefined,
+      "",
+      undefined,
+      undefined,
+      learning
+    );
+    (feishu as any).channel = {
+      async send() {},
+      async updateCard(...args: any[]) {
+        updated.push(args);
+      }
+    };
+    (feishu as any).streamReply = async () => {};
+    const event = { messageId: "om_card", chatId: "oc_chat", operator: { openId: "ou_me" }, action: { value: {} } };
+
+    await (feishu as any).handleCardAction(event, {
+      action: "learning_confirm",
+      conversationId: conversation.id,
+      verificationId: verification.id,
+      verdict: "unresolved"
+    });
+    expect(learning.getVerification(verification.id)?.finalVerdict).toBe("unresolved");
+    expect(updated).toHaveLength(1);
+    // The unresolved on-call confirmation auto-sends the try-another follow-up server-side.
+    expect(submissions).toHaveLength(1);
+    expect(String(submissions[0]?.[1])).toContain("换种讲法");
+    expect(learning.pendingLearnerConfirmation(conversation.id)).toBeNull();
+
+    // A double-click resolves to the terminal card without a second submission.
+    await (feishu as any).handleCardAction(event, {
+      action: "learning_confirm",
+      conversationId: conversation.id,
+      verificationId: verification.id,
+      verdict: "resolved"
+    });
+    expect(submissions).toHaveLength(1);
+    expect(updated).toHaveLength(2);
+    database.close();
+  });
+
+  it("parses the learn command and learning confirm card values", () => {
+    expect(parseCommand("/learn 理解递归出口")).toEqual({ name: "learn", argument: "理解递归出口" });
+    expect(parseCommand("/learn off")).toEqual({ name: "learn", argument: "off" });
+    expect(parseCommand("/learn")).toEqual({ name: "learn", argument: "" });
+    expect(
+      parseCardActionValue({
+        action: "learning_confirm",
+        conversationId: "conv",
+        verificationId: "verify",
+        verdict: "partial"
+      })
+    ).toMatchObject({ action: "learning_confirm", verificationId: "verify", verdict: "partial" });
+    expect(parseCardActionValue({ action: "learning_confirm", conversationId: "conv" })).toBeNull();
+    expect(
+      parseCardActionValue({
+        action: "learning_confirm",
+        conversationId: "conv",
+        verificationId: "verify",
+        verdict: "great"
+      })
+    ).toBeNull();
+    const card = JSON.stringify(
+      buildFeishuLearningOutcomeCard({ conversationId: "conv", verificationId: "verify", finalRound: false })
+    );
+    expect(card).toContain("learning_confirm");
+    expect(card).toContain("仍未解决，换种讲法");
+    const finalCard = JSON.stringify(
+      buildFeishuLearningOutcomeCard({ conversationId: "conv", verificationId: "verify", finalRound: true })
+    );
+    expect(finalCard).toContain("仍未解决");
+    expect(finalCard).not.toContain("换种讲法");
   });
 
   it("updates the same evolution card in place instead of sending a new message", async () => {
