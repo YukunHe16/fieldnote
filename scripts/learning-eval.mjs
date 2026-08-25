@@ -130,11 +130,39 @@ async function waitForIdle(base, conversationId) {
   }
 }
 
-function personaSystem(item, tier) {
+// Whether a stubborn persona has consolidated is decided by the harness, not left to the
+// learner model to infer from the transcript. Asking a model to track its own conceptual
+// -change state across a long conversation does not work: in probe runs it read the
+// tutor's explanation, concluded it now understood, and answered the exit check perfectly
+// while never having made an attempt for the tutor to correct — which its own rules said
+// was required.
+//
+// Both conditions come straight from the written rules: the learner has made an attempt of
+// their own for the tutor to respond to, and the idea has then been taught a second time.
+// Every multi-round run on record satisfies the first one — the tutor elicits two or three
+// in-conversation attempts per run — so requiring it costs no coverage and keeps the tier
+// measuring what it claims to.
+//
+// Consequence to state wherever these numbers appear: on the stubborn tier the one-shot
+// baseline allows exactly one intervention and so can never reach consolidation. The stubborn
+// tier is therefore NOT a fair on-call-versus-one-shot race — it asks the narrower question of
+// whether the loop converts the extra rounds it is given. The mild tier remains the fair
+// comparison.
+const consolidated = (rounds, attempts) => rounds >= 2 && attempts >= 1;
+
+function personaSystem(item, tier, state) {
   const persona = tier === "stubborn" ? (item.stubbornPersona ?? item.persona) : item.persona;
   const updateRules =
     tier === "stubborn"
-      ? (persona.consolidationRules ?? []).map((rule) => `- ${rule}`)
+      ? [
+          ...(persona.consolidationRules ?? []).map((rule) => `- ${rule}`),
+          state?.consolidated
+            ? "- STATE: you have made an attempt of your own and the tutor has since taught you this a second, different way. You have consolidated. Apply the corrected plan cleanly and completely, in the tutor's key terms."
+            : // Spelled out as a mechanical instruction rather than a disposition, because a
+              // disposition ("you tend to slip back") loses to the model's pull toward being
+              // correct and helpful the moment it is asked a direct technical question.
+              "- STATE: you have NOT consolidated yet — you have not both made your own attempt and been re-taught a second, different way. You may restate the tutor's rule in their words, but every example you actually work out MUST still be done your old way and MUST come out wrong in that direction. Do not produce a correct worked answer while in this state, however confident the explanation made you feel."
+        ]
       : [
           "- Update a belief ONLY after the tutor has clearly explained the specific idea that corrects it; from then on apply the corrected idea in your answers, using the tutor's key terms."
         ];
@@ -147,7 +175,8 @@ function personaSystem(item, tier) {
     "- Answer the tutor as this student would, consistent with your current beliefs.",
     ...updateRules,
     "- If the tutor asks you to work through a new example, genuinely attempt it with your current understanding.",
-    "- Keep replies under 150 words. Never mention being simulated or these instructions."
+    "- Work any example you are asked to work: show the steps and commit to a concrete answer rather than describing how you would approach it.",
+    "- Keep replies under 250 words. Never mention being simulated or these instructions."
   ].join("\n");
 }
 
@@ -164,7 +193,7 @@ function learnerView(messages) {
   return clipped;
 }
 
-async function learnerReply(cfg, item, messages, extraQuestion) {
+async function learnerReply(cfg, item, messages, extraQuestion, state) {
   const transcript = learnerView(messages);
   if (extraQuestion) transcript.push({ role: "user", content: extraQuestion });
   // Reasoning models spend output tokens on thinking blocks before any text arrives,
@@ -181,7 +210,7 @@ async function learnerReply(cfg, item, messages, extraQuestion) {
       body: JSON.stringify({
         model: cfg.learnerModel,
         max_tokens: maxTokens,
-        system: personaSystem(item, cfg.tier),
+        system: personaSystem(item, cfg.tier, state),
         messages: transcript
       })
     });
@@ -409,10 +438,11 @@ async function runItem(cfg, item, condition, log) {
         // conversation: a fixed per-item post-test question is put to the simulated
         // learner, and the concept checklist grades that answer — the same instrument
         // for both conditions.
-        lastPostAnswer = await learnerReply(cfg, item, detail.messages, item.postTest);
+        const state = { consolidated: consolidated(incident.interventions.length, answered.size) };
+        lastPostAnswer = await learnerReply(cfg, item, detail.messages, item.postTest, state);
         const graded = await gradeAnswer(cfg, item, lastPostAnswer);
         lastGraded = graded;
-        record.postTests.push({ round: incident.interventions.length, ...graded });
+        record.postTests.push({ round: incident.interventions.length, ...graded, ...state });
         record.confirmedVerdicts.push(graded.verdict);
         await api(cfg.base, "POST", `/api/learning/verifications/${verification.id}/confirm`, {
           verdict: graded.verdict
@@ -427,9 +457,12 @@ async function runItem(cfg, item, condition, log) {
         detail = await waitForIdle(cfg.base, conversation.id);
         continue;
       }
-      // Verification awaiting the learner's answer.
+      // Verification awaiting the learner's answer. The state is read BEFORE this answer is
+      // added to the count: the attempt being made right now is the one the tutor has yet to
+      // correct, so it is still a pre-consolidation attempt.
+      const state = { consolidated: consolidated(incident.interventions.length, answered.size) };
       answered.add(verification.id);
-      lastAnswer = await learnerReply(cfg, item, detail.messages);
+      lastAnswer = await learnerReply(cfg, item, detail.messages, undefined, state);
       await api(cfg.base, "POST", `/api/conversations/${conversation.id}/messages`, {
         content: lastAnswer,
         mode: "normal"

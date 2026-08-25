@@ -37,9 +37,15 @@
           "same (capacity|size).{0,60}(would|could) (hit|keep|hold)",
           "associativity"
         ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: blocks 2 and 6 both map to line 2 (2 mod 4 = 6 mod 4 = 2). Access 1 (block 2) and access 2 (block 6) are compulsory misses; accesses 3, 4 and 5 are conflict misses; there are no hits and no capacity misses; 3 of the 4 lines are never used. Credit requires the conflict/compulsory split to be right AND the answer to say the misses persist while lines sit idle. Calling any of them capacity misses earns no credit.",
+        "patterns": ["3 (of the 4 )?lines", "three lines", "2 compulsory.{0,40}3 conflict"]
       }
     ],
-    "postTest": "Exit check, in your own words: why do blocks 0 and 8 keep missing even though six lines are empty? Classify these misses, and describe the test that separates a conflict miss from a capacity miss.",
+    "postTest": "Exit check, in your own words: why do blocks 0 and 8 keep missing even though six lines are empty? Classify these misses, and describe the test that separates a conflict miss from a capacity miss. Then apply it to a fresh case: a direct-mapped cache with 4 lines, accessed in the order 2, 6, 2, 6, 2 (block numbers). Classify each of the five accesses, and say how many lines sit unused at the end.",
     "stubbornPersona": {
       "beliefs": [
         "Repeated misses mean the cache ran out of room, so they must be capacity misses.",
@@ -88,9 +94,15 @@
         "label": "walks the trace to show which access hits or misses",
         "credit": "Any access-by-access walk of the sequence counts, laid out as a table or in prose, whether or not the word \"trace\" appears.",
         "patterns": ["a, b, a, c, a", "step (by|through)", "access by access", "trace"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: X#1 compulsory, Y#2 compulsory (evicts X), X#3 conflict (evicts Y), Z#4 compulsory, Z#5 hit, X#6 hit. That is 3 compulsory, 1 conflict, 2 hits. Credit requires that only first touches are called compulsory and that both hits are identified. Labelling X#3 compulsory earns no credit.",
+        "patterns": ["3 compulsory", "three compulsory", "two hits", "2 hits"]
       }
     ],
-    "postTest": "Exit check: how many of the five misses are compulsory and what are the others? State the rule for when a miss counts as compulsory, and explain what happened to block A on its later accesses.",
+    "postTest": "Exit check: how many of the five misses are compulsory and what are the others? State the rule for when a miss counts as compulsory, and explain what happened to block A on its later accesses. Then apply it to a fresh case: a direct-mapped 2-line cache where blocks X and Y both map to line 0 and block Z maps to line 1, accessed in the order X, Y, X, Z, Z, X. Label every one of the six accesses.",
     "stubbornPersona": {
       "beliefs": [
         "In a cold-started cache every miss is by definition compulsory.",
@@ -147,9 +159,15 @@
           "least[- ]recently used.{0,60}(loop|cycle|next)",
           "evicts (the )?(block|one) (it|you) (need|use)s? next"
         ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: after the four compulsory misses of the first pass, every later access hits — a 100% steady-state hit rate. The reason is that the working set (4 blocks) now fits the capacity (4 lines), so LRU never has to evict a block that is about to be needed. Credit requires both the 100%/all-hits answer and the working-set-fits-capacity reason.",
+        "patterns": ["100%", "all (subsequent |later )?access(es)? hit", "every (later |subsequent )?access hits"]
       }
     ],
-    "postTest": "Exit check: why does the fully-associative 4-line LRU cache still miss on every access of the loop 0,1,2,3,4 repeated? Classify these misses, compare the working set with the capacity, and say what LRU evicts right before each block is needed.",
+    "postTest": "Exit check: why does the fully-associative 4-line LRU cache still miss on every access of the loop 0,1,2,3,4 repeated? Classify these misses, compare the working set with the capacity, and say what LRU evicts right before each block is needed. Then apply it to a fresh case: the same fully-associative 4-line LRU cache, but the loop is now 0, 1, 2, 3 repeated — four blocks instead of five. What is the steady-state hit rate after the first pass, and why does dropping one block change the outcome so sharply?",
     "stubbornPersona": {
       "beliefs": [
         "Associativity is the universal cure for cache misses.",
@@ -196,9 +214,15 @@
         "id": "traffic-comparison",
         "label": "contrasts 100 write-through transfers vs 1 write-back transfer",
         "patterns": ["100.{0,60}(1|one)", "write[- ]through.{0,60}every (store|write)", "traffic"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: write-through makes 300 memory writes (one per store). Write-back makes 3 — P is written back when Q evicts it, Q is written back when P is reloaded, and the final dirty P is written on eviction or flush. Credit requires both numbers and the eviction-driven reason for the 3.",
+        "patterns": ["300", "\\b3\\b.{0,60}write[- ]back", "write[- ]back.{0,60}\\b3\\b"]
       }
     ],
-    "postTest": "Exit check: for 100 stores to the same cached block, how many memory writes does write-through make and how many does write-back make? Explain where the other 99 writes went and when the single write-back transfer happens.",
+    "postTest": "Exit check: for 100 stores to the same cached block, how many memory writes does write-through make and how many does write-back make? Explain where the other 99 writes went and when the single write-back transfer happens. Then apply it to a fresh case: the cache has a single line, and the program does 100 stores to block P, then 100 stores to block Q (which collides with P), then 100 more stores to P. Count the memory writes under each policy.",
     "stubbornPersona": {
       "beliefs": [
         "Every store instruction must eventually become its own memory write; caches only delay writes.",
@@ -209,6 +233,119 @@
       "consolidationRules": [
         "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism (e.g. \"fine, conflict miss — because that index was full\"). Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
         "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or the discriminating test). After both, apply the correct mechanism cleanly."
+      ]
+    }
+  },
+  {
+    "id": "cm-set-index-vs-line",
+    "difficultyType": "conceptual_misconception",
+    "topicKey": "computer-architecture",
+    "title": "Set-associative indexing computed against line count instead of set count",
+    "opening": "I have a 2-way set-associative cache with 8 lines total. I index it the way I always have: block number mod 8. So block 6 goes to line 6 and block 14 goes to line 6 too (14 mod 8 = 6), which means they evict each other. But my simulator keeps both of them resident at the same time and I cannot see how that is possible. Is the simulator wrong, or is `mod 8` not the right index?",
+    "persona": {
+      "beliefs": [
+        "The index is computed against the number of lines, the same way it works in a direct-mapped cache.",
+        "Associativity is about replacement policy; it does not change where a block is allowed to go."
+      ],
+      "style": "Reasons confidently from the direct-mapped case and re-derives mod 8 when challenged; only revises after the set/line distinction is made concrete.",
+      "unlockConcepts": ["sets-not-lines", "index-formula", "ways-per-set"]
+    },
+    "concepts": [
+      {
+        "id": "sets-not-lines",
+        "label": "the cache has lines / associativity sets, not one set per line",
+        "credit": "Credit requires stating that 8 lines at 2-way means 4 sets. Saying only that associativity 'gives more room' without correcting the count of sets earns no credit.",
+        "patterns": ["4 sets", "four sets", "lines? (/|divided by) (the )?associativity", "8 ?/ ?2"]
+      },
+      {
+        "id": "index-formula",
+        "label": "the index is the block number modulo the number of sets",
+        "credit": "Credit requires the index to be taken mod the number of sets (here mod 4), not mod the number of lines. Restating 'mod 8' in any form earns no credit.",
+        "patterns": ["mod (the number of )?sets", "mod 4", "% ?4", "modulo 4"]
+      },
+      {
+        "id": "ways-per-set",
+        "label": "a set holds as many blocks as there are ways, so same-set blocks can coexist",
+        "credit": "Credit requires saying that two blocks landing in the same set can both be resident because the set has 2 ways. Attributing the coexistence to replacement policy or luck earns no credit.",
+        "patterns": ["both.{0,40}(resident|in the same set)", "two ways", "2 (blocks|ways) per set", "each set holds"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: a 4-way cache with 16 lines has 16/4 = 4 sets; block 37 maps to set 37 mod 4 = 1; and 4 distinct blocks that map to set 1 can be resident at once, one per way. Credit requires set 1 AND 4 resident blocks, with the set count derived rather than guessed. Answering 'set 5' (37 mod 16, indexing on lines again) earns no credit.",
+        "patterns": ["set 1\\b", "\\b4 (distinct )?blocks", "four blocks"]
+      }
+    ],
+    "postTest": "Exit check, in your own words: for a 2-way set-associative cache with 8 lines, how many sets are there, what is the correct index for a block, and why can blocks 6 and 14 be resident at the same time? Then apply it to a fresh case: a 4-way set-associative cache with 16 lines. Which set does block 37 map to, and how many distinct blocks that map to that set can be resident at once?",
+    "stubbornPersona": {
+      "beliefs": [
+        "The index is computed against the number of lines, the same way it works in a direct-mapped cache.",
+        "Associativity is about replacement policy; it does not change where a block is allowed to go."
+      ],
+      "style": "Reasons confidently from the direct-mapped case and re-derives mod 8 when challenged; only revises after the set/line distinction is made concrete.",
+      "unlockConcepts": ["sets-not-lines", "index-formula", "ways-per-set"],
+      "consolidationRules": [
+        "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism. Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
+        "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or a discriminating test). After both, apply the correct mechanism cleanly."
+      ]
+    }
+  },
+  {
+    "id": "cm-amat-hit-time",
+    "difficultyType": "conceptual_misconception",
+    "topicKey": "computer-architecture",
+    "title": "Miss rate treated as the only term in average memory access time",
+    "opening": "My design doc says a bigger cache lowers the miss rate, so I doubled the cache again and the miss rate went from 4% to 2%. The benchmark got *slower*. My TA said something about hit time but a hit is a hit — the data is in the cache either way, so it is one cycle either way. How can halving the miss rate make the program slower?",
+    "persona": {
+      "beliefs": [
+        "A hit costs the same no matter how large or associative the cache is.",
+        "Lowering the miss rate can only ever improve average memory access time."
+      ],
+      "style": "Keeps returning to the miss-rate number as the figure of merit; treats hit time as a rounding error until it is put on the same scale as the miss term.",
+      "unlockConcepts": ["amat-formula", "hit-time-on-every-access", "tradeoff-reasoning"]
+    },
+    "concepts": [
+      {
+        "id": "amat-formula",
+        "label": "states average memory access time as hit time plus miss rate times miss penalty",
+        "credit": "Credit requires both terms in the right relationship. A formula with only the miss term, or one that adds the miss penalty unweighted by the miss rate, earns no credit.",
+        "patterns": ["hit time \\+ miss rate", "amat", "hit.{0,20}\\+.{0,20}miss rate ?[x*×]"]
+      },
+      {
+        "id": "hit-time-on-every-access",
+        "label": "hit time is paid on every access while the miss penalty is paid only on misses",
+        "credit": "Credit requires the asymmetry: hit time multiplies by 1 (every access) and the penalty multiplies by the miss rate. Merely saying 'hit time also matters' earns no credit.",
+        "patterns": ["every access", "all accesses", "100% of (the )?access", "only on (a )?miss"]
+      },
+      {
+        "id": "tradeoff-reasoning",
+        "label": "explains that a bigger cache buys miss rate at the cost of hit time, and the trade can lose",
+        "credit": "Credit requires the answer to say the added hit-time cost can exceed the saved miss cost — ideally with numbers. Saying only 'there is a tradeoff' without naming which side can win earns no credit.",
+        "patterns": [
+          "outweigh",
+          "costs? more than.{0,40}saves?",
+          "net(t)? (loss|slower|worse)",
+          "larger.{0,40}slower to access"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: Cache A gives 2 + 0.05 x 80 = 6.0 cycles; Cache B gives 3 + 0.03 x 80 = 5.4 cycles; B is faster by 0.6 cycles per access. Credit requires both AMATs computed and B named as faster. Picking A because its hit time is lower, or B because its miss rate is lower, without the arithmetic earns no credit.",
+        "patterns": ["5\\.4", "0\\.6", "\\bb is faster"]
+      }
+    ],
+    "postTest": "Exit check, in your own words: write the expression for average memory access time, say which term is paid on every access and which is not, and explain how halving the miss rate can still leave the program slower. Then apply it to a fresh case: Cache A has a 2-cycle hit time and a 5% miss rate; Cache B has a 3-cycle hit time and a 3% miss rate; the miss penalty is 80 cycles for both. Which is faster, and by how much per access?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A hit costs the same no matter how large or associative the cache is.",
+        "Lowering the miss rate can only ever improve average memory access time."
+      ],
+      "style": "Keeps returning to the miss-rate number as the figure of merit; treats hit time as a rounding error until it is put on the same scale as the miss term.",
+      "unlockConcepts": ["amat-formula", "hit-time-on-every-access", "tradeoff-reasoning"],
+      "consolidationRules": [
+        "You assimilate corrections into your old schema: after one explanation you adopt the new word but keep the old mechanism. Your first application to a new case therefore mixes the new label with the old reasoning and comes out partly wrong.",
+        "You only genuinely switch models after BOTH: (1) the tutor has explicitly contrasted your hybrid explanation with the correct mechanism on YOUR OWN attempt, and (2) the tutor has re-taught it through a different route (a new trace, an analogy, or a discriminating test). After both, apply the correct mechanism cleanly."
       ]
     }
   }

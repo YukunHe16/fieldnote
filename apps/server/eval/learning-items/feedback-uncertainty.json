@@ -36,9 +36,15 @@
         "label": "checks each grader claim against the rubric/evidence instead of picking an authority",
         "credit": "Any description of testing each claim against what the task actually asks for counts. Choosing based on which grader sounds more authoritative or more confident earns no credit.",
         "patterns": ["rubric", "evidence", "check.{0,40}(claim|against)", "not.{0,30}(authority|who to trust)"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: Grader D is supported. The answer walks the mechanics without stating the purpose — that the function counts how many numbers in the list are even. Credit requires siding with D AND naming the missing purpose statement. Siding with D only because D is stricter earns no credit.",
+        "patterns": ["grader d", "d is (right|correct|supported)", "count(s|ing)? how many.{0,30}even"]
       }
     ],
-    "postTest": "Exit check: which grader's feedback is actually supported and why? Explain what an ideal explain-in-plain-English answer for this code should say, and describe the general method you would use next time two graders disagree.",
+    "postTest": "Exit check: which grader's feedback is actually supported and why? Explain what an ideal explain-in-plain-English answer for this code should say, and describe the general method you would use next time two graders disagree. Then apply the method to a fresh disagreement: a classmate's plain-English answer for `def count_even(nums): return len([n for n in nums if n % 2 == 0])` reads \"It builds a list of the numbers where n modulo 2 equals zero and takes its length.\" Grader C passes it; Grader D says it never says what the function is for. Which is supported here, and what would an adequate answer add?",
     "stubbornPersona": {
       "beliefs": [
         "An accurate line-by-line account is the safest and most complete kind of explanation.",
@@ -88,9 +94,15 @@
         "id": "single-pass",
         "label": "explains one pass of disjoint pair swaps cannot fully order the list",
         "patterns": ["single pass|one pass", "adjacent|neighbou?r|pair", "not (a )?(full )?sort|does ?n[o']t sort"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: [4, 3, 2, 1] is the clearest counterexample — swapping the disjoint pairs (positions 0,1) and (2,3) yields [3, 4, 1, 2], which is not sorted. Any correct counterexample with a correctly worked result earns credit. The reason must be that disjoint adjacent swaps only order within each pair, so no element moves more than one position or crosses a pair boundary. A counterexample whose worked result is wrong earns no credit.",
+        "patterns": ["\\[3, ?4, ?1, ?2\\]", "not sorted", "within (each |its )?pair"]
       }
     ],
-    "postTest": "Exit check: should the appeal go forward? Say which grader is supported, demonstrate it on the input [3, 1, 2], and explain why a single pass of adjacent swaps is not a sort.",
+    "postTest": "Exit check: should the appeal go forward? Say which grader is supported, demonstrate it on the input [3, 1, 2], and explain why a single pass of adjacent swaps is not a sort. Then apply it to a fresh case: another student claims one pass of disjoint adjacent swaps sorts any 4-element list. Give a 4-element input it fails on, show what the pass actually produces, and state the general reason.",
     "stubbornPersona": {
       "beliefs": [
         "Swapping neighbours is essentially bubble sort, so \"sorts the list\" is close enough.",
@@ -145,9 +157,15 @@
         "id": "fix-direction",
         "label": "states the repair: advance past mid (lo = mid + 1) or adjust the invariant",
         "patterns": ["mid \\+ 1", "lo = mid \\+ 1", "invariant", "half[- ]open"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: yes, the same defect. With hi == lo + 1, mid = (lo + hi) // 2 = lo, so the else branch sets lo = mid = lo and the interval never shrinks — an infinite loop. The fix is lo = mid + 1. Credit requires identifying the two-apart-collapses-to-lo case AND the mid + 1 repair.",
+        "patterns": ["lo \\+ 1", "mid \\+ 1", "hi (==|=) lo \\+ 1", "infinite loop"]
       }
     ],
-    "postTest": "Exit check: which grader's diagnosis is supported? Explain exactly what happens when lo and hi are one apart and a[mid] < target, why array parity is not the cause, and what one-line change fixes the loop.",
+    "postTest": "Exit check: which grader's diagnosis is supported? Explain exactly what happens when lo and hi are one apart and a[mid] < target, why array parity is not the cause, and what one-line change fixes the loop. Then apply the diagnosis to a fresh loop: `while lo < hi: mid = (lo + hi) // 2; if a[mid] > target: hi = mid; else: lo = mid`. Does it carry the same defect? Name a concrete lo/hi pair where it fails to make progress, and give the fix.",
     "stubbornPersona": {
       "beliefs": [
         "The bug appears on some arrays and not others, so a property of the array (like even length) must be the cause.",
@@ -197,9 +215,15 @@
           "no (evidence|logarithmic (step|halving))",
           "nothing halves|no halving"
         ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: O(n^2 log n). The triangular loop still runs about n^2/2 times and the log factor multiplies that count rather than replacing it; a log appearing in the body does not reduce the number of iterations. Credit requires the n^2 log n answer AND the multiplies-not-replaces reasoning.",
+        "patterns": ["n\\^?2 ?log", "n\\^2 ?\\* ?log", "quadratic.{0,40}log"]
       }
     ],
-    "postTest": "Exit check: what complexity will you submit, and which grader is supported? Justify it with the sum 0+1+...+(n-1), and explain why grader A's sorting analogy does not apply even though it sounds advanced.",
+    "postTest": "Exit check: what complexity will you submit, and which grader is supported? Justify it with the sum 0+1+...+(n-1), and explain why grader A's sorting analogy does not apply even though it sounds advanced. Then apply it to a fresh case: the same triangular nested loop, but the body now calls a helper that is O(log n). What is the overall complexity, and what would you say to a grader who insists it is O(n log n) because \"there is a log in there\"?",
     "stubbornPersona": {
       "beliefs": [
         "Feedback that references deeper theory (sorting, logarithms) probably comes from the stronger grader.",
@@ -210,6 +234,114 @@
       "consolidationRules": [
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence (the counterexample, the sum, the two-element interval) in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-both-graders-wrong",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "Two graders disagree and neither is right",
+    "opening": "I wrote \"binary search is O(log n)\" on the quiz. Grader A marked it wrong: \"it is O(n), you might have to scan the whole array.\" Grader B marked it right and added: \"correct — and it stays O(log n) even on an unsorted array.\" They cancel out so I assume I keep the mark, but I have to write one sentence saying which grader I am agreeing with and I genuinely cannot tell.",
+    "persona": {
+      "beliefs": [
+        "When two graders disagree, exactly one of them is right and the job is to pick which.",
+        "A grader who agrees with my answer has endorsed my reasoning, so I can adopt what they said."
+      ],
+      "style": "Frames every question as choosing a side; resists the idea that both pieces of feedback can be defective in different ways.",
+      "unlockConcepts": ["claim-stands", "reject-a-reason", "reject-b-endorsement"]
+    },
+    "concepts": [
+      {
+        "id": "claim-stands",
+        "label": "the original O(log n) claim is correct for a sorted array",
+        "credit": "Credit requires keeping the original claim AND tying it to the sorted precondition. Keeping the mark only because the graders cancel out earns no credit.",
+        "patterns": ["sorted", "claim stands", "original answer (is|was) (right|correct)"]
+      },
+      {
+        "id": "reject-a-reason",
+        "label": "identifies that grader A's scan-the-whole-array reasoning describes linear search",
+        "credit": "Credit requires naming what A actually described (a linear scan) or that binary search discards half each step. Saying only 'A is wrong' earns no credit.",
+        "patterns": ["linear search", "halve|half (the )?(array|interval|remaining)", "does not scan"]
+      },
+      {
+        "id": "reject-b-endorsement",
+        "label": "rejects grader B's added claim even though B agreed with the conclusion",
+        "credit": "Credit requires noticing that B's 'even on an unsorted array' is false and must not be adopted, despite B agreeing with the mark. An answer that accepts B wholesale because B agreed earns no credit.",
+        "patterns": ["unsorted", "b is (also )?wrong", "agree(s|ing)? with the conclusion", "not.{0,30}endorse"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: the original claim stands as written because it says 'on average'. Grader C states the worst case (O(n) under degenerate collisions) as if it were the only case. Grader D drops the 'on average' qualifier, and that qualifier is exactly what makes the claim true — so D's endorsement must not be adopted either. Credit requires rejecting BOTH C and D while keeping the original claim. Picking either grader as correct earns no credit.",
+        "patterns": ["on average", "both.{0,40}wrong", "worst case", "neither"]
+      }
+    ],
+    "postTest": "Exit check, in your own words: does your original mark stand, what exactly is wrong with grader A's reason, and why can you not simply adopt grader B even though B agreed with you? Then apply the method to a fresh disagreement: you wrote \"a hash table lookup is O(1) on average\". Grader C says \"wrong, it is O(n) because of collisions.\" Grader D says \"right — hash lookups are always O(1).\" Say what is actually true and what you would do with each piece of feedback.",
+    "stubbornPersona": {
+      "beliefs": [
+        "When two graders disagree, exactly one of them is right and the job is to pick which.",
+        "A grader who agrees with my answer has endorsed my reasoning, so I can adopt what they said."
+      ],
+      "style": "Frames every question as choosing a side; resists the idea that both pieces of feedback can be defective in different ways.",
+      "unlockConcepts": ["claim-stands", "reject-a-reason", "reject-b-endorsement"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting whichever grader sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-loop-bound-appeal",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "Correct loop bound attacked from two directions at once",
+    "opening": "I lost a point on an is_sorted check:\n\n```python\ndef is_sorted(a):\n    for i in range(len(a) - 1):\n        if a[i] > a[i + 1]:\n            return False\n    return True\n```\n\nGrader A says the loop should be `range(len(a))` because I am skipping the last element. Grader B says the loop bound is fine but the function breaks on an empty list. I only get one appeal, so which one do I answer?",
+    "persona": {
+      "beliefs": [
+        "If two graders both found something, at least one of the two defects must be real.",
+        "An off-by-one complaint about a loop bound is usually correct; bounds are where I make mistakes."
+      ],
+      "style": "Wants to concede something to look reasonable; only abandons a critique after actually evaluating the code on a concrete input.",
+      "unlockConcepts": ["a-out-of-bounds", "empty-list-safe", "code-is-correct"]
+    },
+    "concepts": [
+      {
+        "id": "a-out-of-bounds",
+        "label": "shows range(len(a)) would read a[i+1] past the end on the last iteration",
+        "credit": "Credit requires naming the out-of-range read (or IndexError) that A's change would introduce. Saying A is wrong without working out what the change does earns no credit.",
+        "patterns": ["out of (range|bounds)", "indexerror", "past the end", "a\\[len\\(a\\)\\]"]
+      },
+      {
+        "id": "empty-list-safe",
+        "label": "shows the empty list is already handled because range(-1) is empty",
+        "credit": "Credit requires working out that len(a) - 1 is -1, that range(-1) is empty, and that the function therefore returns True. Asserting 'empty lists are fine' without the trace earns no credit.",
+        "patterns": ["range\\(-1\\)", "-1", "empty range", "returns true"]
+      },
+      {
+        "id": "code-is-correct",
+        "label": "concludes the code needs no change and both critiques fail",
+        "credit": "Credit requires rejecting both graders. Conceding either point, or appealing against only one of them, earns no credit.",
+        "patterns": ["both.{0,40}wrong", "no change", "neither", "code is correct"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: the two loops are equivalent. For len(a) == 0, range(1, 0) is empty and the function returns True; for len(a) == 1, range(1, 1) is empty and it returns True. Credit requires the equivalence verdict AND both empty-range traces. Guessing 'equivalent' without evaluating the two lengths earns no credit.",
+        "patterns": ["equivalent", "range\\(1, ?0\\)", "range\\(1, ?1\\)", "both.{0,30}true"]
+      }
+    ],
+    "postTest": "Exit check, in your own words: should the appeal go forward, what happens if you take grader A's advice, and what does your loop actually do on an empty list? Then apply it to a fresh case: another student writes `for i in range(1, len(a)): if a[i] < a[i - 1]: return False`. Is that equivalent to yours? Say what it does when len(a) is 0 and when len(a) is 1.",
+    "stubbornPersona": {
+      "beliefs": [
+        "If two graders both found something, at least one of the two defects must be real.",
+        "An off-by-one complaint about a loop bound is usually correct; bounds are where I make mistakes."
+      ],
+      "style": "Wants to concede something to look reasonable; only abandons a critique after actually evaluating the code on a concrete input.",
+      "unlockConcepts": ["a-out-of-bounds", "empty-list-safe", "code-is-correct"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting whichever grader sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
       ]
     }
   }

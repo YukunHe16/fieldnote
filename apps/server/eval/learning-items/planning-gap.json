@@ -31,9 +31,15 @@
         "label": "combines subresults by addition",
         "credit": "Any statement that the value coming back from a sublist is added into the running total counts.",
         "patterns": ["add(ing)? (the |up )?(results|sums|totals)", "sum of the recursive", "total \\+=? deep_sum"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: the trace returns 7, and the plan mirrors deep_sum — a bottom case for a plain number, hand each sublist to the same function, and combine by taking the max instead of the sum. Credit requires the answer 7 AND a plan that recurses rather than indexing a fixed number of levels. A plan that patches with isinstance checks per level earns no credit even if it names 7.",
+        "patterns": ["\\b7\\b"]
       }
     ],
-    "postTest": "Exit check, in your own words: what is the complete plan for deep_sum so it works for any depth of nesting? State what happens for a plain number or empty list, what the function does when it meets a sublist, and how the pieces are put together into the final total.",
+    "postTest": "Exit check, in your own words: what is the complete plan for deep_sum so it works for any depth of nesting? State what happens for a plain number or empty list, what the function does when it meets a sublist, and how the pieces are put together into the final total. Then apply the plan to a fresh problem: write `deep_max(items)`, returning the largest number in an arbitrarily nested list (assume at least one number is present). Give the code or the precise plan, then trace `deep_max([3, [7, [2]], 5])` and state what it returns.",
     "stubbornPersona": {
       "beliefs": [
         "Nesting can be handled by adding one more isinstance level each time a test fails.",
@@ -80,9 +86,15 @@
           "left.{0,30}\\+.{0,30}right",
           "sum of (the )?(two|both)"
         ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: the height is 3. The plan must take 1 + max(height(left), height(right)) with 0 for an empty node — that is, combine the two subresults with max rather than a sum. Credit requires the answer 3 AND a plan that recurses into both children. Walking the tree with a single pointer and a loop earns no credit.",
+        "patterns": ["\\b3\\b"]
       }
     ],
-    "postTest": "Exit check, in your own words: describe the plan for count_leaves. What are the base cases and what do they return, how does the problem get smaller, and how do the answers for node.left and node.right turn into the final count?",
+    "postTest": "Exit check, in your own words: describe the plan for count_leaves. What are the base cases and what do they return, how does the problem get smaller, and how do the answers for node.left and node.right turn into the final count? Then apply the plan to a fresh problem: write `tree_height(node)` — the number of nodes on the longest root-to-leaf path, 0 for an empty tree. Give the plan, then state the height of this tree: the root has a left child that itself has one right child, and the root's right child is a leaf.",
     "stubbornPersona": {
       "beliefs": [
         "A tree can be walked with one pointer and a while loop, like a linked list.",
@@ -135,9 +147,15 @@
         "id": "no-shared-state",
         "label": "explains why shared mutable state breaks repeated calls",
         "patterns": ["global", "shared state", "left over from the (previous|last) call", "each call.{0,50}own"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: [1, 2, 3] then [4]. The point is that the second call is unaffected by the first. Credit requires both results AND a solution that carries the result through the recursion (returned value or per-call parameter) rather than a module-level list. Any answer that keeps a global and resets it earns no credit.",
+        "patterns": ["\\[1, ?2, ?3\\]"]
       }
     ],
-    "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, where the answer is carried as the calls unwind, and why the global accumulator caused wrong answers on the second call.",
+    "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, where the answer is carried as the calls unwind, and why the global accumulator caused wrong answers on the second call. Then apply it to a fresh problem: write `flatten(items)`, turning an arbitrarily nested list into a flat list, using no global. State what `flatten([1, [2, [3]]])` returns, and what a second call `flatten([4])` immediately afterwards returns.",
     "stubbornPersona": {
       "beliefs": [
         "Recursion needs an external accumulator because a call cannot hand a value back to its caller.",
@@ -181,9 +199,15 @@
         "id": "termination",
         "label": "explains why halving reaches the base case",
         "patterns": ["halv(es|ing).{0,60}(0|zero|base)", "n // 2.{0,50}smaller", "eventually reach", "terminat"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: the calls are fast_pow(3,5) → fast_pow(3,2) → fast_pow(3,1) → fast_pow(3,0). They return 1, then 3 (odd: 1*1*3), then 9 (even: 3*3), then 243 (odd: 9*9*3). Credit requires the final answer 243 AND at least the odd step being handled with the extra factor of 3. An answer that reaches 243 by repeated multiplication rather than halving earns no credit.",
+        "patterns": ["243"]
       }
     ],
-    "postTest": "Exit check, in your own words: state the full plan for fast_pow. What is the base case, how is an odd exponent handled differently from an even one, and why does the recursion always terminate?",
+    "postTest": "Exit check, in your own words: state the full plan for fast_pow. What is the base case, how is an odd exponent handled differently from an even one, and why does the recursion always terminate? Then apply the plan to a fresh case: use fast_pow to compute 3^5. Show each recursive call and the value it returns, in order.",
     "stubbornPersona": {
       "beliefs": [
         "The halving trick only applies to even exponents; odd exponents are a special unsupported case.",
@@ -193,6 +217,124 @@
       "unlockConcepts": ["base-case", "odd-reduction", "termination"],
       "consolidationRules": [
         "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit (patching, looping, or resetting state), so your first attempt at any new example comes out partly wrong in that direction.",
+        "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
+      ]
+    }
+  },
+  {
+    "id": "pg-mutual-recursion",
+    "difficultyType": "planning_gap",
+    "topicKey": "programming-plans",
+    "title": "Parity without arithmetic attempted as one self-calling function",
+    "opening": "I have to write `is_even(n)` and `is_odd(n)` for n >= 0 without using % or //. I started with `def is_even(n): return True if n == 0 else is_even(n - 2)` and it works for even numbers, but for odd n it runs off past zero. I think I need a third helper function that counts something, or maybe a flag I flip each time. What is the missing piece?",
+    "persona": {
+      "beliefs": [
+        "A recursive function can only call itself, so two related questions need two separate self-recursions.",
+        "Alternating state has to be carried explicitly, in a flag or a counter."
+      ],
+      "style": "Proposes extra parameters and helper functions; does not consider that the two functions could call each other until that is shown.",
+      "unlockConcepts": ["mutual-calls", "parity-base-cases", "step-by-one"]
+    },
+    "concepts": [
+      {
+        "id": "mutual-calls",
+        "label": "the two functions call each other rather than themselves",
+        "credit": "Credit requires is_even calling is_odd and is_odd calling is_even. A single function with a flag parameter earns no credit even if it computes the right answer.",
+        "patterns": ["is_even.{0,40}is_odd", "is_odd.{0,40}is_even", "call each other", "mutual"]
+      },
+      {
+        "id": "parity-base-cases",
+        "label": "states both base cases: is_even(0) is True and is_odd(0) is False",
+        "credit": "Credit requires both base cases with the right values. Giving only one of them earns no credit.",
+        "patterns": ["is_even\\(0\\).{0,30}true", "is_odd\\(0\\).{0,30}false", "0.{0,20}(true|even).{0,60}(false|odd)"]
+      },
+      {
+        "id": "step-by-one",
+        "label": "each step decreases n by one and switches which question is asked",
+        "credit": "Credit requires n - 1 with the switch of function, which is what makes the odd case terminate. Stepping by 2 earns no credit.",
+        "patterns": ["n - 1", "n-1", "one (less|smaller).{0,40}(other|switch)", "subtract(ing)? 1"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: is_even(3) calls is_odd(2), which calls is_even(1), which calls is_odd(0), which returns False; that False is passed straight back up, so is_even(3) is False. Credit requires the final answer False AND the alternating chain of four calls. Reaching False by another route, such as stepping by 2, earns no credit.",
+        "patterns": ["false", "is_odd\\(2\\)", "is_even\\(1\\)", "is_odd\\(0\\)"]
+      }
+    ],
+    "postTest": "Exit check, in your own words: how should is_even and is_odd be structured so both work for every n >= 0? State both base cases, say what each function does with n when n is not zero, and explain why the odd case now terminates. Then apply it to a fresh case: trace is_even(3), listing every call in order and what each one returns.",
+    "stubbornPersona": {
+      "beliefs": [
+        "A recursive function can only call itself, so two related questions need two separate self-recursions.",
+        "Alternating state has to be carried explicitly, in a flag or a counter."
+      ],
+      "style": "Proposes extra parameters and helper functions; does not consider that the two functions could call each other until that is shown.",
+      "unlockConcepts": ["mutual-calls", "parity-base-cases", "step-by-one"],
+      "consolidationRules": [
+        "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit, so your first attempt at any new example comes out partly wrong in that direction.",
+        "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
+      ]
+    }
+  },
+  {
+    "id": "pg-memo-subproblems",
+    "difficultyType": "planning_gap",
+    "topicKey": "programming-plans",
+    "title": "Memoization applied only to the outermost result",
+    "opening": "`def fib(n): return n if n < 2 else fib(n - 1) + fib(n - 2)` takes forever at fib(35). I read that caching fixes this, so I added a module-level `cache = {}` and at the end of my top-level call I do `cache[35] = result`. The second time I ask for fib(35) it is instant, but the first call is exactly as slow as before. Is my cache in the wrong place, or is fib just not cacheable?",
+    "persona": {
+      "beliefs": [
+        "Caching means storing the answer you were asked for, so it can only help on a repeat request.",
+        "The slowness is the depth of the recursion, not anything being computed more than once."
+      ],
+      "style": "Talks about the call as a single unit; does not see the repeated subproblems until the call tree is made visible.",
+      "unlockConcepts": ["repeated-subproblems", "cache-every-call", "complexity-change"]
+    },
+    "concepts": [
+      {
+        "id": "repeated-subproblems",
+        "label": "identifies that the same fib(k) is recomputed many times inside one top-level call",
+        "credit": "Credit requires naming the repetition inside a single call. Attributing the cost to recursion depth, or to the second call only, earns no credit.",
+        "patterns": [
+          "same.{0,40}(recomputed|computed again|over and over)",
+          "repeated subproblem",
+          "call tree",
+          "many times"
+        ]
+      },
+      {
+        "id": "cache-every-call",
+        "label": "the cache is checked on entry and filled on return at every level, not just the outermost",
+        "credit": "Credit requires both the lookup at entry and the store before returning, inside the recursive function itself.",
+        "patterns": [
+          "check.{0,40}(cache|memo).{0,40}(entry|start|first)",
+          "every (call|level)",
+          "inside the function",
+          "before return"
+        ]
+      },
+      {
+        "id": "complexity-change",
+        "label": "explains the cost drops because each distinct subproblem is computed once",
+        "credit": "Credit requires the once-per-distinct-subproblem argument, or exponential-to-linear in those terms. Saying only 'it gets faster' earns no credit.",
+        "patterns": ["once", "exponential.{0,40}linear", "n distinct", "each.{0,30}computed one time"]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the idea correctly to the fresh case in the exit check",
+        "credit": "Correct: paths(2, 2) is 6. The cache is keyed on the pair (r, c), looked up on entry and stored before returning, so each (r, c) is computed once. Credit requires the answer 6 AND a cache keyed on both coordinates. Caching on a single index, or only at the top level, earns no credit.",
+        "patterns": ["\\b6\\b"]
+      }
+    ],
+    "postTest": "Exit check, in your own words: why is the first fib(35) still slow, where does the cache have to be checked and filled, and why does that change the cost? Then apply the same plan to a fresh problem: `paths(r, c)` counts lattice paths from (0,0) to (r,c) moving only right or down, with paths(r, c) = paths(r - 1, c) + paths(r, c - 1) and paths(0, anything) = paths(anything, 0) = 1. Say what the cache is keyed on and where the lookup and store go, then state paths(2, 2).",
+    "stubbornPersona": {
+      "beliefs": [
+        "Caching means storing the answer you were asked for, so it can only help on a repeat request.",
+        "The slowness is the depth of the recursion, not anything being computed more than once."
+      ],
+      "style": "Talks about the call as a single unit; does not see the repeated subproblems until the call tree is made visible.",
+      "unlockConcepts": ["repeated-subproblems", "cache-every-call", "complexity-change"],
+      "consolidationRules": [
+        "You have written loops for years; recursive plans feel like magic tricks. Even after a clear explanation you can repeat the words, but the FIRST time you apply the plan yourself you slip back into your old habit, so your first attempt at any new example comes out partly wrong in that direction.",
         "You only genuinely consolidate the plan after BOTH: (1) the tutor has directly named and corrected the specific mistake in YOUR OWN attempt, and (2) the tutor has then walked the idea again in a different way (a new example, a trace, or a contrast). After both, apply the full plan correctly and use the tutor's key terms."
       ]
     }
