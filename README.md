@@ -26,6 +26,26 @@ A local-first Claude Agent workbench for education: an assistant that can carry 
 
 Secondary capabilities: **Run Replay** (replay a run against a frozen local input boundary, for auditing and before/after comparison when enabling a capability), **workspace sandboxing** (each conversation gets its own directory, agent writes are confined to it, and input attachments are read-only), **document skills** (export Markdown sources to real DOCX/PDF, with optional on-demand Office skills), and **temporary chats** (no cross-chat memory read or written; cleaned up when they end).
 
+## Research
+
+Learning mode treats tutoring as an **educational on-call loop** rather than a one-shot answer: a difficulty becomes an *incident* with a diagnosis, each teaching move is a recorded *intervention* with a strategy and an expected signal, understanding is checked by *verification* whose system verdict is stored separately from the learner's own confirmation, and an incident that survives three rounds *escalates* to a human with a structured handoff report. Treatment, outcome, and failure are all first-class records, which is what makes the loop studyable.
+
+**Diagnosis before treatment.** The loop names the missing layer — here, a recursion plan gap behind an exception-handling instinct — and keeps its confidence and evidence out of the learner-facing conversation. The panel on the right also shows the system's verdict and the learner's confirmation as separate records:
+
+![Planning-gap diagnosis with separated system and learner verdicts](docs/assets/demo-planning-gap.png)
+
+**Strategy switching on the record.** When round one ends `partial`, the loop switches strategy (here contrastive → analogical) and re-verifies with a transfer task, not a repeat question — every round carries its rationale:
+
+![Two recorded rounds with a strategy switch and an honest partial verdict](docs/assets/demo-strategy-switch.png)
+
+**Abstention as a feature.** When the remaining blocker is a question only a human instructor can answer, the loop escalates instead of manufacturing an answer, and writes a handoff report: what was tried round by round, what the learner still cannot do, and what a human should try next:
+
+![An escalated incident with its structured handoff report](docs/assets/demo-escalation-handoff.png)
+
+The candidate research questions this instrumentation exists for: *Can bounded, plan-aware scaffolding improve plan acquisition and transfer compared with one-shot planning feedback? Can uncertainty-aware verification reduce students' acceptance of incorrect AI feedback without excessive escalation? Can a conversation-first remediation loop reduce interventions-to-mastery for a well-defined misconception?*
+
+**Evidence status, stated honestly.** The screens above are real agent sessions over synthetic demo scenarios; nothing here is evidence about real students. In offline evaluation against scripted-misconception items, the loop's first diagnosis matched the scripted misconception in **166/176 sessions (94%)**; outcome comparisons (adaptive loop vs baselines) are retired until they can be run with real learners, because LLM-simulated students cannot fail believably — the full instrument post-mortem, with the evidence and the follow-up study designs, is in [docs/internal/EVAL_LESSONS.md](docs/internal/EVAL_LESSONS.md). Method and item sources: [docs/internal/LEARNING_EVAL.md](docs/internal/LEARNING_EVAL.md) · anonymized export: [docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md).
+
 ## Quick start
 
 ```bash

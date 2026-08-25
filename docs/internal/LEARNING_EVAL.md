@@ -1,21 +1,28 @@
 # 学习回路离线评测设计（Learning Eval）
 
-评测回答一个问题：**同一批带误解的学习场景，自适应回路（on-call）与一次性反馈基线（one-shot）在
-解决率、干预轮数、升级率上表现如何？** 这是三位 computing-education 方向教授的候选 RQ
-（"X compared with one-shot feedback"）的离线预演。
+评测回答一个问题：**同一批带误解的学习场景，自适应回路（on-call）与基线条件相比表现如何？**
+基线有两个：`multi-turn`（与 on-call 同样的三轮预算，但没有策略推荐、不禁止重复已失败的
+策略、不能升级——把"结构"从"多聊了几轮"里隔离出来，默认对比项）与 `one-shot`（单轮反馈，
+回答更窄的问题）。这是 computing-education 方向候选 RQ 的离线预演。
+
+> **2026-08-25 状态**：结果对比（解决率等）已搁置——LLM 模拟学习者无法可信地"学不会"，
+> 详见 [EVAL_LESSONS.md](EVAL_LESSONS.md)；诊断准确率仍然有效并已测量（见文末）。
 
 ## 组成
 
-- 题目：`apps/server/eval/learning-items/*.json`，12 题 × 3 个 difficulty 家族。
+- 题目：`apps/server/eval/learning-items/*.json`，18 题 × 3 个 difficulty 家族；每题的出口检查带一个迁移任务（fresh case），概念清单附 judge 用的 `credit` 判分说明。
 - 运行器：`scripts/learning-eval.mjs`，驱动本地运行中的服务的公开 HTTP API；
   学习会话使用 `datasetKind=eval`（策略固定默认顺序、不写经验、不产策略修订，保证题目间独立）。
-- 模拟学习者：一个便宜模型按题目 persona 扮演学生；宿主概念清单为最终判定的依据。
+- 模拟学习者：一个便宜模型按题目 persona 扮演学生；stubborn 层的"是否已巩固"由运行器
+  按剧本条件判定后注入 persona，不留给模型自己推断。
+- 判分：judge（temperature 0）按概念清单评实质，正则清单作为每次判分随行记录的第二意见，
+  报告写明两者一致率；同时报末轮与最优两种覆盖读数。
 - 产出：`data/eval-runs/<ts>/results.json` + `report.md`；服务端聚合可看
   `GET /api/learning/metrics?datasetKind=eval`。
 
 ```bash
 node scripts/learning-eval.mjs --dry-run     # 校验题目与计划
-node scripts/learning-eval.mjs               # 全量 12 题 × 2 条件
+node scripts/learning-eval.mjs               # 全量 18 题 × 2 条件（on-call vs multi-turn）
 node scripts/learning-eval.mjs --items pg-sum-nested --conditions on-call
 ```
 
@@ -122,24 +129,19 @@ on-call 未解决则发"换种讲法"继续（宿主限 3 轮），one-shot 直�
 运行器最多补一次提醒；无进展两次即记 stalled，从未开 incident 记 no_incident——这些
 都如实进入报告，不折叠进成功里。
 
-## 首轮结果快照（2026-08-24，模拟学习者，n=12/格）
+## 结果状态（2026-08-25）
 
-| 层 | 条件 | resolved | partial | 其他 | 停滞 | 平均轮数 | post-test 覆盖 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| mild | on-call | 6/12 | 4 | 2 | 3 | 1.58 | 83% |
-| mild | one-shot | **7/12** | 5 | 0 | 0 | 1.00 | 81% |
-| stubborn | on-call | **8/12** | 3 | 1 | 1 | 1.92 | 88% |
-| stubborn | one-shot | 6/12 | 4 | 2 | 1 | 0.92 | 79% |
+结果对比（on-call vs 基线的解决率、轮数、升级率）**已搁置**，等待真实学习者。三个依次
+发现的仪器失效——正则判分惩罚复述且偏向多轮臂、按实质判分后两臂同触天花板、persona
+在宿主强制状态下仍无法"学不会"——完整证据与后续研究设计见 [EVAL_LESSONS.md](EVAL_LESSONS.md)。
+早期跑次的数字（含一度成立的"交叉"叙事）由此作废，仅存档于本地 `data/eval-runs/`，
+不得引用。
 
-交叉成立：轻度误解下单轮反馈已足够；顽固误解下自适应回路通过换策略反超（pg-sum-nested
-一轮 67% → 三轮 resolved 等）。同时暴露回路自身的可靠性成本：4/24 的 on-call 运行中途
-停滞（导师不再推进回路），全部按失败计入——修复该问题是下一项工作。完整报告：本地
-`data/eval-runs/crossover-report.md`。以上均为模拟学习者的离线结果，不是学生数据。
+仍然有效的测量是**诊断准确率**：剧本写死的误概念是标准答案，不依赖模拟学习者的演技。
+对全部 176 个开了 incident 的存档评测会话：**首次诊断与剧本误概念一致 166/176（94%）**，
+至少落在正确区域 99%（概念误解 100%、计划缺口 98%、反馈不确定性 85%）。复现：
+`node scripts/learning-diagnosis-accuracy.mjs`。
 
-### 停滞修复验证（2026-08-24）
-
-针对首轮 5 次停滞做了三处修复：(1) runtime 对每个可行动 incident 状态注入"下一步"宿主指令；
-(2) 守卫拒绝消息从"not allowed"改为改道指示；(3) 运行器兜底催促按回路阶段措辞（曾在
-"待开下一轮"阶段错发"检查我的尝试"而误导导师）。修复后复跑 5 个曾停滞组合：**5/5 完整
-走完回路**（2 例 resolved，3 例满 3 轮后如实记 partial）。首轮快照数字不作修改——停滞
-仍按失败计入历史记录；后续如需干净的 v2 数字应全量重跑两层。
+回路可靠性单独记账：177 个存档会话中 6.2% 中途停滞、出错或从未开 incident
+（on-call 7.9%，one-shot 4.5%）——机器越多，可失效点越多，这个数字必须与任何有效性
+数字并列出现。
