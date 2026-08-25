@@ -409,6 +409,35 @@ export interface LearningCalibrationBinDto {
   agreementRate: number | null;
 }
 
+/**
+ * Session-level reliability counts. Unlike the incident cells, the denominator is sessions,
+ * so loop failures that never produce a closed incident (never-opened, stalled, errored)
+ * become visible. Null when the metrics are filtered by difficultyType — sessions have no
+ * difficulty type.
+ */
+export interface LearningSessionsHealthDto {
+  total: number;
+  /** Sessions with three or more completed turns and no incident ever opened. */
+  neverOpened: number;
+  /** Sessions where the watchdog nudged a stalled loop and it still did not move. */
+  stalledMidLoop: number;
+  /** Sessions with at least one failed run since the session started. */
+  errored: number;
+  /** Distinct sessions matching ANY failure category — the categories overlap, so rates use this. */
+  unhealthy: number;
+  nudged: number;
+  /** Nudged sessions whose incident made real loop progress after the nudge (a new intervention, verification, verdict, or confirmation). */
+  recoveredAfterNudge: number;
+  conditions: Array<{
+    condition: LearningCondition;
+    total: number;
+    neverOpened: number;
+    stalledMidLoop: number;
+    errored: number;
+    unhealthy: number;
+  }>;
+}
+
 export interface LearningMetricsDto {
   scope: {
     profileId: string | null;
@@ -418,6 +447,7 @@ export interface LearningMetricsDto {
   };
   overall: LearningMetricsCellDto;
   conditions: Array<{ condition: LearningCondition } & LearningMetricsCellDto>;
+  sessions: LearningSessionsHealthDto | null;
   calibration: LearningCalibrationBinDto[];
   generatedAt: string;
 }

@@ -16,6 +16,7 @@ V1 不接入 PrairieLearn，不建设题库、课程管理或正式答题系统�
 - 后台只能建议开启，不能自动开启。建议要求置信度至少 `0.75`，并存在明确困惑信号或连续两个教育意图回合。
 - 每个会话最多一个 learning session，每个 session 同时最多一个未结束 incident。
 - 每个 incident 最多自动尝试三轮干预，仍未解决时进入 escalated。
+- 服务端看门狗（60 秒 tick，无状态、按数据库重算）：live+agent 会话的 incident 该由 tutor 行动却连续两个完成回合无动作时，发一条方括号标注的相位匹配提醒；提醒后仍无进展记 `gave_up` 并沉默。等待学习者的状态与 harness 自己发起的回合都不算停摆；台账 `learning_watchdog_events` 进研究导出。
 - 系统依据验证证据提出 outcome，用户确认“理解了 / 部分理解 / 仍未解决”；用户结论覆盖系统结论，但两者都保存。
 - verification 记录请求它的 Run / assistant message；系统 outcome 必须来自学习者回答后的后续 Run，并绑定提出 outcome 的新 assistant message。
 - 学习面板包含“当前回路 / 历史 / 教学策略”三个页签。

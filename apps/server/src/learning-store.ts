@@ -289,6 +289,20 @@ export interface DemoLearningExperienceSeed {
 
 export type LearningReviewStatus = "pending" | "fired" | "completed" | "cancelled";
 
+/** A live session whose loop owes the next move and has not made it for runsSinceProgress turns. */
+export interface LearningStallCandidate {
+  sessionId: string;
+  conversationId: string;
+  condition: LearningCondition;
+  incidentId: string;
+  status: LearningIncidentStatus;
+  /** status:interventions:verifications — any loop progress changes it, so per-signature actions are idempotent. */
+  signature: string;
+  runsSinceProgress: number;
+  /** When the conversation last completed a run; lets the watchdog leave long-dead threads alone. */
+  lastRunAt: number | null;
+}
+
 /** A spaced-review revisit booked when a live on-call incident resolves. */
 export interface LearningReviewTask {
   id: string;
@@ -479,6 +493,20 @@ CREATE TABLE IF NOT EXISTS learning_review_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_learning_review_due ON learning_review_tasks(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_learning_review_session ON learning_review_tasks(session_id, status);
+
+CREATE TABLE IF NOT EXISTS learning_watchdog_events (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES learning_sessions(id) ON DELETE CASCADE,
+  incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
+  signature TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('nudged', 'gave_up')),
+  run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learning_watchdog_incident
+  ON learning_watchdog_events(incident_id, signature, action);
+CREATE INDEX IF NOT EXISTS idx_learning_watchdog_session
+  ON learning_watchdog_events(session_id, action);
 
 CREATE TABLE IF NOT EXISTS learning_variant_offers (
   incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
@@ -1970,6 +1998,134 @@ export class LearningStore {
   }
 
   /**
+   * Live, active, agent-mode sessions whose open incident sits in a state where the tutor —
+   * not the learner — owes the next move, with the two learner-owed states excluded:
+   * waiting for the learner's confirmation, and waiting for the learner to answer a
+   * requested verification. `runsSinceProgress` counts completed runs since the incident
+   * last moved, so the watchdog's threshold is turn-based and a slow human cannot trip it.
+   */
+  stallCandidates(): LearningStallCandidate[] {
+    const rows = this.database
+      .prepare(
+        `SELECT s.id AS session_id, s.conversation_id, s.condition, i.id AS incident_id, i.status,
+                (SELECT COUNT(*) FROM learning_interventions x WHERE x.incident_id = i.id) AS n_interventions,
+                (SELECT COUNT(*) FROM learning_verifications v WHERE v.incident_id = i.id) AS n_verifications,
+                (SELECT COUNT(*) FROM runs r
+                  WHERE r.conversation_id = s.conversation_id AND r.status = 'completed'
+                    AND r.created_at > i.updated_at) AS runs_since_progress,
+                (SELECT MAX(r.created_at) FROM runs r
+                  WHERE r.conversation_id = s.conversation_id AND r.status = 'completed') AS last_run_at
+           FROM learning_sessions s
+           JOIN learning_incidents i ON i.session_id = s.id AND i.superseded_at IS NULL
+          WHERE s.dataset_kind = 'live' AND s.status = 'active' AND s.execution_mode = 'agent'
+            AND i.status IN ('diagnosed', 'intervening', 'verifying')`
+      )
+      .all() as Array<{
+      session_id: string;
+      conversation_id: string;
+      condition: string;
+      incident_id: string;
+      status: string;
+      n_interventions: number;
+      n_verifications: number;
+      runs_since_progress: number;
+      last_run_at: number | null;
+    }>;
+    const candidates: LearningStallCandidate[] = [];
+    for (const row of rows) {
+      if (row.status === "verifying") {
+        const verification = this.database
+          .prepare(
+            `SELECT system_verdict, response_after_run_created_at FROM learning_verifications
+              WHERE incident_id = ? ORDER BY created_at DESC LIMIT 1`
+          )
+          .get(row.incident_id) as
+          | { system_verdict: string | null; response_after_run_created_at: number | null }
+          | undefined;
+        // Learner-owed states are not stalls: a proposed verdict awaiting confirmation, or a
+        // question the learner has not answered yet. "Answered" counts only learner turns —
+        // a spaced-review prompt or a watchdog nudge completing its own run is not an answer.
+        if (verification?.system_verdict !== null && verification?.system_verdict !== undefined) continue;
+        if (this.completedLearnerRunsAfter(row.conversation_id, verification?.response_after_run_created_at ?? 0) === 0)
+          continue;
+      }
+      candidates.push({
+        sessionId: row.session_id,
+        conversationId: row.conversation_id,
+        condition: row.condition as LearningCondition,
+        incidentId: row.incident_id,
+        status: row.status as LearningIncidentStatus,
+        signature: `${row.status}:${row.n_interventions}:${row.n_verifications}`,
+        runsSinceProgress: row.runs_since_progress,
+        lastRunAt: row.last_run_at
+      });
+    }
+    return candidates;
+  }
+
+  completedRunsAfter(conversationId: string, timestamp: number): number {
+    const row = this.database
+      .prepare("SELECT COUNT(*) AS n FROM runs WHERE conversation_id = ? AND status = 'completed' AND created_at > ?")
+      .get(conversationId, timestamp) as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Completed runs after `timestamp` that the learner actually initiated: runs submitted by
+   * the harness itself — watchdog nudges and spaced-review revisits — are excluded, so
+   * "the learner has answered" can never be satisfied by the loop talking to itself.
+   */
+  completedLearnerRunsAfter(conversationId: string, timestamp: number): number {
+    const row = this.database
+      .prepare(
+        `SELECT COUNT(*) AS n FROM runs r
+          WHERE r.conversation_id = ? AND r.status = 'completed' AND r.created_at > ?
+            AND NOT EXISTS(SELECT 1 FROM learning_watchdog_events w WHERE w.run_id = r.id)
+            AND NOT EXISTS(SELECT 1 FROM learning_review_tasks task WHERE task.fired_run_id = r.id)`
+      )
+      .get(conversationId, timestamp) as { n: number };
+    return row.n;
+  }
+
+  watchdogEvent(
+    incidentId: string,
+    signature: string,
+    action: "nudged" | "gave_up"
+  ): { id: string; createdAt: number; runId: string | null } | null {
+    const row = this.database
+      .prepare(
+        `SELECT id, created_at, run_id FROM learning_watchdog_events
+          WHERE incident_id = ? AND signature = ? AND action = ? ORDER BY created_at DESC LIMIT 1`
+      )
+      .get(incidentId, signature, action) as { id: string; created_at: number; run_id: string | null } | undefined;
+    return row ? { id: row.id, createdAt: row.created_at, runId: row.run_id ?? null } : null;
+  }
+
+  deleteWatchdogEvent(id: string): void {
+    this.database.prepare("DELETE FROM learning_watchdog_events WHERE id = ?").run(id);
+  }
+
+  recordWatchdogEvent(input: {
+    sessionId: string;
+    incidentId: string;
+    signature: string;
+    action: "nudged" | "gave_up";
+  }): string {
+    const id = randomUUID();
+    this.database
+      .prepare(
+        `INSERT INTO learning_watchdog_events (id, session_id, incident_id, signature, action, run_id, created_at)
+         VALUES (?, ?, ?, ?, ?, NULL, ?)`
+      )
+      .run(id, input.sessionId, input.incidentId, input.signature, input.action, this.clock());
+    return id;
+  }
+
+  attachWatchdogRun(id: string, runId: string): void {
+    this.database.prepare("UPDATE learning_watchdog_events SET run_id = ? WHERE id = ?").run(runId, id);
+  }
+
+  /**
    * The verification currently waiting for the learner's own confirmation in this
    * conversation, if any — the server-side twin of the web's confirm-button gate.
    */
@@ -2263,6 +2419,84 @@ export class LearningStore {
       };
     });
 
+    // Session-level reliability: the incident cells above only see closed incidents, so a
+    // loop that never opened one, stalled mid-way, or died on an errored run is invisible
+    // there. The denominator here is sessions. difficultyType is incident-scoped, so this
+    // block has no meaningful answer under that filter and reports null instead.
+    let sessions: LearningMetricsDto["sessions"] = null;
+    if (!input.difficultyType) {
+      const sessionClauses = ["s.status NOT IN ('suggested', 'dismissed')", "s.execution_mode = 'agent'"];
+      const sessionParams: unknown[] = [];
+      if (input.profileId) {
+        sessionClauses.push("s.profile_id = ?");
+        sessionParams.push(clean(input.profileId, 100));
+      }
+      if (input.topicKey) {
+        sessionClauses.push("s.topic_key = ?");
+        sessionParams.push(topic(input.topicKey));
+      }
+      if (input.datasetKind) {
+        sessionClauses.push("s.dataset_kind = ?");
+        sessionParams.push(input.datasetKind);
+      }
+      const sessionRows = this.database
+        .prepare(
+          `SELECT s.id, s.condition,
+                  (SELECT COUNT(*) FROM learning_incidents i WHERE i.session_id = s.id) AS incident_count,
+                  (SELECT COUNT(*) FROM runs r
+                    WHERE r.conversation_id = s.conversation_id AND r.status = 'completed'
+                      AND r.created_at >= s.created_at) AS completed_runs,
+                  EXISTS(SELECT 1 FROM runs r
+                          WHERE r.conversation_id = s.conversation_id AND r.status = 'failed'
+                            AND r.created_at >= s.created_at) AS errored,
+                  EXISTS(SELECT 1 FROM learning_watchdog_events w
+                          WHERE w.session_id = s.id AND w.action = 'gave_up') AS gave_up,
+                  EXISTS(SELECT 1 FROM learning_watchdog_events w
+                          WHERE w.session_id = s.id AND w.action = 'nudged') AS nudged,
+                  EXISTS(SELECT 1 FROM learning_watchdog_events w
+                          WHERE w.session_id = s.id AND w.action = 'nudged'
+                            AND (EXISTS(SELECT 1 FROM learning_interventions x
+                                         WHERE x.incident_id = w.incident_id AND x.created_at > w.created_at)
+                                 OR EXISTS(SELECT 1 FROM learning_verifications v
+                                            WHERE v.incident_id = w.incident_id
+                                              AND (v.created_at > w.created_at
+                                                   OR v.proposed_at > w.created_at
+                                                   OR v.confirmed_at > w.created_at)))) AS recovered
+             FROM learning_sessions s
+            WHERE ${sessionClauses.join(" AND ")}`
+        )
+        .all(...sessionParams) as Array<{
+        id: string;
+        condition: string;
+        incident_count: number;
+        completed_runs: number;
+        errored: number;
+        gave_up: number;
+        nudged: number;
+        recovered: number;
+      }>;
+      // The three failure categories are independent predicates, not a partition — a session
+      // can be several at once. `unhealthy` counts distinct sessions so a rate over it can
+      // never exceed 100%.
+      const isNeverOpened = (row: (typeof sessionRows)[number]) => row.incident_count === 0 && row.completed_runs >= 3;
+      const tally = (rows: typeof sessionRows) => ({
+        total: rows.length,
+        neverOpened: rows.filter(isNeverOpened).length,
+        stalledMidLoop: rows.filter((row) => row.gave_up === 1).length,
+        errored: rows.filter((row) => row.errored === 1).length,
+        unhealthy: rows.filter((row) => isNeverOpened(row) || row.gave_up === 1 || row.errored === 1).length
+      });
+      sessions = {
+        ...tally(sessionRows),
+        nudged: sessionRows.filter((row) => row.nudged === 1).length,
+        recoveredAfterNudge: sessionRows.filter((row) => row.recovered === 1).length,
+        conditions: LEARNING_CONDITIONS.map((condition) => ({
+          condition,
+          ...tally(sessionRows.filter((row) => row.condition === condition))
+        }))
+      };
+    }
+
     return {
       scope: {
         profileId: input.profileId ? clean(input.profileId, 100) : null,
@@ -2275,6 +2509,7 @@ export class LearningStore {
         condition,
         ...cell(incidents.filter((row) => row.condition === condition))
       })),
+      sessions,
       calibration,
       generatedAt: iso(this.clock())!
     };
@@ -2290,6 +2525,16 @@ export class LearningStore {
     policyRevisions: LearningPolicyRevisionDto[];
     handoffs: LearningHandoffReportDto[];
     strategyVariants: LearningStrategyVariantDto[];
+    reviewTasks: LearningReviewTask[];
+    watchdogEvents: Array<{
+      id: string;
+      sessionId: string;
+      incidentId: string;
+      signature: string;
+      action: string;
+      runId: string | null;
+      createdAt: string;
+    }>;
   } {
     const all = <T>(table: string, map: (row: Record<string, unknown>) => T): T[] =>
       (this.database.prepare(`SELECT * FROM ${table} ORDER BY created_at ASC`).all() as Record<string, unknown>[]).map(
@@ -2313,7 +2558,19 @@ export class LearningStore {
           .all() as VariantRow[];
         const counts = this.variantAttributedCounts(rows.map((row) => row.id));
         return rows.map((row) => this.toVariant(row, counts.get(row.id) ?? 0));
-      })()
+      })(),
+      // Reliability is research data too: without the ledger, the sessions-health metrics
+      // (stalled/nudged/recovered) could not be recomputed from the export.
+      reviewTasks: all("learning_review_tasks", (row) => toReviewTask(row as unknown as ReviewTaskRow)),
+      watchdogEvents: all("learning_watchdog_events", (row) => ({
+        id: String(row.id),
+        sessionId: String(row.session_id),
+        incidentId: String(row.incident_id),
+        signature: String(row.signature),
+        action: String(row.action),
+        runId: row.run_id === null || row.run_id === undefined ? null : String(row.run_id),
+        createdAt: iso(Number(row.created_at))!
+      }))
     };
   }
 

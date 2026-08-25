@@ -403,6 +403,20 @@ Only an active session loads these internal tools: `open_learning_incident`, `re
 
 The model cannot confirm the final learning outcome, write strategy statistics directly, enable a policy, or expose internal tool text as the learner-facing answer. Learner confirmation and policy review remain host-side, user-visible actions.
 
+### 6.7b 回路看门狗 / Loop watchdog
+
+**中文**
+
+- live + agent 会话里,当某个 incident 该由 tutor 走下一步(记录干预/请求验证/给出判断)却连续两个完成回合毫无动作时,服务端 60 秒一跳的看门狗会向对话发一条**方括号标注**的相位匹配提醒(`【学习回路提醒】…`);提醒后仍无进展则记 `gave_up` 并停止——同一状态签名永远只提醒一次,不会形成提醒循环。
+- 等待学习者的状态(待确认、验证未作答)不算停摆;复习回访和看门狗自己发起的回合不算学习者作答;超过 24 小时没有完成回合的对话不再提醒,只计入指标。
+- 停摆、未开工单、运行出错以**会话为分母**进入指标页"回路可靠性"块,并随研究导出(watchdogEvents/reviewTasks 表)可复核。
+
+**English**
+
+- In live agent sessions, when an incident owes a tutor move (record an intervention / request verification / propose an outcome) and two completed turns pass without one, the 60-second watchdog posts one **bracket-labelled**, phase-matched reminder (`【学习回路提醒】…`) into the conversation; if the next turn still moves nothing it records `gave_up` and stops — one reminder per state signature, never a loop.
+- Learner-owed states (pending confirmation, unanswered verification) are not stalls; review revisits and the watchdog's own turns do not count as learner answers; conversations with no completed run for 24 hours are left alone and only counted.
+- Stalls, never-opened sessions, and errored runs surface in the metrics tab's session-denominator reliability block and are auditable from the research export (watchdogEvents/reviewTasks tables).
+
 ### 6.8 间隔复习 / Spaced reviews
 
 **中文**
@@ -732,7 +746,7 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - AskUserQuestion 的第一题最多显示 6 个按钮；多题、多选和复杂自由输入会提示转到 Web。
 - 入站图片和文件进入同一附件/Manifest 流程，20 MB 上限；失败会向用户说明。出站最多给 3 个已呈交文件按钮，并可补发文件消息。
 - 专家协作只显示活动和完成摘要。
-- 学习模式可用：`/learn 目标` 开启 live 会话（eval 等研究臂仍只在 Web），系统给出 outcome 后会发一张确认卡（听懂了 / 部分懂了 / 仍未解决），与网页确认同一套服务端语义；非 one-shot 会话选"仍未解决"且 incident 尚未升级时，服务端自动追发"换种讲法"。到期的间隔复习也会发进原飞书对话。学习面板、验证框和策略/讲法审阅仍只在 Web。
+- 学习模式可用：`/learn 目标` 开启 live 会话（eval 等研究臂仍只在 Web），系统给出 outcome 后会发一张确认卡（听懂了 / 部分懂了 / 仍未解决），与网页确认同一套服务端语义；非 one-shot 会话选"仍未解决"且 incident 尚未升级时，服务端自动追发"换种讲法"。到期的间隔复习也会发进原飞书对话。看门狗对停摆回路的『学习回路提醒』同样会出现在原对话中。学习面板、验证框和策略/讲法审阅仍只在 Web。
 - 可以接收通用能力 evolution 审核卡、能力停用建议卡和学习升级交接卡，但只投递最近的私聊绑定，不投递群聊。
 
 ### English

@@ -128,6 +128,16 @@ trial，平局取最老）写入投放台账（learning_variant_offers，按 inc
 `suggestedNextStrategies[]`（按当时策略序排列的未尝试策略，供接手的人类导师起步）/ `closedAt`。
 两条升级路径（escalate 工具、三轮耗尽自动升级）写入同构的 closed snapshot。
 
+### reviewTasks
+
+间隔复习任务：`id` / `incidentId` / `sessionId` / `conversationId` / `round` / `dueAt` / `status` / `firedRunId`。
+
+### watchdogEvents
+
+看门狗台账：`id` / `sessionId` / `incidentId` / `signature`（`status:干预数:验证数`）/ `action`
+（`nudged` 提醒已发 · `gave_up` 提醒后仍停摆）/ `runId`（提醒消息的 run）/ `createdAt`。
+会话健康指标全部可由本表复算。
+
 ### messages（可选）
 
 `includeMessages=true` 时附带：`id` / `conversationId` / `runId` / `role` / `content` / `createdAt`。
@@ -141,6 +151,12 @@ trial，平局取最老）写入投放台账（learning_variant_offers，按 inc
   与 SRE on-call 的 automation coverage 同构。
 - **校准（calibration）**：按 `systemConfidence` 分桶（<0.6、0.6–0.7、0.7–0.8、0.8–0.9、≥0.9），
   统计 `systemVerdict === finalVerdict` 的一致率。校准按验证层统计，不要求 incident 已关闭。
+- **会话健康（sessions）**：以**会话**为分母的可靠性块（difficultyType 过滤下为 null，因为会话没有难度类型）。
+  分母排除 suggested/dismissed 与 deterministic 会话。`neverOpened` = ≥3 个完成回合且从未开 incident；
+  `stalledMidLoop` = 看门狗提醒后仍无进展（台账 `gave_up`）；`errored` = 会话期间存在失败 run；
+  `unhealthy` = 命中任一类别的**去重**会话数（三类可重叠，比率用它算）；`recoveredAfterNudge` =
+  提醒后 incident 发生真实回路进展（新干预/新验证/新判定/确认）——**放弃关闭不算恢复**。
+  全部可由导出的 `watchdogEvents` 台账离线复算。
 
 ## 引用本数据时的边界
 

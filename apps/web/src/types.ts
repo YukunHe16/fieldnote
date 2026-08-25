@@ -468,8 +468,28 @@ export interface LearningMetricsDto {
   };
   overall: LearningMetricsCellDto;
   conditions: Array<{ condition: LearningCondition } & LearningMetricsCellDto>;
+  sessions: LearningSessionsHealthDto | null;
   calibration: LearningCalibrationBinDto[];
   generatedAt: string;
+}
+
+/** Session-denominator reliability counts; null under a difficultyType filter. */
+export interface LearningSessionsHealthDto {
+  total: number;
+  neverOpened: number;
+  stalledMidLoop: number;
+  errored: number;
+  unhealthy: number;
+  nudged: number;
+  recoveredAfterNudge: number;
+  conditions: Array<{
+    condition: LearningCondition;
+    total: number;
+    neverOpened: number;
+    stalledMidLoop: number;
+    errored: number;
+    unhealthy: number;
+  }>;
 }
 
 export type LearningVariantStatus = "pending" | "trial" | "enabled" | "rejected" | "retired";

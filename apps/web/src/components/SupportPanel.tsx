@@ -1319,18 +1319,49 @@ function LearningMetricsView({
       )}
       {loading ? (
         <div className="support-loading">{t("loading")}</div>
-      ) : !metrics || metrics.overall.incidents === 0 ? (
+      ) : !metrics || (metrics.overall.incidents === 0 && (metrics.sessions?.total ?? 0) === 0) ? (
         <EmptySupport title={t("learningMetricsEmpty")} detail={t("learningMetricsEmptyDetail")} />
       ) : (
         <>
-          <div className="learning-metrics-tiles">
-            {cellRows(metrics.overall).map((row) => (
-              <div className="learning-metrics-tile" key={row.label}>
-                <b>{row.value}</b>
-                <small>{row.label}</small>
+          {metrics.overall.incidents > 0 && (
+            <div className="learning-metrics-tiles">
+              {cellRows(metrics.overall).map((row) => (
+                <div className="learning-metrics-tile" key={row.label}>
+                  <b>{row.value}</b>
+                  <small>{row.label}</small>
+                </div>
+              ))}
+            </div>
+          )}
+          {metrics.sessions && metrics.sessions.total > 0 && (
+            <section className="learning-metrics-section">
+              <h4>{t("learningMetricsReliability")}</h4>
+              <div className="learning-metrics-tiles">
+                {[
+                  { label: t("learningMetricsSessions"), value: String(metrics.sessions.total) },
+                  {
+                    label: t("learningMetricsStalled"),
+                    // Categories overlap; `unhealthy` is the distinct-session numerator.
+                    value:
+                      metrics.sessions.total === 0
+                        ? "—"
+                        : formatRate(metrics.sessions.unhealthy / metrics.sessions.total)
+                  },
+                  { label: t("learningMetricsNeverOpened"), value: String(metrics.sessions.neverOpened) },
+                  { label: t("learningMetricsErrored"), value: String(metrics.sessions.errored) },
+                  {
+                    label: t("learningMetricsNudged"),
+                    value: `${metrics.sessions.recoveredAfterNudge}/${metrics.sessions.nudged}`
+                  }
+                ].map((row) => (
+                  <div className="learning-metrics-tile" key={row.label}>
+                    <b>{row.value}</b>
+                    <small>{row.label}</small>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </section>
+          )}
           {comparableConditions.length > 0 && (
             <section className="learning-metrics-section">
               <h4>{t("learningMetricsByCondition")}</h4>
