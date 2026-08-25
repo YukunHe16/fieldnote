@@ -6,11 +6,15 @@ import { CollaborationStore } from "../src/collaboration-store.js";
 
 const evidenceMessages = new Map<string, string>();
 
-function fixture(datasetKind: LearningDatasetKind = "live", condition: "on-call" | "one-shot" = "on-call") {
+function fixture(
+  datasetKind: LearningDatasetKind = "live",
+  condition: "on-call" | "one-shot" | "multi-turn" = "on-call",
+  evalPolicyEvolution = false
+) {
   const database = openDatabase(":memory:");
   const agents = new AgentStore(database);
   const conversation = agents.createConversation("web", "学习测试", { profileId: "local-operator" });
-  const learning = new LearningStore(database);
+  const learning = new LearningStore(database, undefined, evalPolicyEvolution);
   const session = learning.createSession({
     conversationId: conversation.id,
     profileId: "local-operator",
@@ -733,6 +737,82 @@ describe("LearningStore", () => {
         datasetKind: "live"
       })
     ).toEqual([]);
+    database.close();
+  });
+
+  it("gives multi-turn the same rounds as on-call but none of the policy or the handoff", () => {
+    const { database, learning, session } = fixture("live", "multi-turn");
+    expect(session.condition).toBe("multi-turn");
+    const first = incident(learning, session.id);
+    // Unlike one-shot, a second and third round are allowed — the baseline differs from
+    // on-call in its policy, not in how many chances it gets.
+    for (const [index, strategy] of (
+      ["direct_explanation", "direct_explanation", "worked_example"] as const
+    ).entries()) {
+      learning.recordIntervention({
+        incidentId: first.id,
+        strategy,
+        rationale: `第 ${index + 1} 轮`,
+        expectedSignal: "学习者能应用"
+      });
+      const verification = learning.requestVerification({
+        incidentId: first.id,
+        method: "self_explanation",
+        prompt: "请解释递归出口。",
+        rubric: "说明何时停止调用"
+      });
+      learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
+      learning.confirmVerification(verification.id, "unresolved");
+    }
+    // Repeating a strategy is allowed here; nothing forces the switch that on-call requires.
+    expect(learning.listInterventions(first.id).map((entry) => entry.strategy)).toEqual([
+      "direct_explanation",
+      "direct_explanation",
+      "worked_example"
+    ]);
+    // Three unresolved rounds would escalate under on-call. The baseline has no handoff.
+    expect(learning.getIncident(first.id)).toMatchObject({ status: "unresolved" });
+    const second = incident(learning, session.id);
+    expect(() => learning.escalateIncident(second.id, "试试交接")).toThrow("on-call");
+    database.close();
+  });
+
+  it("lets an opted-in eval accumulate its own strategy evidence without touching live", () => {
+    const { database, learning, session } = fixture("eval", "on-call", true);
+    const strategies: LearningInterventionStrategy[] = ["socratic_question", "socratic_question", "socratic_question"];
+    for (const strategy of strategies) {
+      const current = incident(learning, session.id);
+      learning.recordIntervention({
+        incidentId: current.id,
+        strategy,
+        rationale: "重复同一策略并让它失败",
+        expectedSignal: "学习者能应用"
+      });
+      const verification = learning.requestVerification({
+        incidentId: current.id,
+        method: "self_explanation",
+        prompt: "请解释递归出口。",
+        rubric: "说明何时停止调用"
+      });
+      learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
+      learning.confirmVerification(verification.id, "unresolved");
+      // Close it so the next repetition can open its own incident, the way a fresh eval
+      // conversation would.
+      learning.escalateIncident(current.id, "本轮结束");
+    }
+    // Evidence accrued, and it is filed under the eval dataset — live sees nothing.
+    const scope = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception"
+    } as const;
+    expect(learning.listExperiences({ ...scope, datasetKind: "eval" })).toHaveLength(3);
+    expect(learning.listExperiences({ ...scope, datasetKind: "live" })).toEqual([]);
+    // With three failures on record the posterior demotes that strategy instead of keeping
+    // the fixed default order an order-independent eval would have used.
+    const selection = learning.selectStrategy({ ...scope, datasetKind: "eval" });
+    expect(selection.reason).toBe("evidence");
+    expect(selection.strategy).not.toBe("socratic_question");
     database.close();
   });
 

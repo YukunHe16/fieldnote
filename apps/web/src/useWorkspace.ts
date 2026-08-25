@@ -785,7 +785,7 @@ export function useWorkspace() {
   );
 
   const createLearningSession = useCallback(
-    async (input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" }) => {
+    async (input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" | "multi-turn" }) => {
       if (!selectedId || backendDown || selectedId.startsWith("local-")) return false;
       try {
         const learningSession = await api.createLearningSession(selectedId, input);
@@ -1182,7 +1182,7 @@ export function useWorkspace() {
     async (
       scenarioId: string,
       executionMode: "deterministic" | "agent",
-      condition: "on-call" | "one-shot" = "on-call"
+      condition: "on-call" | "one-shot" | "multi-turn" = "on-call"
     ) => {
       if (backendDown) return false;
       try {

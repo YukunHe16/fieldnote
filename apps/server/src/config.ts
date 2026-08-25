@@ -10,6 +10,13 @@ const environmentSchema = z.object({
   DATABASE_PATH: z.string().default("./data/agent.db"),
   AGENT_WORKSPACE_ROOT: z.string().default("./data/workspaces"),
   AGENT_RUNTIME: z.enum(["auto", "claude", "demo"]).default("auto"),
+  // Research switch, off by default. Lets on-call sessions in the isolated eval dataset build
+  // and read strategy evidence across a run, so a repeated sweep measures whether the policy
+  // improves. A standard eval must stay order-independent, hence the opt-in.
+  LEARNING_EVAL_EVOLUTION: z
+    .enum(["0", "1", "false", "true"])
+    .default("0")
+    .transform((value) => value === "1" || value === "true"),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_AUTH_TOKEN: z.string().optional(),
   ANTHROPIC_BASE_URL: z.string().optional(),
@@ -44,6 +51,7 @@ export interface AppConfig {
   databasePath: string;
   workspaceRoot: string;
   runtime: "auto" | "claude" | "demo";
+  learningEvalEvolution: boolean;
   anthropicApiKey?: string;
   anthropicAuthToken?: string;
   anthropicBaseUrl?: string;
@@ -136,6 +144,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     port: parsed.PORT,
     databasePath: path.resolve(dataRoot, parsed.DATABASE_PATH),
     workspaceRoot: path.resolve(dataRoot, parsed.AGENT_WORKSPACE_ROOT),
+    learningEvalEvolution: parsed.LEARNING_EVAL_EVOLUTION,
     runtime: parsed.AGENT_RUNTIME,
     claudeAuthConfigured: claudeAuthSource !== "none",
     claudeAuthSource,

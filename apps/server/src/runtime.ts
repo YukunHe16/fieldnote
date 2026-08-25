@@ -1252,15 +1252,19 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         .find((incident) => ["observing", "diagnosed", "intervening", "verifying"].includes(incident.status)) ?? null;
     const interventions = current ? store.listInterventions(current.id) : [];
     const verifications = current ? store.listVerifications(current.id) : [];
-    const selection = current
-      ? store.selectStrategy({
-          profileId: session.profileId,
-          topicKey: session.topicKey,
-          difficultyType: current.difficultyType,
-          datasetKind: session.datasetKind,
-          failedStrategies: interventions.map((item) => item.strategy)
-        })
-      : null;
+    // multi-turn is the baseline that gets on-call's rounds without on-call's policy, so it
+    // must not see a recommendation or the list of strategies that already failed. Withholding
+    // both here is what makes a win attributable to the bookkeeping rather than to the turns.
+    const selection =
+      current && session.condition !== "multi-turn"
+        ? store.selectStrategy({
+            profileId: session.profileId,
+            topicKey: session.topicKey,
+            difficultyType: current.difficultyType,
+            datasetKind: session.datasetKind,
+            failedStrategies: interventions.map((item) => item.strategy)
+          })
+        : null;
     // At most one invented approach rides along with the recommended strategy. The call
     // also writes the delivery ledger for (incident, round): attribution later stamps only
     // rounds whose prompt actually carried the instruction — an incident opened mid-run has
@@ -1282,10 +1286,15 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       (session.datasetKind === "demo" || session.datasetKind === "eval") && session.executionMode === "agent"
         ? " This is a real-Agent demo run: before extended analysis or visible prose, call open_learning_incident from the learner's visible evidence, then record an intervention and request a verification in this same run. Do not imitate tool records in prose."
         : "";
-    const oneShotInstruction =
+    const conditionInstruction =
       session.condition === "one-shot"
         ? " This session runs the one-shot feedback baseline: each incident allows exactly one intervention. Give your single best feedback with its verification; never switch strategies or add another round — the host rejects a second intervention."
-        : "";
+        : session.condition === "multi-turn"
+          ? // Deliberately says nothing about which strategy to use, what has already been
+            // tried, or when to give up. Keep helping the way an ordinary tutor would when a
+            // student simply keeps asking; that is the whole point of this arm.
+            " This session runs the continued-conversation baseline: keep helping the learner for as long as they keep asking, exactly as you would in an ordinary tutoring conversation. Do not plan which teaching strategy to use next, do not avoid an approach because you have already tried it, and never escalate or hand off — respond to what the learner just said."
+          : "";
     // The host state machine always knows the loop's next required transition; spelling it
     // out per state is what keeps weaker models driving the loop instead of drifting into
     // prose (observed failure modes: praising an answer without proposing an outcome, and
@@ -1294,7 +1303,11 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     const nextStepInstruction = !current
       ? ""
       : current.status === "diagnosed"
-        ? " The current incident is diagnosed and awaiting its next intervention: in this same run you MUST call record_learning_intervention (prefer recommendedStrategy; never repeat a failed strategy) and then request_learning_verification for it. Do not open another incident."
+        ? ` The current incident is diagnosed and awaiting its next intervention: in this same run you MUST call record_learning_intervention (${
+            session.condition === "multi-turn"
+              ? "choose whatever approach you would naturally use next"
+              : "prefer recommendedStrategy; never repeat a failed strategy"
+          }) and then request_learning_verification for it. Do not open another incident.`
         : current.status === "intervening"
           ? " An intervention is recorded but has no verification yet: you MUST call request_learning_verification in this same run so the learner can demonstrate understanding."
           : current.status === "verifying" && latestVerification && !latestVerification.systemVerdict
@@ -1310,7 +1323,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       "Use the learning tools to change it; never claim an outcome is final until the user confirms it. " +
       "Keep the visible assistant response strictly student-facing: teach the subject, ask understandable questions, and respond to the learner's work. " +
       "Never mention incidents, diagnoses, confidence scores, strategy or policy names, tools, internal rubrics, synthetic experiences, self-evolution, or the learning framework in visible prose. " +
-      `Record those details through tools for the learning panel instead.${agentDemoInstruction}${oneShotInstruction}${nextStepInstruction}${approachInstruction}\n` +
+      `Record those details through tools for the learning panel instead.${agentDemoInstruction}${conditionInstruction}${nextStepInstruction}${approachInstruction}\n` +
       `<learning_context>\n${JSON.stringify({
         session: {
           id: session.id,

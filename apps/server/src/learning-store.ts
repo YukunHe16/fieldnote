@@ -10,7 +10,16 @@ import type { SqliteDatabase } from "./database.js";
 
 export const LEARNING_SESSION_STATUSES = ["suggested", "active", "paused", "completed", "dismissed"] as const;
 export const LEARNING_DATASET_KINDS = ["live", "demo", "replay", "eval"] as const;
-export const LEARNING_CONDITIONS = ["on-call", "one-shot"] as const;
+// on-call is the adaptive loop. The other two are baselines that differ from it in exactly
+// one way each, so a win can be attributed:
+//   one-shot   — one intervention, then the incident closes. Isolates "did the extra rounds
+//                happen at all", but confounds adaptivity with simply talking longer.
+//   multi-turn — the same round budget as on-call, but no strategy recommendation, no bar on
+//                repeating a strategy that already failed, and no escalation. This is the
+//                learner who just keeps asking, which is what a confused student actually
+//                does. Comparing on-call against it isolates the structured part — the
+//                bookkeeping and the forced switch — from the turns themselves.
+export const LEARNING_CONDITIONS = ["on-call", "one-shot", "multi-turn"] as const;
 export const LEARNING_EXECUTION_MODES = ["agent", "deterministic"] as const;
 export const LEARNING_INCIDENT_STATUSES = [
   "observing",
@@ -307,6 +316,22 @@ function toReviewTask(row: ReviewTaskRow): LearningReviewTask {
   };
 }
 
+const LEARNING_EXPERIENCES_TABLE = (name: string) => `
+CREATE TABLE IF NOT EXISTS ${name} (
+  id TEXT PRIMARY KEY,
+  verification_id TEXT NOT NULL UNIQUE REFERENCES learning_verifications(id) ON DELETE CASCADE,
+  incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
+  profile_id TEXT NOT NULL,
+  topic_key TEXT NOT NULL DEFAULT '',
+  difficulty_type TEXT NOT NULL CHECK (difficulty_type IN ('planning_gap', 'conceptual_misconception', 'procedural_gap', 'feedback_uncertainty', 'prerequisite_gap', 'other')),
+  strategy TEXT NOT NULL CHECK (strategy IN ('socratic_question', 'conceptual_hint', 'contrastive_example', 'worked_example', 'analogical_example', 'direct_explanation', 'evidence_check', 'abstain_escalate')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('resolved', 'partial', 'unresolved')),
+  dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo', 'eval')),
+  snapshot_json TEXT NOT NULL DEFAULT '{}',
+  strategy_variant_id TEXT REFERENCES learning_strategy_variants(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);`;
+
 const LEARNING_SESSIONS_TABLE = (name: string) => `
 CREATE TABLE IF NOT EXISTS ${name} (
   id TEXT PRIMARY KEY,
@@ -316,7 +341,7 @@ CREATE TABLE IF NOT EXISTS ${name} (
   topic_key TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL CHECK (status IN ('suggested', 'active', 'paused', 'completed', 'dismissed')),
   dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo', 'replay', 'eval')),
-  condition TEXT NOT NULL DEFAULT 'on-call' CHECK (condition IN ('on-call', 'one-shot')),
+  condition TEXT NOT NULL DEFAULT 'on-call' CHECK (condition IN ('on-call', 'one-shot', 'multi-turn')),
   execution_mode TEXT NOT NULL DEFAULT 'agent' CHECK (execution_mode IN ('agent', 'deterministic')),
   suggestion_reason TEXT,
   created_at INTEGER NOT NULL,
@@ -404,20 +429,7 @@ CREATE TABLE IF NOT EXISTS learning_verifications (
 );
 CREATE INDEX IF NOT EXISTS idx_learning_verifications_incident ON learning_verifications(incident_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS learning_experiences (
-  id TEXT PRIMARY KEY,
-  verification_id TEXT NOT NULL UNIQUE REFERENCES learning_verifications(id) ON DELETE CASCADE,
-  incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
-  profile_id TEXT NOT NULL,
-  topic_key TEXT NOT NULL DEFAULT '',
-  difficulty_type TEXT NOT NULL CHECK (difficulty_type IN ('planning_gap', 'conceptual_misconception', 'procedural_gap', 'feedback_uncertainty', 'prerequisite_gap', 'other')),
-  strategy TEXT NOT NULL CHECK (strategy IN ('socratic_question', 'conceptual_hint', 'contrastive_example', 'worked_example', 'analogical_example', 'direct_explanation', 'evidence_check', 'abstain_escalate')),
-  outcome TEXT NOT NULL CHECK (outcome IN ('resolved', 'partial', 'unresolved')),
-  dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo')),
-  snapshot_json TEXT NOT NULL DEFAULT '{}',
-  strategy_variant_id TEXT REFERENCES learning_strategy_variants(id) ON DELETE SET NULL,
-  created_at INTEGER NOT NULL
-);
+${LEARNING_EXPERIENCES_TABLE("learning_experiences")}
 CREATE INDEX IF NOT EXISTS idx_learning_experiences_selector ON learning_experiences(profile_id, topic_key, difficulty_type, dataset_kind, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS learning_policy_revisions (
@@ -536,7 +548,13 @@ type PolicyRow = Record<string, unknown>;
 export class LearningStore {
   constructor(
     private readonly database: SqliteDatabase,
-    private readonly clock: () => number = () => Date.now()
+    private readonly clock: () => number = () => Date.now(),
+    // Off by default: a standard eval run must stay order-independent, so every item sees the
+    // same fixed strategy order no matter what earlier items concluded. Turning it on asks a
+    // different question — whether the policy gets better as evidence accumulates — which
+    // requires exactly the order-dependence the default forbids. Evidence stays scoped to
+    // dataset_kind = 'eval', so live statistics are untouched either way.
+    private readonly evalPolicyEvolution = false
   ) {
     this.database.exec(LEARNING_STORE_SCHEMA);
     const sessionColumns = this.database.pragma("table_info(learning_sessions)") as Array<{ name: string }>;
@@ -559,6 +577,49 @@ export class LearningStore {
         DROP TABLE learning_sessions;
         ALTER TABLE learning_sessions_research RENAME TO learning_sessions;
         CREATE INDEX IF NOT EXISTS idx_learning_sessions_status ON learning_sessions(status, updated_at DESC);
+      `);
+      this.database.pragma("foreign_keys = ON");
+    }
+    // Adding the multi-turn baseline widens the same CHECK, which again cannot be altered in
+    // place. Keyed on the constraint text rather than a column so it runs exactly once.
+    const sessionsSql = (
+      this.database
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'learning_sessions'")
+        .get() as { sql: string } | undefined
+    )?.sql;
+    if (sessionsSql && !sessionsSql.includes("multi-turn")) {
+      this.database.pragma("foreign_keys = OFF");
+      this.database.exec(`
+        ${LEARNING_SESSIONS_TABLE("learning_sessions_multiturn")}
+        INSERT INTO learning_sessions_multiturn
+          (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, condition, execution_mode, suggestion_reason, created_at, updated_at, completed_at)
+        SELECT id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, condition, execution_mode, suggestion_reason, created_at, updated_at, completed_at
+        FROM learning_sessions;
+        DROP TABLE learning_sessions;
+        ALTER TABLE learning_sessions_multiturn RENAME TO learning_sessions;
+        CREATE INDEX IF NOT EXISTS idx_learning_sessions_status ON learning_sessions(status, updated_at DESC);
+      `);
+      this.database.pragma("foreign_keys = ON");
+    }
+    // Experiences never expected an eval row, because an order-independent eval writes none.
+    // An opted-in evolving eval does, and its evidence is filed under dataset_kind = 'eval'
+    // so the live posterior still cannot see it.
+    const experiencesSql = (
+      this.database
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'learning_experiences'")
+        .get() as { sql: string } | undefined
+    )?.sql;
+    if (experiencesSql && !/dataset_kind[^,]*'eval'/.test(experiencesSql)) {
+      this.database.pragma("foreign_keys = OFF");
+      this.database.exec(`
+        ${LEARNING_EXPERIENCES_TABLE("learning_experiences_eval")}
+        INSERT INTO learning_experiences_eval
+          (id, verification_id, incident_id, profile_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, strategy_variant_id, created_at)
+        SELECT id, verification_id, incident_id, profile_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, strategy_variant_id, created_at
+        FROM learning_experiences;
+        DROP TABLE learning_experiences;
+        ALTER TABLE learning_experiences_eval RENAME TO learning_experiences;
+        CREATE INDEX IF NOT EXISTS idx_learning_experiences_selector ON learning_experiences(profile_id, topic_key, difficulty_type, dataset_kind, created_at DESC);
       `);
       this.database.pragma("foreign_keys = ON");
     }
@@ -1059,7 +1120,12 @@ export class LearningStore {
     const incident = this.requireIncident(id);
     this.assertIncidentCurrent(incident);
     if (TERMINAL_INCIDENTS.has(incident.status)) throw learningConflict("Learning incident is already closed");
-    this.assertSessionActive(this.sessionForIncident(incident.id));
+    const session = this.sessionForIncident(incident.id);
+    this.assertSessionActive(session);
+    // Escalation is part of the structure on trial, so the baselines must not reach it even
+    // if the model calls the tool anyway.
+    if (session.condition !== "on-call")
+      throw learningConflict("Escalation is available only in the adaptive on-call condition");
     const now = this.clock();
     // The tool path closes with the same rich snapshot the three-round auto-escalation
     // writes, so the handoff report never depends on which path escalated.
@@ -1143,7 +1209,11 @@ export class LearningStore {
             ? // The one-shot baseline ends after its single feedback round; nothing escalates.
               "unresolved"
             : verdict === "unresolved" && interventionCount >= 3
-              ? "escalated"
+              ? // multi-turn spends the same rounds but has no escalation path — handing off
+                // is part of the structure being tested, so the baseline must not get it.
+                session.condition === "multi-turn"
+                ? "unresolved"
+                : "escalated"
               : "diagnosed";
       this.database
         .prepare(
@@ -1202,7 +1272,11 @@ export class LearningStore {
       }
       // Experiences exist solely to feed strategy evolution: replay must not write live statistics,
       // eval runs must stay order-independent, and the one-shot baseline never adapted a strategy.
-      if (session.datasetKind !== "replay" && session.datasetKind !== "eval" && session.condition !== "one-shot") {
+      const recordsExperience =
+        session.datasetKind === "eval"
+          ? this.evalPolicyEvolution && session.condition === "on-call"
+          : session.datasetKind !== "replay" && session.condition !== "one-shot";
+      if (recordsExperience) {
         this.database
           .prepare(
             `INSERT INTO learning_experiences
@@ -1601,7 +1675,7 @@ export class LearningStore {
     if (!profileId) throw new Error("Profile is required for strategy selection");
     // Replay must not read live statistics; eval runs use the fixed default order so every
     // evaluation item sees the same policy regardless of what earlier items concluded.
-    if (input.datasetKind === "replay" || input.datasetKind === "eval")
+    if (input.datasetKind === "replay" || (input.datasetKind === "eval" && !this.evalPolicyEvolution))
       return this.selection([...DEFAULT_STRATEGIES], null, 0, {}, input.failedStrategies ?? [], "default");
     const scope = {
       profileId,
@@ -1609,7 +1683,11 @@ export class LearningStore {
       difficultyType: input.difficultyType,
       datasetKind: input.datasetKind
     };
-    const enabled = this.enabledPolicy(scope);
+    // Human-reviewed policy revisions are a separate mechanism and stay out of the eval even
+    // when evolution is on: what an evolving eval exercises is the outcome posterior below,
+    // and mixing in a promoted policy would make the two indistinguishable.
+    const enabled =
+      input.datasetKind === "eval" ? null : this.enabledPolicy({ ...scope, datasetKind: input.datasetKind });
     const base = enabled?.orderedStrategies ?? [...DEFAULT_STRATEGIES];
     const rows = this.database
       .prepare(

@@ -71,7 +71,7 @@ export function Composer({
   const [learningSetupOpen, setLearningSetupOpen] = useState(false);
   const [learningGoal, setLearningGoal] = useState("");
   const [learningTopic, setLearningTopic] = useState("");
-  const [learningCondition, setLearningCondition] = useState<"on-call" | "one-shot">("on-call");
+  const [learningCondition, setLearningCondition] = useState<"on-call" | "one-shot" | "multi-turn">("on-call");
   const [learningBusy, setLearningBusy] = useState(false);
   const [learningDemos, setLearningDemos] = useState<LearningDemoScenarioDto[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -620,7 +620,7 @@ export function Composer({
                 <div className="learning-condition-picker">
                   <span>{t("learningCondition")}</span>
                   <div role="radiogroup" aria-label={t("learningCondition")}>
-                    {(["on-call", "one-shot"] as const).map((option) => (
+                    {(["on-call", "one-shot", "multi-turn"] as const).map((option) => (
                       <button
                         key={option}
                         type="button"

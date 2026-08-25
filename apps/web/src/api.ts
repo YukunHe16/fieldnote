@@ -625,7 +625,7 @@ export function normalizeLearningSession(input: unknown): LearningSessionDto | n
     topicKey: optionalString(raw.topicKey ?? raw.topic_key),
     status: includes(["suggested", "active", "paused", "completed", "dismissed"] as const, raw.status, "active"),
     datasetKind,
-    condition: includes(["on-call", "one-shot"] as const, raw.condition, "on-call"),
+    condition: includes(["on-call", "one-shot", "multi-turn"] as const, raw.condition, "on-call"),
     executionMode: includes(
       ["agent", "deterministic"] as const,
       raw.executionMode ?? raw.execution_mode,
@@ -1049,7 +1049,7 @@ export const api = {
   },
   async createLearningSession(
     conversationId: string,
-    input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" }
+    input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" | "multi-turn" }
   ) {
     const response = await request<{ session?: unknown }>(`/api/conversations/${conversationId}/learning-session`, {
       method: "POST",
@@ -1121,7 +1121,7 @@ export const api = {
   async startLearningDemoScenario(
     id: string,
     executionMode: "deterministic" | "agent",
-    condition: "on-call" | "one-shot" = "on-call"
+    condition: "on-call" | "one-shot" | "multi-turn" = "on-call"
   ) {
     const response = await request<{ conversation?: ConversationDetail }>(
       `/api/learning/demo-scenarios/${encodeURIComponent(id)}/start`,

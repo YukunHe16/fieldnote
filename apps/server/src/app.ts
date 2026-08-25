@@ -163,7 +163,7 @@ const artifactReviewSchema = z.object({
 });
 const learningDemoStartSchema = z.object({
   executionMode: z.enum(["deterministic", "agent"]).default("deterministic"),
-  condition: z.enum(["on-call", "one-shot"]).default("on-call")
+  condition: z.enum(["on-call", "one-shot", "multi-turn"]).default("on-call")
 });
 
 export async function buildApp(dependencies: AppDependencies): Promise<FastifyInstance> {
@@ -541,7 +541,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         goal: z.string().trim().min(1).max(500),
         topicKey: z.string().trim().max(100).nullable().optional(),
         // Research options: the one-shot baseline arm and the isolated eval dataset.
-        condition: z.enum(["on-call", "one-shot"]).optional(),
+        condition: z.enum(["on-call", "one-shot", "multi-turn"]).optional(),
         datasetKind: z.enum(["live", "eval"]).optional()
       })
       .parse(request.body ?? {});

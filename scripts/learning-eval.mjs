@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * Offline evaluation of the learning loop: runs every eval item under the
- * adaptive on-call condition and the one-shot baseline against a locally
+ * adaptive on-call condition and a continued-conversation baseline against a locally
  * running Fieldnote server, with an LLM-simulated learner playing each item's
  * persona. Results are descriptive and synthetic — they say how the loop
  * behaves with a scripted learner, not how real students learn.
  *
  *   node scripts/learning-eval.mjs [--base http://127.0.0.1:8787]
- *     [--conditions on-call,one-shot] [--families planning_gap,...]
+ *     [--conditions on-call,multi-turn] [--families planning_gap,...]
  *     [--items pg-sum-nested,...] [--out data/eval-runs] [--dry-run]
  *     [--learner-model <id>] [--learner-base <url>] [--learner-key <key>]
  *     [--judge-model <id>]
@@ -29,7 +29,10 @@ const IDLE_TIMEOUT_MS = 300_000;
 const POLL_MS = 1_500;
 
 function parseArgs(argv) {
-  const args = { conditions: ["on-call", "one-shot"], base: "http://127.0.0.1:8787", out: "data/eval-runs" };
+  // The default pair is the one that isolates the loop: on-call against a baseline that gets
+  // the same rounds without the strategy bookkeeping. one-shot remains available via
+  // --conditions for the narrower "did extra rounds happen at all" question.
+  const args = { conditions: ["on-call", "multi-turn"], base: "http://127.0.0.1:8787", out: "data/eval-runs" };
   for (let i = 2; i < argv.length; i += 1) {
     const key = argv[i];
     const next = () => {
@@ -50,7 +53,7 @@ function parseArgs(argv) {
     else throw new Error(`Unknown argument: ${key}`);
   }
   for (const condition of args.conditions) {
-    if (!["on-call", "one-shot"].includes(condition)) throw new Error(`Unknown condition: ${condition}`);
+    if (!["on-call", "one-shot", "multi-turn"].includes(condition)) throw new Error(`Unknown condition: ${condition}`);
   }
   args.tier ??= "mild";
   if (!["mild", "stubborn"].includes(args.tier)) throw new Error(`Unknown tier: ${args.tier}`);
@@ -447,8 +450,11 @@ async function runItem(cfg, item, condition, log) {
         await api(cfg.base, "POST", `/api/learning/verifications/${verification.id}/confirm`, {
           verdict: graded.verdict
         });
-        if (graded.verdict === "resolved" || condition === "one-shot") break;
-        if (incident.interventions.length >= 3) break;
+        if (graded.verdict === "resolved") break;
+        // one-shot stops after its single round by design. on-call and multi-turn share the
+        // same three-round budget so that any difference between them is the policy, not the
+        // number of chances.
+        if (incident.interventions.length >= (condition === "one-shot" ? 1 : 3)) break;
         await api(cfg.base, "POST", `/api/conversations/${conversation.id}/messages`, {
           content: TRY_ANOTHER,
           mode: "normal"

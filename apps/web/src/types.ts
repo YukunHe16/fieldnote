@@ -295,7 +295,7 @@ export interface MemoryMaintenanceStatusDto {
 
 export type LearningSessionStatus = "suggested" | "active" | "paused" | "completed" | "dismissed";
 export type LearningDatasetKind = "live" | "demo" | "replay" | "eval";
-export type LearningCondition = "on-call" | "one-shot";
+export type LearningCondition = "on-call" | "one-shot" | "multi-turn";
 export type LearningExecutionMode = "agent" | "deterministic";
 export type LearningIncidentStatus =
   | "observing"
