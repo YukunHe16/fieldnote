@@ -17,6 +17,7 @@ import { RunReplayStore } from "../src/run-replay.js";
 import { LearningStore } from "../src/learning-store.js";
 import { CollaborationStore } from "../src/collaboration-store.js";
 import { LearningCoordinator } from "../src/learning-coordinator.js";
+import { drawStudyCondition, normalizeStudyConfig } from "../src/learning-study.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -820,7 +821,7 @@ describe("HTTP API", () => {
       payload: { goal: "研究基线", condition: "one-shot" }
     });
     expect(oneShot.statusCode).toBe(400);
-    expect(oneShot.json()).toMatchObject({ error: expect.stringContaining("one-shot") });
+    expect(oneShot.json()).toMatchObject({ error: expect.stringContaining("condition arms") });
     const started = await app.inject({
       method: "POST",
       url: `/api/conversations/${conversation.id}/learning-session`,
@@ -1110,3 +1111,179 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
+
+describe("learning condition assignment over HTTP", () => {
+  async function learningApp() {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-learning-random-"));
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const memories = new MemoryStore(database);
+    const events = new EventStore(database);
+    const learning = new LearningStore(database);
+    const config: AppConfig = {
+      ...testConfig(root),
+      runtime: "claude",
+      claudeAuthConfigured: true,
+      claudeAuthSource: "process-env"
+    };
+    const learningCoordinator = new LearningCoordinator(learning);
+    const runtime = new ConfigurableAgentRuntime(
+      config,
+      new SqliteSessionStore(database),
+      memories,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { learning: learningCoordinator }
+    );
+    const orchestrator = new RunOrchestrator(config, store, events, runtime);
+    const app = await buildApp({ config, store, events, orchestrator, runtime, memories, learning });
+    cleanups.push(async () => {
+      await orchestrator.stop();
+      await app.close();
+      database.close();
+      await fs.rm(root, { recursive: true });
+    });
+    return { app, store, learning };
+  }
+
+  it("draws web sessions from the seeded study sequence and records the assignment", async () => {
+    const { app, store, learning } = await learningApp();
+    const configured = await app.inject({
+      method: "PUT",
+      url: "/api/research/settings",
+      payload: { enabled: true, study: { randomize: false, conditions: ["on-call", "multi-turn"], seed: 42 } }
+    });
+    expect(configured.statusCode).toBe(200);
+    expect(configured.json().study).toMatchObject({ conditions: ["on-call", "multi-turn"], seed: 42, counter: 0 });
+    // The draws the route should reproduce, derived from the same pure generator.
+    const first = drawStudyCondition(
+      normalizeStudyConfig({ conditions: ["on-call", "multi-turn"], seed: 42, counter: 0 })
+    );
+    const second = drawStudyCondition(first.nextConfig);
+    for (const [index, expected] of [first, second].entries()) {
+      const conversation = store.createConversation("web", `随机会话${index}`, { profileId: "local-operator" });
+      const created = await app.inject({
+        method: "POST",
+        url: `/api/conversations/${conversation.id}/learning-session`,
+        payload: { goal: "理解缓存分类", condition: "random" }
+      });
+      expect(created.statusCode).toBe(201);
+      expect(learning.getSessionForConversation(conversation.id)).toMatchObject({
+        condition: expected.condition,
+        conditionAssignment: { seed: 42, index }
+      });
+    }
+    // The consumed draws advanced the stored counter.
+    const settings = await app.inject({ method: "GET", url: "/api/research/settings" });
+    expect(settings.json().study).toMatchObject({ seed: 42, counter: 2 });
+  });
+
+  it("rejects duplicate arm lists and retired seeds", async () => {
+    const { app } = await learningApp();
+    const duplicate = await app.inject({
+      method: "PUT",
+      url: "/api/research/settings",
+      payload: { enabled: true, study: { randomize: false, conditions: ["one-shot", "one-shot"] } }
+    });
+    expect(duplicate.statusCode).toBe(400);
+    const first = await app.inject({
+      method: "PUT",
+      url: "/api/research/settings",
+      payload: { enabled: true, study: { randomize: false, seed: 42 } }
+    });
+    expect(first.statusCode).toBe(200);
+    const second = await app.inject({
+      method: "PUT",
+      url: "/api/research/settings",
+      payload: { enabled: true, study: { randomize: false, seed: 7 } }
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().study.usedSeeds).toContain(42);
+    const reuse = await app.inject({
+      method: "PUT",
+      url: "/api/research/settings",
+      payload: { enabled: true, study: { randomize: false, seed: 42 } }
+    });
+    expect(reuse.statusCode).toBe(400);
+    expect(reuse.json()).toMatchObject({ error: expect.stringContaining("already used") });
+  });
+
+  it("keeps a leftover randomize flag inert while research mode is off", async () => {
+    const { app, store, learning } = await learningApp();
+    await app.inject({
+      method: "PUT",
+      url: "/api/research/settings",
+      payload: { enabled: true, study: { randomize: true, seed: 42 } }
+    });
+    // Operator turns research mode off without touching the study config.
+    await app.inject({ method: "PUT", url: "/api/research/settings", payload: { enabled: false } });
+    const conversation = store.createConversation("web", "普通用户", { profileId: "local-operator" });
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${conversation.id}/learning-session`,
+      payload: { goal: "普通学习" }
+    });
+    expect(created.statusCode).toBe(201);
+    expect(learning.getSessionForConversation(conversation.id)).toMatchObject({
+      condition: "on-call",
+      conditionAssignment: null
+    });
+    const settings = await app.inject({ method: "GET", url: "/api/research/settings" });
+    expect(settings.json().study.counter).toBe(0);
+  });
+
+  it("randomizes a suggested session activated through PATCH", async () => {
+    const { app, store, learning } = await learningApp();
+    await app.inject({
+      method: "PUT",
+      url: "/api/research/settings",
+      payload: { enabled: true, study: { randomize: true, conditions: ["on-call", "multi-turn"], seed: 42 } }
+    });
+    const expected = drawStudyCondition(
+      normalizeStudyConfig({ conditions: ["on-call", "multi-turn"], seed: 42, counter: 0 })
+    );
+    const conversation = store.createConversation("web", "建议激活", { profileId: "local-operator" });
+    learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "初始建议",
+      status: "suggested"
+    });
+    const activated = await app.inject({
+      method: "PATCH",
+      url: `/api/conversations/${conversation.id}/learning-session`,
+      payload: { status: "active" }
+    });
+    expect(activated.statusCode).toBe(200);
+    expect(learning.getSessionForConversation(conversation.id)).toMatchObject({
+      status: "active",
+      condition: expected.condition,
+      conditionAssignment: { seed: 42, index: 0, conditions: ["on-call", "multi-turn"] }
+    });
+  });
+
+  it("applies the requested condition when a suggested session activates", async () => {
+    const { app, store, learning } = await learningApp();
+    const conversation = store.createConversation("web", "建议升级", { profileId: "local-operator" });
+    learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "初始建议",
+      status: "suggested"
+    });
+    const activated = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${conversation.id}/learning-session`,
+      payload: { goal: "研究基线", condition: "one-shot" }
+    });
+    expect(activated.statusCode).toBe(201);
+    expect(learning.getSessionForConversation(conversation.id)).toMatchObject({
+      status: "active",
+      condition: "one-shot",
+      conditionAssignment: null
+    });
+  });
+});

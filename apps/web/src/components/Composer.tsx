@@ -6,6 +6,7 @@ import { localeTag, useLocale } from "../i18n";
 import { pendingLearningVerification } from "../learningPresentation";
 import { matchSlashCommands, slashQuery, type SlashCommandId } from "../slashCommands";
 import type {
+  LearningCondition,
   AskUserQuestion,
   AskUserQuestionItem,
   Attachment,
@@ -71,7 +72,7 @@ export function Composer({
   const [learningSetupOpen, setLearningSetupOpen] = useState(false);
   const [learningGoal, setLearningGoal] = useState("");
   const [learningTopic, setLearningTopic] = useState("");
-  const [learningCondition, setLearningCondition] = useState<"on-call" | "one-shot" | "multi-turn">("on-call");
+  const [learningCondition, setLearningCondition] = useState<LearningCondition | "random">("on-call");
   const [learningBusy, setLearningBusy] = useState(false);
   const [learningDemos, setLearningDemos] = useState<LearningDemoScenarioDto[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -335,7 +336,8 @@ export function Composer({
     const started = await workspace.startLearningDemoScenario(
       scenario.id,
       executionMode,
-      workspace.researchEnabled ? learningCondition : "on-call"
+      // Demos are synthetic showcases, never study subjects: "random" collapses to on-call.
+      workspace.researchEnabled && learningCondition !== "random" ? learningCondition : "on-call"
     );
     setLearningBusy(false);
     if (started) {
@@ -620,7 +622,7 @@ export function Composer({
                 <div className="learning-condition-picker">
                   <span>{t("learningCondition")}</span>
                   <div role="radiogroup" aria-label={t("learningCondition")}>
-                    {(["on-call", "one-shot", "multi-turn"] as const).map((option) => (
+                    {(["on-call", "one-shot", "multi-turn", "random"] as const).map((option) => (
                       <button
                         key={option}
                         type="button"
@@ -633,11 +635,18 @@ export function Composer({
                           ? t("learningConditionOnCall")
                           : option === "one-shot"
                             ? t("learningConditionOneShot")
-                            : t("learningConditionMultiTurn")}
+                            : option === "multi-turn"
+                              ? t("learningConditionMultiTurn")
+                              : t("learningConditionRandom")}
                       </button>
                     ))}
                   </div>
-                  <small>{t("learningConditionHint")}</small>
+                  <small>
+                    {t("learningConditionHint")}
+                    {learningCondition === "random" && workspace.researchStudy
+                      ? ` (${workspace.researchStudy.conditions.join(" / ")} · seed ${workspace.researchStudy.seed})`
+                      : ""}
+                  </small>
                 </div>
               )}
               <footer>

@@ -1,4 +1,6 @@
 import type {
+  LearningCondition,
+  LearningConditionAssignment,
   AgentEvent,
   AgentProfileSummary,
   ApiList,
@@ -492,6 +494,13 @@ export function normalizeMessage(input: unknown): ChatMessage {
   };
 }
 
+export interface ResearchStudyConfig {
+  randomize: boolean;
+  conditions: LearningCondition[];
+  seed: number;
+  counter: number;
+}
+
 const includes = <T extends string>(values: readonly T[], value: unknown, fallback: T): T =>
   typeof value === "string" && values.includes(value as T) ? (value as T) : fallback;
 const optionalString = (value: unknown): string | null => string(value) || null;
@@ -608,6 +617,25 @@ export function normalizeLearningIncident(input: unknown): LearningIncidentDto {
   };
 }
 
+function normalizeConditionAssignment(value: unknown): LearningConditionAssignment | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  const conditions = Array.isArray(raw.conditions)
+    ? raw.conditions.filter(
+        (item): item is LearningCondition => item === "on-call" || item === "one-shot" || item === "multi-turn"
+      )
+    : [];
+  if (
+    typeof raw.seed !== "number" ||
+    !Number.isInteger(raw.seed) ||
+    typeof raw.index !== "number" ||
+    !Number.isInteger(raw.index) ||
+    conditions.length < 2
+  )
+    return null;
+  return { seed: raw.seed, index: raw.index, conditions };
+}
+
 export function normalizeLearningSession(input: unknown): LearningSessionDto | null {
   const raw = object(input);
   const id = string(raw.id);
@@ -626,6 +654,7 @@ export function normalizeLearningSession(input: unknown): LearningSessionDto | n
     status: includes(["suggested", "active", "paused", "completed", "dismissed"] as const, raw.status, "active"),
     datasetKind,
     condition: includes(["on-call", "one-shot", "multi-turn"] as const, raw.condition, "on-call"),
+    conditionAssignment: normalizeConditionAssignment(raw.conditionAssignment ?? raw.condition_assignment),
     executionMode: includes(
       ["agent", "deterministic"] as const,
       raw.executionMode ?? raw.execution_mode,
@@ -1049,7 +1078,7 @@ export const api = {
   },
   async createLearningSession(
     conversationId: string,
-    input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" | "multi-turn" }
+    input: { goal: string; topicKey?: string | null; condition?: LearningCondition | "random" }
   ) {
     const response = await request<{ session?: unknown }>(`/api/conversations/${conversationId}/learning-session`, {
       method: "POST",
@@ -1179,12 +1208,12 @@ export const api = {
     return response.report;
   },
 
-  researchSettings: () => request<{ enabled: boolean }>("/api/research/settings"),
-  updateResearchSettings: (enabled: boolean) =>
-    request<{ enabled: boolean }>("/api/research/settings", {
+  researchSettings: () => request<{ enabled: boolean; study?: ResearchStudyConfig }>("/api/research/settings"),
+  updateResearchSettings: (enabled: boolean, study?: Partial<ResearchStudyConfig>) =>
+    request<{ enabled: boolean; study?: ResearchStudyConfig }>("/api/research/settings", {
       method: "PUT",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ enabled })
+      body: JSON.stringify(study ? { enabled, study } : { enabled })
     }),
 
   async sendMessage(id: string, content: string, mode: SendMode, attachmentIds: string[], clientMessageId: string) {

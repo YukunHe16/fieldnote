@@ -1699,6 +1699,17 @@ function LearningPanel({
           {session.condition === "one-shot" && (
             <span className="learning-condition-badge">{t("learningConditionBadgeOneShot")}</span>
           )}
+          {session.condition === "multi-turn" && (
+            <span className="learning-condition-badge">{t("learningConditionBadgeMultiTurn")}</span>
+          )}
+          {session.conditionAssignment && (
+            <span
+              className="learning-condition-badge"
+              title={`seed ${session.conditionAssignment.seed} · #${session.conditionAssignment.index}`}
+            >
+              {t("learningConditionRandom")}
+            </span>
+          )}
         </p>
         <h3>{session.goal}</h3>
         {session.topicKey && <small>{session.topicKey}</small>}

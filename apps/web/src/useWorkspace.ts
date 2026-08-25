@@ -7,13 +7,15 @@ import {
   normalizeAttachment,
   normalizeConversation,
   normalizeMemoryReference,
-  normalizeMessage
+  normalizeMessage,
+  type ResearchStudyConfig
 } from "./api";
 import { isThinkingBlock } from "./responseStatus";
 import { consumerSendError } from "./consumerErrors";
 import { t, useLocale } from "./i18n";
 import { applyRunEventState, settleRunMessages } from "./runState";
 import type {
+  LearningCondition,
   AgentEvent,
   AgentProfileId,
   AgentProfileSummary,
@@ -109,6 +111,7 @@ export function useWorkspace() {
   const [active, setActive] = useState<ConversationSummary[]>([]);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummary[]>(fallbackProfiles);
   const [researchEnabled, setResearchEnabled] = useState(false);
+  const [researchStudy, setResearchStudy] = useState<ResearchStudyConfig | null>(null);
   const [archived, setArchived] = useState<ConversationSummary[]>([]);
   const [details, setDetails] = useState<Record<string, ConversationDetail>>({});
   const [selectedId, setSelectedIdState] = useState<string | undefined>(
@@ -176,7 +179,10 @@ export function useWorkspace() {
   useEffect(() => {
     void api
       .researchSettings()
-      .then((settings) => setResearchEnabled(settings.enabled))
+      .then((settings) => {
+        setResearchEnabled(settings.enabled);
+        setResearchStudy(settings.study ?? null);
+      })
       .catch(() => {});
   }, []);
 
@@ -785,7 +791,7 @@ export function useWorkspace() {
   );
 
   const createLearningSession = useCallback(
-    async (input: { goal: string; topicKey?: string | null; condition?: "on-call" | "one-shot" | "multi-turn" }) => {
+    async (input: { goal: string; topicKey?: string | null; condition?: LearningCondition | "random" }) => {
       if (!selectedId || backendDown || selectedId.startsWith("local-")) return false;
       try {
         const learningSession = await api.createLearningSession(selectedId, input);
@@ -1365,6 +1371,7 @@ export function useWorkspace() {
     uploadFiles,
     removeAttachment,
     researchEnabled,
+    researchStudy,
     setResearchMode,
     createLearningSession,
     updateLearningSession,

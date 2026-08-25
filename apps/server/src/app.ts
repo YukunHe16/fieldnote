@@ -45,12 +45,42 @@ import { InputFileManifestService, MAX_INPUT_FILE_BYTES } from "./input-file-man
 import { CollaborationStore } from "./collaboration-store.js";
 import { getLearningDemoScenario, learningDemoText, LEARNING_DEMO_SCENARIOS } from "./learning-demos.js";
 import {
+  LEARNING_CONDITIONS,
   LEARNING_DATASET_KINDS,
   LEARNING_DIFFICULTY_TYPES,
   LearningStore,
+  type LearningCondition,
+  type LearningConditionAssignment,
   type LearningDatasetKind,
   type LearningDifficultyType
 } from "./learning-store.js";
+import { drawStudyCondition, normalizeStudyConfig } from "./learning-study.js";
+
+/**
+ * Resolves a requested learning condition ("random", explicit, or absent) into a concrete
+ * one. Implicit study-wide randomization fires only on web AND while research mode is on —
+ * a leftover randomize flag must never assign baseline arms to users who never opted into
+ * research. The returned commit() persists the consumed draw and must run only after the
+ * session write succeeds, so a failed request never burns an index of the sequence.
+ */
+function resolveStudyCondition(
+  store: AgentStore,
+  input: { channel: string; condition?: "on-call" | "one-shot" | "multi-turn" | "random" | undefined }
+): { condition?: LearningCondition | undefined; assignment: LearningConditionAssignment | null; commit: () => void } {
+  const explicit = input.condition && input.condition !== "random" ? input.condition : undefined;
+  const researchEnabled = store.getSetting<boolean>("research.enabled") ?? false;
+  const studyConfig = normalizeStudyConfig(store.getSetting("research.study"));
+  const shouldDraw =
+    input.channel === "web" &&
+    (input.condition === "random" || (input.condition === undefined && researchEnabled && studyConfig.randomize));
+  if (!shouldDraw) return { condition: explicit, assignment: null, commit: () => {} };
+  const draw = drawStudyCondition(studyConfig);
+  return {
+    condition: draw.condition,
+    assignment: draw.assignment,
+    commit: () => store.setSetting("research.study", draw.nextConfig)
+  };
+}
 import { deepRedact } from "./redact.js";
 
 export interface AppDependencies {
@@ -540,8 +570,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       .object({
         goal: z.string().trim().min(1).max(500),
         topicKey: z.string().trim().max(100).nullable().optional(),
-        // Research options: the one-shot baseline arm and the isolated eval dataset.
-        condition: z.enum(["on-call", "one-shot", "multi-turn"]).optional(),
+        // Research options: the baseline arms, seeded random assignment, and the isolated
+        // eval dataset.
+        condition: z.enum(["on-call", "one-shot", "multi-turn", "random"]).optional(),
         datasetKind: z.enum(["live", "eval"]).optional()
       })
       .parse(request.body ?? {});
@@ -551,14 +582,27 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (conversation.channel !== "web" && (input.datasetKind ?? "live") !== "live")
       return reply.code(400).send({ error: "Research datasets are available on the web only" });
     if (conversation.channel !== "web" && (input.condition ?? "on-call") !== "on-call")
-      return reply.code(400).send({ error: "The one-shot research arm is available on the web only" });
+      return reply.code(400).send({ error: "Research condition arms are available on the web only" });
+    // Resolve "random" (or study-wide randomization) into a concrete condition before the
+    // store sees it. The draw is seeded and (seed, index, arms) is recorded on the session.
+    // The counter advance is deferred: commit() runs only after the session write succeeds,
+    // so a failed request never consumes an index of the assignment sequence.
+    const resolved = resolveStudyCondition(store, {
+      channel: conversation.channel,
+      condition: input.condition
+    });
     let session = learning.getSessionForConversation(id);
     if (session?.status === "suggested") {
       session = learning.updateSessionDetails(session.id, {
         goal: input.goal,
         ...(input.topicKey !== undefined ? { topicKey: input.topicKey } : {})
       });
+      // Suggested sessions were created without a condition; the user opting in is the real
+      // assignment point, so an explicit or randomized choice lands here, before activation.
+      if (resolved.condition && (resolved.condition !== session.condition || resolved.assignment))
+        session = learning.assignCondition(session.id, resolved.condition, resolved.assignment);
       session = learning.transitionSession(session.id, "active");
+      resolved.commit();
     } else if (session) {
       return reply
         .code(409)
@@ -569,10 +613,12 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         profileId: conversation.profileId,
         goal: input.goal,
         ...(input.topicKey !== undefined ? { topicKey: input.topicKey } : {}),
-        ...(input.condition ? { condition: input.condition } : {}),
+        ...(resolved.condition ? { condition: resolved.condition } : {}),
+        conditionAssignment: resolved.assignment,
         datasetKind: input.datasetKind ?? "live",
         status: "active"
       });
+      resolved.commit();
     }
     events.append({
       type: "learning.session.updated",
@@ -602,7 +648,19 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
             ...(input.topicKey !== undefined ? { topicKey: input.topicKey } : {})
           })
         : current;
-    if (input.status && input.status !== session.status) session = learning.transitionSession(session.id, input.status);
+    if (input.status && input.status !== session.status) {
+      // Activating a suggested session is the same assignment point as the POST path: a
+      // study-wide randomize must apply no matter which route performs the activation.
+      if (input.status === "active" && session.status === "suggested") {
+        const resolved = resolveStudyCondition(store, { channel: conversation.channel });
+        if (resolved.condition && (resolved.condition !== session.condition || resolved.assignment))
+          session = learning.assignCondition(session.id, resolved.condition, resolved.assignment);
+        session = learning.transitionSession(session.id, input.status);
+        resolved.commit();
+      } else {
+        session = learning.transitionSession(session.id, input.status);
+      }
+    }
     events.append({
       type: session.status === "suggested" ? "learning.suggested" : "learning.session.updated",
       conversationId: id,
@@ -736,13 +794,54 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   });
 
   app.get("/api/research/settings", async () => ({
-    enabled: store.getSetting<boolean>("research.enabled") ?? false
+    enabled: store.getSetting<boolean>("research.enabled") ?? false,
+    study: normalizeStudyConfig(store.getSetting("research.study"))
   }));
 
-  app.put("/api/research/settings", async (request) => {
-    const input = z.object({ enabled: z.boolean() }).parse(request.body ?? {});
+  app.put("/api/research/settings", async (request, reply) => {
+    const input = z
+      .object({
+        enabled: z.boolean(),
+        study: z
+          .object({
+            randomize: z.boolean(),
+            conditions: z
+              .array(z.enum(LEARNING_CONDITIONS))
+              .min(2)
+              .refine((arms) => new Set(arms).size >= 2, {
+                message: "A study needs at least two distinct conditions"
+              })
+              .optional(),
+            // mulberry32 folds anything wider than 32 bits, which would silently merge
+            // sequences that record distinct seeds.
+            seed: z.number().int().min(0).max(0xffffffff).optional()
+          })
+          .optional()
+      })
+      .parse(request.body ?? {});
     store.setSetting("research.enabled", input.enabled);
-    return { enabled: input.enabled };
+    let study = normalizeStudyConfig(store.getSetting("research.study"));
+    if (input.study) {
+      const seed = input.study.seed ?? study.seed;
+      if (seed !== study.seed && study.usedSeeds.includes(seed))
+        return reply.code(400).send({
+          error:
+            "This seed was already used by an earlier study; reusing it would mint duplicate (seed, index) assignments"
+        });
+      // Changing the seed restarts the assignment sequence and retires the old seed forever;
+      // everything else keeps the counter so an ongoing study's draws stay contiguous. Note
+      // the arm list is safe to evolve mid-study only because every session records the arms
+      // it was drawn from.
+      study = normalizeStudyConfig({
+        randomize: input.study.randomize,
+        conditions: input.study.conditions ?? study.conditions,
+        seed,
+        counter: seed === study.seed ? study.counter : 0,
+        usedSeeds: seed === study.seed ? study.usedSeeds : [...study.usedSeeds, study.seed]
+      });
+      store.setSetting("research.study", study);
+    }
+    return { enabled: input.enabled, study };
   });
 
   app.get("/api/learning/metrics", async (request) => {

@@ -296,6 +296,12 @@ export interface MemoryMaintenanceStatusDto {
 export type LearningSessionStatus = "suggested" | "active" | "paused" | "completed" | "dismissed";
 export type LearningDatasetKind = "live" | "demo" | "replay" | "eval";
 export type LearningCondition = "on-call" | "one-shot" | "multi-turn";
+/** Present when the condition was drawn from a seeded study sequence rather than picked by hand. */
+export interface LearningConditionAssignment {
+  seed: number;
+  index: number;
+  conditions: LearningCondition[];
+}
 export type LearningExecutionMode = "agent" | "deterministic";
 export type LearningIncidentStatus =
   | "observing"
@@ -340,6 +346,7 @@ export interface LearningSessionDto {
   status: LearningSessionStatus;
   datasetKind: LearningDatasetKind;
   condition: LearningCondition;
+  conditionAssignment: LearningConditionAssignment | null;
   executionMode: LearningExecutionMode;
   suggestionReason: string | null;
   createdAt: string;

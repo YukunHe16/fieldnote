@@ -1447,3 +1447,73 @@ describe("LearningStore", () => {
     database.close();
   });
 });
+
+describe("learning condition assignment", () => {
+  it("persists the randomized draw and keeps condition write-once after activation", () => {
+    const { database, agents, learning } = fixture();
+    const conversation = agents.createConversation("web", "随机分配", { profileId: "local-operator" });
+    const session = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "理解缓存",
+      condition: "multi-turn",
+      conditionAssignment: { seed: 42, index: 3, conditions: ["on-call", "multi-turn"] }
+    });
+    expect(session.condition).toBe("multi-turn");
+    expect(session.conditionAssignment).toEqual({ seed: 42, index: 3, conditions: ["on-call", "multi-turn"] });
+    expect(learning.getSession(session.id)?.conditionAssignment).toEqual({
+      seed: 42,
+      index: 3,
+      conditions: ["on-call", "multi-turn"]
+    });
+    // Active sessions are past the assignment point: the condition can never change again.
+    expect(() => learning.assignCondition(session.id, "one-shot", null)).toThrowError(/suggested/);
+    expect(learning.getSession(session.id)).toMatchObject({ condition: "multi-turn" });
+    database.close();
+  });
+
+  it("assigns a suggested session's condition exactly once, before activation", () => {
+    const { database, agents, learning } = fixture();
+    const conversation = agents.createConversation("web", "建议会话", { profileId: "local-operator" });
+    const suggested = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "理解递归出口",
+      status: "suggested"
+    });
+    expect(suggested.condition).toBe("on-call");
+    const assigned = learning.assignCondition(suggested.id, "one-shot", {
+      seed: 7,
+      index: 0,
+      conditions: ["on-call", "one-shot"]
+    });
+    expect(assigned).toMatchObject({ condition: "one-shot", conditionAssignment: { seed: 7, index: 0 } });
+    const active = learning.transitionSession(suggested.id, "active");
+    expect(active.condition).toBe("one-shot");
+    expect(() => learning.assignCondition(suggested.id, "multi-turn", null)).toThrowError(/suggested/);
+    // Detail edits and transitions leave the assignment untouched.
+    const edited = learning.updateSessionDetails(suggested.id, { goal: "还是递归出口" });
+    expect(edited).toMatchObject({ condition: "one-shot", conditionAssignment: { seed: 7, index: 0 } });
+    database.close();
+  });
+
+  it("drops malformed assignment provenance instead of exporting it", () => {
+    const { database, agents, learning } = fixture();
+    const conversation = agents.createConversation("web", "脏数据", { profileId: "local-operator" });
+    const session = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "验证脏行",
+      condition: "on-call"
+    });
+    // A hand-edited row (local-first app: the DB is the user's file) must not surface as
+    // a syntactically-valid but shape-invalid assignment.
+    database
+      .prepare("UPDATE learning_sessions SET condition_assignment = ? WHERE id = ?")
+      .run(JSON.stringify({ seed: "42", index: 0 }), session.id);
+    expect(learning.getSession(session.id)?.conditionAssignment).toBeNull();
+    database.prepare("UPDATE learning_sessions SET condition_assignment = '0' WHERE id = ?").run(session.id);
+    expect(learning.getSession(session.id)?.conditionAssignment).toBeNull();
+    database.close();
+  });
+});

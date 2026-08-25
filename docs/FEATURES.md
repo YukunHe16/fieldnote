@@ -294,6 +294,7 @@ The learner-facing chat contains only subject matter, step-by-step teaching, exa
 **中文**
 
 - 用户可从 Composer 旁的学习按钮主动开启，学习目标必填，topic 可选；之后可暂停、继续或结束。飞书用 `/learn 目标` 开启或刷新同一会话，`/learn off` 结束。
+- 研究模式下开启会话时可以选研究条件（on-call / one-shot / multi-turn），也可以选**随机分配**：由服务端从一条有种子的确定性序列里抽取条件并把 `(seed, index)` 记在会话上，事后可用同一种子复核每次分配；建议会话在被采纳激活的那一刻同样接受显式或随机分配。研究臂仍只在 Web。
 - Session 状态为 suggested、active、paused、completed、dismissed；每个对话只有一个 Session，每个 Session 同时最多一个 active incident。
 - 后台检测只提出建议，绝不自动开启。明确困惑信号置信度为 0.82，连续两个教育意图回合为 0.76，阈值为 0.75。
 - 写作代办、翻译、普通调研、行政事务和闲聊不会仅因包含知识性词汇就触发建议；忽略建议后，同一对话不重复打扰。
@@ -302,6 +303,7 @@ The learner-facing chat contains only subject matter, step-by-step teaching, exa
 **English**
 
 - Users can start learning mode beside the Composer. A learning goal is required and a topic is optional. The session can then be paused, resumed, or ended. On Feishu, `/learn <goal>` opens or refreshes the same session and `/learn off` completes it.
+- With research mode on, the session start can pick a research condition (on-call / one-shot / multi-turn) or **Randomized**: the server draws the condition from a seeded deterministic sequence and records `(seed, index)` on the session, so every allocation can be re-derived later; a suggested session accepts the same explicit or randomized assignment at the moment it activates. Research arms stay Web-only.
 - Session states are suggested, active, paused, completed, and dismissed. Each conversation has one session and each session has at most one active incident.
 - Background detection only suggests; it never auto-enables learning mode. Explicit confusion scores 0.82, while two consecutive educational-intent turns score 0.76, against a 0.75 threshold.
 - Writing requests, translation, general research, administrative work, and casual chat do not trigger a suggestion merely because they contain educational vocabulary. Once dismissed, a conversation is not prompted again.

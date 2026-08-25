@@ -82,6 +82,17 @@ export class LearningNotFoundError extends Error {
 
 const learningConflict = (message: string) => new LearningConflictError(message);
 
+/**
+ * Present when the research condition was drawn from a seeded study sequence, not chosen by
+ * hand. The arm list is part of the record: the draw maps PRNG values through it, so
+ * (seed, index) alone would stop re-deriving the condition the moment the study's arms change.
+ */
+export interface LearningConditionAssignment {
+  seed: number;
+  index: number;
+  conditions: LearningCondition[];
+}
+
 export interface LearningSessionDto {
   id: string;
   conversationId: string;
@@ -91,6 +102,7 @@ export interface LearningSessionDto {
   status: LearningSessionStatus;
   datasetKind: LearningDatasetKind;
   condition: LearningCondition;
+  conditionAssignment: LearningConditionAssignment | null;
   executionMode: LearningExecutionMode;
   suggestionReason: string | null;
   createdAt: string;
@@ -254,6 +266,7 @@ export interface CreateLearningSessionInput {
   status?: "suggested" | "active";
   datasetKind?: LearningDatasetKind;
   condition?: LearningCondition;
+  conditionAssignment?: LearningConditionAssignment | null;
   executionMode?: LearningExecutionMode;
   suggestionReason?: string | null;
 }
@@ -332,6 +345,9 @@ CREATE TABLE IF NOT EXISTS ${name} (
   created_at INTEGER NOT NULL
 );`;
 
+// NOTE: the constructor's rebuild migrations copy this table with explicit INSERT ... SELECT
+// column lists. When adding a column here, audit those lists: a rebuild that can run on a
+// schema which already has the new column must copy it, or the data is silently dropped.
 const LEARNING_SESSIONS_TABLE = (name: string) => `
 CREATE TABLE IF NOT EXISTS ${name} (
   id TEXT PRIMARY KEY,
@@ -342,6 +358,7 @@ CREATE TABLE IF NOT EXISTS ${name} (
   status TEXT NOT NULL CHECK (status IN ('suggested', 'active', 'paused', 'completed', 'dismissed')),
   dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo', 'replay', 'eval')),
   condition TEXT NOT NULL DEFAULT 'on-call' CHECK (condition IN ('on-call', 'one-shot', 'multi-turn')),
+  condition_assignment TEXT,
   execution_mode TEXT NOT NULL DEFAULT 'agent' CHECK (execution_mode IN ('agent', 'deterministic')),
   suggestion_reason TEXT,
   created_at INTEGER NOT NULL,
@@ -489,7 +506,7 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const REVIEW_ROUND1_DELAY_MS = 2 * DAY_MS;
 /** ...second revisit five days after the first one is confirmed (≈ a week after the original fix). */
 const REVIEW_ROUND2_DELAY_MS = 5 * DAY_MS;
-const has = <T extends readonly string[]>(values: T, value: string): value is T[number] =>
+export const has = <T extends readonly string[]>(values: T, value: string): value is T[number] =>
   values.includes(value as T[number]);
 const iso = (value: number | null): string | null => (value === null ? null : new Date(value).toISOString());
 const clean = (value: string, limit: number): string => value.replace(/\s+/g, " ").trim().slice(0, limit);
@@ -600,6 +617,15 @@ export class LearningStore {
         CREATE INDEX IF NOT EXISTS idx_learning_sessions_status ON learning_sessions(status, updated_at DESC);
       `);
       this.database.pragma("foreign_keys = ON");
+    }
+    // Randomized-assignment provenance; nullable and CHECK-free, so a plain ADD COLUMN works.
+    // Re-read the columns: the rebuilds above may have recreated the table (template already
+    // carries the column on fresh schemas and rebuilds).
+    const sessionColumnsAfterRebuilds = this.database.pragma("table_info(learning_sessions)") as Array<{
+      name: string;
+    }>;
+    if (!sessionColumnsAfterRebuilds.some((column) => column.name === "condition_assignment")) {
+      this.database.exec("ALTER TABLE learning_sessions ADD COLUMN condition_assignment TEXT");
     }
     // Experiences never expected an eval row, because an order-independent eval writes none.
     // An opted-in evolving eval does, and its evidence is filed under dataset_kind = 'eval'
@@ -751,8 +777,8 @@ export class LearningStore {
     try {
       this.database
         .prepare(
-          `INSERT INTO learning_sessions (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, condition, execution_mode, suggestion_reason, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO learning_sessions (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, condition, condition_assignment, execution_mode, suggestion_reason, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -763,6 +789,7 @@ export class LearningStore {
           status,
           datasetKind,
           condition,
+          input.conditionAssignment ? JSON.stringify(input.conditionAssignment) : null,
           executionMode,
           clean(input.suggestionReason ?? "", 500) || null,
           now,
@@ -786,6 +813,27 @@ export class LearningStore {
       .prepare("SELECT * FROM learning_sessions WHERE conversation_id = ?")
       .get(conversationId) as SessionRow | undefined;
     return row ? this.toSession(row) : null;
+  }
+
+  /**
+   * Sets the research condition of a still-suggested session. Suggested sessions are created
+   * by the coordinator without a condition (they default to on-call); the real assignment
+   * point is the moment the user opts in and the session activates. Once a session has been
+   * active, its condition is write-once — no path may change it.
+   */
+  assignCondition(
+    id: string,
+    condition: LearningCondition,
+    assignment: LearningConditionAssignment | null
+  ): LearningSessionDto {
+    const session = this.requireSession(id);
+    if (session.status !== "suggested")
+      throw learningConflict("The research condition can only be assigned while a session is still suggested");
+    if (!has(LEARNING_CONDITIONS, condition)) throw new Error("Invalid learning session state");
+    this.database
+      .prepare("UPDATE learning_sessions SET condition = ?, condition_assignment = ?, updated_at = ? WHERE id = ?")
+      .run(condition, assignment ? JSON.stringify(assignment) : null, this.clock(), id);
+    return this.requireSession(id);
   }
 
   updateSessionDetails(id: string, input: { goal?: string; topicKey?: string | null }): LearningSessionDto {
@@ -2582,6 +2630,29 @@ export class LearningStore {
     };
   }
 
+  private toConditionAssignment(value: unknown): LearningConditionAssignment | null {
+    // Research provenance must be well-formed or absent — a hand-edited row must not flow
+    // into the export looking like a valid assignment.
+    if (typeof value !== "object" || value === null) return null;
+    const raw = value as Record<string, unknown>;
+    const conditions = Array.isArray(raw.conditions)
+      ? raw.conditions.filter(
+          (item): item is LearningCondition => typeof item === "string" && has(LEARNING_CONDITIONS, item)
+        )
+      : [];
+    if (
+      typeof raw.seed !== "number" ||
+      !Number.isInteger(raw.seed) ||
+      raw.seed < 0 ||
+      typeof raw.index !== "number" ||
+      !Number.isInteger(raw.index) ||
+      raw.index < 0 ||
+      conditions.length < 2
+    )
+      return null;
+    return { seed: raw.seed, index: raw.index, conditions };
+  }
+
   private toSession(row: SessionRow): LearningSessionDto {
     return {
       id: String(row.id),
@@ -2592,6 +2663,10 @@ export class LearningStore {
       status: String(row.status) as LearningSessionStatus,
       datasetKind: String(row.dataset_kind) as LearningDatasetKind,
       condition: String(row.condition ?? "on-call") as LearningCondition,
+      conditionAssignment:
+        row.condition_assignment === null || row.condition_assignment === undefined
+          ? null
+          : this.toConditionAssignment(parseJson<unknown>(String(row.condition_assignment), null)),
       executionMode: String(row.execution_mode ?? "agent") as LearningExecutionMode,
       suggestionReason: row.suggestion_reason === null ? null : String(row.suggestion_reason),
       createdAt: iso(Number(row.created_at))!,

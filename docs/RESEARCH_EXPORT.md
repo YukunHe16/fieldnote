@@ -17,8 +17,17 @@ Fieldnote 的学习模式把一次性 LLM 反馈改造成可测量的连续干�
 | --- | --- |
 | `on-call` | 自适应回路：每个 incident 最多 3 轮干预，未解决时换策略，3 轮用尽升级（escalated） |
 | `one-shot` | 一次性反馈基线：每个 incident 只允许 1 轮干预；未解决直接终态，不换策略、不升级 |
+| `multi-turn` | 持续对话基线：与 on-call 相同的 3 轮预算，但无策略推荐/强制换招/升级——把回路结构从轮数中隔离出来 |
 
-宿主在存储层强制这些边界（不是提示词约定）：one-shot 会拒绝第二次干预写入。
+宿主在存储层强制这些边界（不是提示词约定）：one-shot 会拒绝第二次干预写入，multi-turn 会拒绝升级。
+
+条件可以手动选择，也可以由服务端**随机分配**（研究模式下选 "随机分配"，或在 study 配置里开启
+`randomize`——后者只在研究模式开启时生效）。随机分配采用 **permuted-block**：k 个臂时，每连续
+k 次抽取恰好覆盖每个臂一次（按块 Fisher–Yates 洗牌），小样本不会偏斜。被分配的会话在导出里带
+`conditionAssignment: { seed, index, conditions }`——臂列表是记录的一部分，因为抽取结果依赖它；
+仅凭这三项即可离线复核任意一次分配（复核算法见 `apps/server/src/learning-study.ts` 的
+`drawStudyCondition` 文档注释）。种子一经更换即永久退役（`usedSeeds`），不可复用。手动选择的
+会话该字段为 `null`。
 
 ## 数据集（datasetKind）
 
