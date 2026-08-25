@@ -4,6 +4,22 @@ import { maybeDistillFromResolvedIncident } from "../src/learning-invention.js";
 import { LearningStore, type LearningDatasetKind } from "../src/learning-store.js";
 import { AgentStore } from "../src/store.js";
 
+function draftApproved(learning: LearningStore, incidentId: string, taskText: string) {
+  const { round } = learning.practiceDraftContext(incidentId);
+  return learning.recordPracticeItem({
+    incidentId,
+    round,
+    status: "approved",
+    taskText,
+    targetHypothesis: "剧本误解",
+    expectedAnswerSketch: "正确规则的应用",
+    difficulty: 3,
+    method: "transfer_example",
+    gate: "none",
+    noveltyScore: 0
+  });
+}
+
 function fixture(datasetKind: LearningDatasetKind = "live", condition: "on-call" | "one-shot" = "on-call") {
   const database = openDatabase(":memory:");
   const agents = new AgentStore(database);
@@ -46,12 +62,14 @@ function driveIncident(
       expectedSignal: "能解释出口",
       ...(final && options.withMessage !== false ? { runId: ctx.run.id, messageId: ctx.run.assistantMessageId } : {})
     });
+    const practiceDraft0 = draftApproved(ctx.learning, incident.id, "请解释递归何时停止");
     const verification = ctx.learning.requestVerification({
       incidentId: incident.id,
       interventionId: intervention.id,
       method: "self_explanation",
       prompt: "请解释递归何时停止",
-      rubric: "说明出口条件"
+      rubric: "说明出口条件",
+      practiceItemId: practiceDraft0.id
     });
     const verdict = final ? (options.verdict ?? "resolved") : "unresolved";
     ctx.learning.proposeSystemOutcome(verification.id, verdict, 0.8);

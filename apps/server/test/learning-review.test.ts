@@ -4,6 +4,22 @@ import { LearningReviewRunner } from "../src/learning-review.js";
 import { LearningStore } from "../src/learning-store.js";
 import { AgentStore } from "../src/store.js";
 
+function draftApproved(learning: LearningStore, incidentId: string, taskText: string) {
+  const { round } = learning.practiceDraftContext(incidentId);
+  return learning.recordPracticeItem({
+    incidentId,
+    round,
+    status: "approved",
+    taskText,
+    targetHypothesis: "剧本误解",
+    expectedAnswerSketch: "正确规则的应用",
+    difficulty: 3,
+    method: "transfer_example",
+    gate: "none",
+    noveltyScore: 0
+  });
+}
+
 const DAY = 24 * 60 * 60 * 1_000;
 
 function fixture() {
@@ -34,12 +50,14 @@ function fixture() {
     rationale: "根据误区选择",
     expectedSignal: "能解释递归出口"
   });
+  const practiceDraft0 = draftApproved(learning, incident.id, "请解释递归出口。");
   const verification = learning.requestVerification({
     incidentId: incident.id,
     interventionId: intervention.id,
     method: "self_explanation",
     prompt: "请解释递归出口。",
-    rubric: "说明何时停止调用"
+    rubric: "说明何时停止调用",
+    practiceItemId: practiceDraft0.id
   });
   learning.proposeSystemOutcome(verification.id, "resolved", 0.8);
   learning.confirmVerification(verification.id, "resolved");

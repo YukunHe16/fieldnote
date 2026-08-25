@@ -304,6 +304,8 @@ export interface LearningVerificationDto {
   requestedMessageId: string | null;
   proposedRunId: string | null;
   proposedMessageId: string | null;
+  /** Set when the check was a host-reviewed generated practice item. */
+  practiceItemId: string | null;
   createdAt: string;
   proposedAt: string | null;
   confirmedAt: string | null;

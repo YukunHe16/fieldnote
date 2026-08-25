@@ -564,6 +564,7 @@ export function normalizeLearningVerification(input: unknown): LearningVerificat
     requestedMessageId: optionalString(raw.requestedMessageId ?? raw.requested_message_id),
     proposedRunId: optionalString(raw.proposedRunId ?? raw.proposed_run_id),
     proposedMessageId: optionalString(raw.proposedMessageId ?? raw.proposed_message_id),
+    practiceItemId: optionalString(raw.practiceItemId ?? raw.practice_item_id),
     createdAt: string(raw.createdAt ?? raw.created_at, now()),
     proposedAt: optionalDate(raw.proposedAt ?? raw.proposed_at),
     confirmedAt: optionalDate(raw.confirmedAt ?? raw.confirmed_at)

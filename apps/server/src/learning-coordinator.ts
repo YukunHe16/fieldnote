@@ -55,6 +55,24 @@ export class LearningCoordinator {
   requestVerification(...args: Parameters<LearningStore["requestVerification"]>) {
     return this.store.requestVerification(...args);
   }
+  practiceDraftContext(...args: Parameters<LearningStore["practiceDraftContext"]>) {
+    return this.store.practiceDraftContext(...args);
+  }
+  practiceCorpus(...args: Parameters<LearningStore["practiceCorpus"]>) {
+    return this.store.practiceCorpus(...args);
+  }
+  recordPracticeItem(...args: Parameters<LearningStore["recordPracticeItem"]>) {
+    return this.store.recordPracticeItem(...args);
+  }
+  practiceRejectionCount(...args: Parameters<LearningStore["practiceRejectionCount"]>) {
+    return this.store.practiceRejectionCount(...args);
+  }
+  getPracticeItem(...args: Parameters<LearningStore["getPracticeItem"]>) {
+    return this.store.getPracticeItem(...args);
+  }
+  isReviewRun(...args: Parameters<LearningStore["isReviewRun"]>) {
+    return this.store.isReviewRun(...args);
+  }
   proposeSystemOutcome(...args: Parameters<LearningStore["proposeSystemOutcome"]>) {
     return this.store.proposeSystemOutcome(...args);
   }

@@ -19,6 +19,22 @@ import { CollaborationStore } from "../src/collaboration-store.js";
 import { LearningCoordinator } from "../src/learning-coordinator.js";
 import { drawStudyCondition, normalizeStudyConfig } from "../src/learning-study.js";
 
+function draftApproved(learning: LearningStore, incidentId: string, taskText: string) {
+  const { round } = learning.practiceDraftContext(incidentId);
+  return learning.recordPracticeItem({
+    incidentId,
+    round,
+    status: "approved",
+    taskText,
+    targetHypothesis: "剧本误解",
+    expectedAnswerSketch: "正确规则的应用",
+    difficulty: 3,
+    method: "transfer_example",
+    gate: "none",
+    noveltyScore: 0
+  });
+}
+
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   await Promise.allSettled(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -939,12 +955,14 @@ describe("HTTP API", () => {
       runId: run.id,
       messageId: run.assistantMessageId
     });
+    const practiceDraft0 = draftApproved(learning, incident.id, "请解释何时停止递归");
     const verification = learning.requestVerification({
       incidentId: incident.id,
       interventionId: intervention.id,
       method: "self_explanation",
       prompt: "请解释何时停止递归",
-      rubric: "明确说明出口条件"
+      rubric: "明确说明出口条件",
+      practiceItemId: practiceDraft0.id
     });
     learning.proposeSystemOutcome(verification.id, "resolved", 0.86);
     const confirmed = await app.inject({

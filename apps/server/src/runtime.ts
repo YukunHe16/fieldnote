@@ -40,6 +40,13 @@ import type {
   LearningVerificationMethod
 } from "./learning-store.js";
 import type { LearningCoordinator } from "./learning-coordinator.js";
+import {
+  PRACTICE_NOVELTY_THRESHOLD,
+  noveltyScore,
+  runPracticePipeline,
+  type PracticeDraft,
+  type PracticeEvaluatorVerdict
+} from "./practice-evaluator.js";
 import { LocalClaudeSpecialistGateway, type SpecialistGateway } from "./specialist-gateway.js";
 
 export type RuntimeEvent =
@@ -454,6 +461,18 @@ export class ConfigurableAgentRuntime implements AgentRuntime {
       this.services
     );
   }
+}
+
+/**
+ * Where in-loop practice drafting is on: the on-call arm's real agent runs — every dataset
+ * except replay, whose whole point is faithful reproduction of a recorded run (a newly
+ * mounted tool would change the replayed toolset). The tool mount and every instruction
+ * that names draft_practice_task MUST share this predicate: an instruction naming an
+ * unmounted tool derails the tutor, and a mounted tool with no instruction never gets
+ * called. The store's enforcement stays narrower (live/eval only) by design.
+ */
+function practiceDraftingActive(session: { condition: string; executionMode: string; datasetKind: string }): boolean {
+  return session.condition === "on-call" && session.executionMode === "agent" && session.datasetKind !== "replay";
 }
 
 const delay = (milliseconds: number, signal: AbortSignal): Promise<void> =>
@@ -1088,6 +1107,79 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     }
   }
 
+  /**
+   * LLM tier of the practice-task pipeline. Advisory-strict: a returned rejection counts,
+   * but any infrastructure failure maps to {status:"error"} and the pipeline fails open —
+   * the deterministic gates before this call stay hard either way.
+   */
+  private async evaluatePracticeDraft(input: {
+    draft: PracticeDraft;
+    hypothesis: string;
+    goal: string;
+    corpus: string[];
+    workspacePath: string;
+  }): Promise<PracticeEvaluatorVerdict> {
+    const checkEnum = { type: "string", enum: ["pass", "fail", "unsure"] };
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["approved", "checks", "reasons"],
+      properties: {
+        approved: { type: "boolean" },
+        checks: {
+          type: "object",
+          additionalProperties: false,
+          required: ["correctness", "fitToHypothesis", "difficulty", "novelty"],
+          properties: {
+            correctness: checkEnum,
+            fitToHypothesis: checkEnum,
+            difficulty: checkEnum,
+            novelty: checkEnum
+          }
+        },
+        reasons: { type: "array", items: { type: "string" } }
+      }
+    };
+    try {
+      const raw = (await this.backgroundJson({
+        workspacePath: input.workspacePath,
+        timeoutMs: 15_000,
+        schema,
+        systemPrompt:
+          "You review a drafted practice task before it reaches a learner. Judge only what is in front of you. Reject when: the task's premise or expected answer is wrong (correctness); the task would not discriminate the stated misconception — a learner still holding it could answer correctly (fitToHypothesis); the difficulty is clearly mismatched to the stated level (difficulty); or the task is a trivial re-skin of one of the alreadySeenByLearner texts (novelty). Approve otherwise. Give short, actionable reasons when rejecting.",
+        prompt: JSON.stringify({
+          learningGoal: input.goal,
+          diagnosedMisconception: input.hypothesis,
+          // The novelty check is only as informed as what the judge can see; recent
+          // learner-visible texts, truncated to keep the background call small.
+          alreadySeenByLearner: input.corpus.slice(-8).map((text) => text.slice(0, 400)),
+          draft: input.draft
+        })
+      })) as Record<string, unknown> | null;
+      if (!raw || typeof raw.approved !== "boolean")
+        return { status: "error", reasons: ["evaluator returned no verdict"] };
+      const checks = (raw.checks ?? {}) as Record<string, unknown>;
+      const check = (value: unknown): "pass" | "fail" | "unsure" =>
+        value === "pass" || value === "fail" ? value : "unsure";
+      const reasons = Array.isArray(raw.reasons) ? raw.reasons.map((reason) => String(reason)).slice(0, 8) : [];
+      return {
+        status: raw.approved ? "approved" : "rejected",
+        checks: {
+          correctness: check(checks.correctness),
+          fitToHypothesis: check(checks.fitToHypothesis),
+          difficulty: check(checks.difficulty),
+          novelty: check(checks.novelty)
+        },
+        reasons:
+          raw.approved || reasons.length > 0
+            ? reasons
+            : ["The evaluator rejected the draft without naming a reason; revise and retry."]
+      };
+    } catch (error) {
+      return { status: "error", reasons: [String((error as Error)?.message ?? error)] };
+    }
+  }
+
   async analyzeTurn(input: TurnAnalysisInput): Promise<TurnAnalysis> {
     const result = await this.backgroundJson({
       workspacePath: input.workspacePath,
@@ -1284,7 +1376,9 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         : null;
     const agentDemoInstruction =
       (session.datasetKind === "demo" || session.datasetKind === "eval") && session.executionMode === "agent"
-        ? " This is a real-Agent demo run: before extended analysis or visible prose, call open_learning_incident from the learner's visible evidence, then record an intervention and request a verification in this same run. Do not imitate tool records in prose."
+        ? practiceDraftingActive(session)
+          ? " This is a real-Agent demo run: before extended analysis or visible prose, call open_learning_incident from the learner's visible evidence, record an intervention, draft the check with draft_practice_task, and request the verification with the approved practiceItemId in this same run. Do not imitate tool records in prose."
+          : " This is a real-Agent demo run: before extended analysis or visible prose, call open_learning_incident from the learner's visible evidence, then record an intervention and request a verification in this same run. Do not imitate tool records in prose."
         : "";
     const conditionInstruction =
       session.condition === "one-shot"
@@ -1303,13 +1397,21 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     const nextStepInstruction = !current
       ? ""
       : current.status === "diagnosed"
-        ? ` The current incident is diagnosed and awaiting its next intervention: in this same run you MUST call record_learning_intervention (${
-            session.condition === "multi-turn"
-              ? "choose whatever approach you would naturally use next"
-              : "prefer recommendedStrategy; never repeat a failed strategy"
-          }) and then request_learning_verification for it. Do not open another incident.`
+        ? practiceDraftingActive(session)
+          ? // Every round STARTS diagnosed (including rounds two and three after an
+            // unresolved confirmation), so this branch must teach the full draft-first
+            // sequence too — otherwise the first instruction of each round orders a
+            // verification the store will redirect.
+            " The current incident is diagnosed and awaiting its next intervention: in this same run you MUST call record_learning_intervention (prefer recommendedStrategy; never repeat a failed strategy), then draft_practice_task to draft the check (the host reviews it), then request_learning_verification with the approved practiceItemId. Do not open another incident."
+          : ` The current incident is diagnosed and awaiting its next intervention: in this same run you MUST call record_learning_intervention (${
+              session.condition === "multi-turn"
+                ? "choose whatever approach you would naturally use next"
+                : "prefer recommendedStrategy; never repeat a failed strategy"
+            }) and then request_learning_verification for it. Do not open another incident.`
         : current.status === "intervening"
-          ? " An intervention is recorded but has no verification yet: you MUST call request_learning_verification in this same run so the learner can demonstrate understanding."
+          ? practiceDraftingActive(session)
+            ? " An intervention is recorded but has no verification yet: in this same run you MUST call draft_practice_task to draft the check (the host reviews it), then request_learning_verification with the approved practiceItemId."
+            : " An intervention is recorded but has no verification yet: you MUST call request_learning_verification in this same run so the learner can demonstrate understanding."
           : current.status === "verifying" && latestVerification && !latestVerification.systemVerdict
             ? " A verification is awaiting your assessment: if the learner's latest message answers it, you MUST call propose_learning_outcome with your verdict and confidence in this same run, in addition to your visible reply. Without that call the learner can never confirm the outcome."
             : current.status === "verifying"
@@ -1453,23 +1555,113 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           },
           { alwaysLoad: true }
         ),
+        ...(practiceDraftingActive(session)
+          ? [
+              tool(
+                "draft_practice_task",
+                "Draft the next understanding check as a fresh practice task targeted at the diagnosed difficulty. The host reviews the draft (deterministic gates plus an evaluator) and returns either an approved practiceItemId to use with request_learning_verification, or rejection reasons to redraft. Never present a task to the learner before it is approved.",
+                {
+                  incidentId: z.string().uuid(),
+                  taskText: z.string().min(1).max(2_000),
+                  targetHypothesis: z.string().min(1).max(1_000),
+                  expectedAnswerSketch: z.string().min(1).max(1_000),
+                  difficulty: z.number().int().min(1).max(5),
+                  method: z.enum(["self_explanation", "transfer_example", "prediction", "comparison"])
+                },
+                async ({ incidentId, taskText, targetHypothesis, expectedAnswerSketch, difficulty, method }) => {
+                  const context = store.practiceDraftContext(incidentId, session.id);
+                  const draft: PracticeDraft = { taskText, targetHypothesis, expectedAnswerSketch, difficulty };
+                  const corpus = store.practiceCorpus(incidentId);
+                  let result = await runPracticePipeline({
+                    draft,
+                    corpus,
+                    evaluate: (candidate) =>
+                      this.evaluatePracticeDraft({
+                        draft: candidate,
+                        hypothesis: context.incident.hypothesis,
+                        goal: context.session.goal,
+                        corpus,
+                        workspacePath: input.workspacePath
+                      })
+                  });
+                  // The evaluator await is a window: a parallel draft approved meanwhile
+                  // would not be in the corpus this pipeline scored against. Re-score
+                  // synchronously against the fresh corpus so two near-identical drafts in
+                  // one turn cannot both clear the gate that exists to prevent exactly that.
+                  if (result.status === "approved") {
+                    const freshNovelty = noveltyScore(taskText, store.practiceCorpus(incidentId));
+                    if (freshNovelty > PRACTICE_NOVELTY_THRESHOLD)
+                      result = {
+                        status: "rejected",
+                        gate: "novelty",
+                        noveltyScore: freshNovelty,
+                        verdict: result.verdict,
+                        reasons: [
+                          "The task is too close to an earlier task or verification in this session; the learner could pass it from memory. Change the situation, not just the wording."
+                        ]
+                      };
+                  }
+                  const item = store.recordPracticeItem({
+                    incidentId,
+                    round: context.round,
+                    expectedSessionId: session.id,
+                    source: input.runId && store.isReviewRun(input.runId) ? "review" : "tutor",
+                    status: result.status,
+                    taskText,
+                    targetHypothesis,
+                    expectedAnswerSketch,
+                    difficulty,
+                    method: method as LearningVerificationMethod,
+                    gate: result.gate,
+                    evaluatorVerdict: result.verdict,
+                    noveltyScore: result.noveltyScore
+                  });
+                  if (result.status === "rejected") {
+                    const rejections = store.practiceRejectionCount(incidentId, context.round);
+                    return memoryToolText(
+                      JSON.stringify({
+                        status: "rejected",
+                        gate: result.gate,
+                        reasons: result.reasons,
+                        guidance:
+                          rejections >= 2
+                            ? "Two drafts were substantively rejected for this round; you may now call request_learning_verification without a practiceItemId as a fallback."
+                            : "Revise the task along the reasons and call draft_practice_task again."
+                      })
+                    );
+                  }
+                  return memoryToolText(
+                    JSON.stringify({
+                      status: "approved",
+                      practiceItemId: item.id,
+                      instruction:
+                        "Present this task to the learner in your own voice in the visible reply without changing its substance, then call request_learning_verification with this practiceItemId."
+                    })
+                  );
+                },
+                { alwaysLoad: true }
+              )
+            ]
+          : []),
         tool(
           "request_learning_verification",
-          "Record a conversational verification that checks transfer or self-explanation rather than repeating the same answer.",
+          "Record a conversational verification that checks transfer or self-explanation rather than repeating the same answer. When a practiceItemId is provided, the approved draft's task text and method are recorded verbatim as the verification's.",
           {
             incidentId: z.string().uuid(),
             interventionId: z.string().uuid().optional(),
             method: z.enum(["self_explanation", "transfer_example", "prediction", "comparison", "user_report"]),
             prompt: z.string().min(1).max(4_000),
-            rubric: z.string().min(1).max(4_000)
+            rubric: z.string().min(1).max(4_000),
+            practiceItemId: z.string().uuid().optional()
           },
-          async ({ incidentId, interventionId, method, prompt, rubric }) => {
+          async ({ incidentId, interventionId, method, prompt, rubric, practiceItemId }) => {
             const verification = store.requestVerification({
               incidentId,
               ...(interventionId ? { interventionId } : {}),
               method: method as LearningVerificationMethod,
               prompt,
               rubric,
+              ...(practiceItemId ? { practiceItemId } : {}),
               ...(input.runId ? { runId: input.runId } : {}),
               ...(input.assistantMessageId ? { messageId: input.assistantMessageId } : {})
             });

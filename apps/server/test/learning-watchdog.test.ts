@@ -168,12 +168,25 @@ describe("LearningWatchdog", () => {
       expectedSignal: "能自己走一遍"
     });
     const requestRun = completedRun(1_350);
+    const draftA = learning.recordPracticeItem({
+      incidentId: incident.id,
+      round: 1,
+      status: "approved",
+      taskText: "请解释递归出口。",
+      targetHypothesis: "剧本误解",
+      expectedAnswerSketch: "正确规则的应用",
+      difficulty: 3,
+      method: "self_explanation",
+      gate: "none",
+      noveltyScore: 0
+    });
     const verification = learning.requestVerification({
       incidentId: incident.id,
       interventionId: intervention.id,
       method: "self_explanation",
       prompt: "请解释递归出口。",
-      rubric: "说明何时停止调用"
+      rubric: "说明何时停止调用",
+      practiceItemId: draftA.id
     });
     watchdog.tick();
     expect(submitted).toHaveLength(0);
@@ -292,12 +305,25 @@ describe("LearningWatchdog", () => {
       expectedSignal: "能自己走一遍"
     });
     completedRun(1_100);
+    const draftB = learning.recordPracticeItem({
+      incidentId: incident.id,
+      round: 1,
+      status: "approved",
+      taskText: "请解释递归出口。",
+      targetHypothesis: "剧本误解",
+      expectedAnswerSketch: "正确规则的应用",
+      difficulty: 3,
+      method: "self_explanation",
+      gate: "none",
+      noveltyScore: 0
+    });
     learning.requestVerification({
       incidentId: incident.id,
       interventionId: intervention.id,
       method: "self_explanation",
       prompt: "请解释递归出口。",
-      rubric: "说明何时停止调用"
+      rubric: "说明何时停止调用",
+      practiceItemId: draftB.id
     });
     // Two later completed runs exist, but both are harness runs: a spaced-review revisit and
     // a (hypothetical) watchdog nudge. Neither is a learner answer → no propose-nudge.

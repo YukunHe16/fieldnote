@@ -90,6 +90,23 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 | `systemVerdict` / `systemConfidence` | 系统在学习者作答后的判定与置信度——**校准分析的原始数据** |
 | `userVerdict` / `finalVerdict` | 学习者最终确认；最终判定以学习者为准，两者都保留 |
 | `requestedRunId` / `proposedRunId` | 验证请求与判定提出所在的 Run（宿主强制跨轮顺序） |
+| `practiceItemId` | 所用练习题记（见 practiceItems）；on-call agent 会话由宿主店面强制，prose 回退或不受强制的会话为 null |
+
+### practiceItems
+
+回路内出题的完整台账——**所有**草稿尝试（通过与被拒）都入库，质检器的行为本身可审计：
+
+| 字段 | 说明 |
+| --- | --- |
+| `incidentId` / `round` | 归属 incident 与干预轮次（题记按轮绑定，验证时轮次必须仍匹配） |
+| `source` | `tutor`（正常回路）/ `review`（复习回访 run 生成） |
+| `status` | `approved` 通过待用 · `rejected` 被拒 · `consumed` 已用于验证 · `expired` 作废（该轮已有验证落地、轮次推进或 incident 关闭；学习者被新话题打断的回路可能遗留 approved） |
+| `taskText` / `targetHypothesis` / `expectedAnswerSketch` / `difficulty` / `method` | 草稿本体：题面、要区分的误解假设、预期答案要点、难度 1–5、验证方法 |
+| `gate` | 拦下它的门：`programmatic` / `novelty` / `evaluator`；通过为 `none`。**回退口径**：解锁 prose 回退的两次拒绝只计 `novelty`/`evaluator`（实质分歧），`programmatic`（形式错误）不计 |
+| `evaluatorVerdict` | LLM Evaluator 的原始 verdict（checks + reasons）；未走到该级或出错时为 null / `status:"error"` |
+| `noveltyScore` | 与本 session 语料（**已通过/已使用**题记 + 验证题面 + 目标——被拒草稿不入语料）的最高 Jaccard 相似度，>0.6 硬拒 |
+
+消费的题面与 method 由宿主原样落库进 `verifications`，因此 `practiceItemId` 连接两表时 `taskText`=`prompt`、两侧 `method` 恒等。
 
 ### experiences
 

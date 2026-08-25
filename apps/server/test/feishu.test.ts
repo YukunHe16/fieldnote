@@ -19,6 +19,22 @@ import { MAX_INPUT_FILE_BYTES } from "../src/input-file-manifest.js";
 import { EventStore } from "../src/event-store.js";
 import { LearningStore } from "../src/learning-store.js";
 
+function draftApproved(learning: LearningStore, incidentId: string, taskText: string) {
+  const { round } = learning.practiceDraftContext(incidentId);
+  return learning.recordPracticeItem({
+    incidentId,
+    round,
+    status: "approved",
+    taskText,
+    targetHypothesis: "剧本误解",
+    expectedAnswerSketch: "正确规则的应用",
+    difficulty: 3,
+    method: "transfer_example",
+    gate: "none",
+    noveltyScore: 0
+  });
+}
+
 describe("Feishu commands", () => {
   it("parses control commands without swallowing normal messages", () => {
     expect(parseCommand("/new").name).toBe("new");
@@ -670,12 +686,14 @@ describe("Feishu commands", () => {
       rationale: "先讲清楚出口",
       expectedSignal: "能解释出口条件"
     });
+    const practiceDraft0 = draftApproved(learning, incident.id, "请解释递归何时停止");
     const verification = learning.requestVerification({
       incidentId: incident.id,
       interventionId: intervention.id,
       method: "self_explanation",
       prompt: "请解释递归何时停止",
-      rubric: "说明出口条件"
+      rubric: "说明出口条件",
+      practiceItemId: practiceDraft0.id
     });
     learning.proposeSystemOutcome(verification.id, "unresolved", 0.55);
     expect(learning.pendingLearnerConfirmation(conversation.id)?.verification.id).toBe(verification.id);
@@ -779,12 +797,14 @@ describe("Feishu commands", () => {
         expectedSignal: "能解释出口",
         ...(withMessage ? { runId: run.id, messageId: run.assistantMessageId } : {})
       });
+      const practiceDraft1 = draftApproved(learning, incidentId, "请解释递归何时停止");
       const verification = learning.requestVerification({
         incidentId,
         interventionId: intervention.id,
         method: "self_explanation",
         prompt: "请解释递归何时停止",
-        rubric: "说明出口条件"
+        rubric: "说明出口条件",
+        practiceItemId: practiceDraft1.id
       });
       return verification;
     };

@@ -393,13 +393,13 @@ Both create a separate Web conversation, a `demo` dataset learning session, and 
 
 **中文**
 
-Active Session 才加载以下内部工具：`open_learning_incident`、`record_learning_intervention`、`request_learning_verification`、`propose_learning_outcome`、`escalate_learning_incident`。宿主校验状态顺序、Run/消息归属和轮次。
+Active Session 才加载以下内部工具：`open_learning_incident`、`record_learning_intervention`、`request_learning_verification`、`propose_learning_outcome`、`escalate_learning_incident`。on-call 条件的 agent 会话（replay 数据集除外——回放要求工具集与原始运行一致）额外加载 `draft_practice_task`（见 6.7c）。宿主校验状态顺序、Run/消息归属和轮次。
 
 模型不能确认最终学习结果、不能直接写策略统计、不能启用 policy，也不能把内部工具正文显示成学生回答。学习者确认与 policy 审核始终是宿主侧、用户可见的操作。
 
 **English**
 
-Only an active session loads these internal tools: `open_learning_incident`, `record_learning_intervention`, `request_learning_verification`, `propose_learning_outcome`, and `escalate_learning_incident`. The host validates state ordering, run/message ownership, and round limits.
+Only an active session loads these internal tools: `open_learning_incident`, `record_learning_intervention`, `request_learning_verification`, `propose_learning_outcome`, and `escalate_learning_incident`. Agent sessions in the on-call condition (except the replay dataset, whose toolset must match the original run) additionally load `draft_practice_task` (see 6.7c). The host validates state ordering, run/message ownership, and round limits.
 
 The model cannot confirm the final learning outcome, write strategy statistics directly, enable a policy, or expose internal tool text as the learner-facing answer. Learner confirmation and policy review remain host-side, user-visible actions.
 
@@ -416,6 +416,28 @@ The model cannot confirm the final learning outcome, write strategy statistics d
 - In live agent sessions, when an incident owes a tutor move (record an intervention / request verification / propose an outcome) and two completed turns pass without one, the 60-second watchdog posts one **bracket-labelled**, phase-matched reminder (`【学习回路提醒】…`) into the conversation; if the next turn still moves nothing it records `gave_up` and stops — one reminder per state signature, never a loop.
 - Learner-owed states (pending confirmation, unanswered verification) are not stalls; review revisits and the watchdog's own turns do not count as learner answers; conversations with no completed run for 24 hours are left alone and only counted.
 - Stalls, never-opened sessions, and errored runs surface in the metrics tab's session-denominator reliability block and are auditable from the research export (watchdogEvents/reviewTasks tables).
+
+### 6.7c 回路内出题与三级质检 / In-loop practice generation & three-tier review
+
+**中文**
+
+- on-call 条件的 agent 会话里,tutor 在请求验证前必须先调 `draft_practice_task` 提交结构化练习题草稿(题面、要区分的误解假设、预期答案要点、难度 1–5、验证方法),草稿在**同一回合内**过三级质检:
+  1. **程序硬门**——长度上限、难度范围、答案泄漏启发式(题面含答案要点原文,或答案要点的 token 几乎全部出现在题面里即拒;两类脚本按字符权重同等对待),确定性、不可推翻;
+  2. **新颖性硬门**——对**学习者见过或将见**的文本(本 session 已通过/已使用的练习题、历史验证题面、学习目标)做脚本无关的 token 重叠(拉丁词 + 中文字二连)Jaccard 查重,近重复(>0.6)即拒——复用旧题会让学习者靠记忆过验证。被拒草稿刻意**不入语料**:学习者从没见过它,把它算进去会让"按理由修订重试"自动撞新颖门;
+  3. **LLM Evaluator**——独立后台模型审正确性、是否真能区分该误解、难度贴合与新颖性(提示词附带学习者已见文本),拒绝有效;但基础设施错误/超时**放行**(fail-open),后台调用从不阻塞回路。Evaluator 返回后宿主对最新语料**同步复检**新颖性,同回合并行草稿不能都过同一道门;落库前重验回路状态,15 秒审查窗内被打断/推进的草稿报错而不入库。
+- 每次尝试(通过/被拒)连同门别、Evaluator verdict 与新颖性得分全部入库(`learning_practice_items`),随研究导出可审计。
+- **店面强制,而非仅提示词**:live/eval 的 on-call agent 会话里,`request_learning_verification` 必须携带本轮已通过且未消费的题记 id;宿主把题面与验证方法**原样落库**(草稿与实发题零漂移——审过的迁移题不能改报成不设防的自述确认),同事务标记消费。通过而未用的题记随轮次推进、验证落地或 incident 关闭一律作废(`expired`),不留"通过待用"的幽灵行。同一 (incident, 轮次) 累计 2 次**实质被拒**(新颖性或 Evaluator;程序门的形式错误不计,防止两笔废稿换一次免检)后解锁自由文本回退——最坏退化为今天的行为,回路永不被质检卡死。
+- 复习回访开出的 incident 天然继承本门,产生的题记标 `source='review'`;multi-turn/one-shot 基线与 replay 数据集不挂载此工具,基线与回放语义不受影响。
+
+**English**
+
+- In on-call agent sessions the tutor must call `draft_practice_task` before requesting verification, submitting a structured draft (task text, the misconception hypothesis it should discriminate, an expected-answer sketch, difficulty 1–5, method). The draft passes a three-tier review **within the same turn**:
+  1. **Programmatic hard gates** — length caps, difficulty range, answer-leak heuristics (a task containing its answer sketch verbatim, or almost all of the sketch's tokens, is rejected; both scripts are weighted equally); deterministic and non-overridable.
+  2. **Novelty hard gate** — script-agnostic token overlap (latin words + CJK character bigrams, Jaccard) against what the learner has seen or will see: the session's approved/delivered practice items, past verification prompts, and the goal; near-duplicates (>0.6) are rejected — a reused task lets the learner pass from memory. Rejected drafts deliberately stay OUT of the corpus: the learner never saw them, and counting them would make "revise and retry" collide with its own rejected draft.
+  3. **LLM evaluator** — an independent background model reviews correctness, whether the task truly discriminates the hypothesized misconception, difficulty fit, and novelty (its prompt carries the learner-seen texts); its rejection counts, but infrastructure errors/timeouts fail **open** — background calls never block the loop. After the evaluator returns, the host re-scores novelty against the fresh corpus (parallel same-turn drafts cannot both clear the gate) and re-validates the loop state before writing — a draft overtaken during the 15-second review errors instead of landing.
+- Every attempt (approved or rejected) is stored in `learning_practice_items` with its gate, evaluator verdict, and novelty score, and ships with the research export.
+- **Store-enforced, not prompt-only**: in live/eval on-call agent sessions, `request_learning_verification` must carry an approved, unconsumed item id from the current round; the host records the item's **task text and method verbatim** (zero drift between draft and delivered check — a reviewed transfer task cannot be refiled as an un-gated self-report) and marks it consumed in the same transaction. Approved-but-unused items expire when their round gets its check, the round advances, or the incident closes — no phantom "approved, pending use" rows. After 2 **substantive** rejections for the same (incident, round) — novelty or evaluator; programmatic form errors don't count, so two malformed drafts cannot buy an un-gated check — a free-prose fallback unlocks: the worst case degrades to today's behavior, so the review can never deadlock the loop.
+- Incidents opened by review revisits inherit the gate (their items are marked `source='review'`); the multi-turn/one-shot baselines and the replay dataset never mount the tool, leaving baseline and replay semantics untouched.
 
 ### 6.8 间隔复习 / Spaced reviews
 

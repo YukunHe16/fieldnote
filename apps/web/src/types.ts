@@ -402,6 +402,7 @@ export interface LearningVerificationDto {
   requestedMessageId: string | null;
   proposedRunId: string | null;
   proposedMessageId: string | null;
+  practiceItemId: string | null;
   createdAt: string;
   proposedAt: string | null;
   confirmedAt: string | null;

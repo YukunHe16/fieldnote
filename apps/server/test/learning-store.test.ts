@@ -39,6 +39,27 @@ function incident(learning: LearningStore, sessionId: string) {
   });
 }
 
+/**
+ * The on-call arm drafts its checks first (host-reviewed). Tests exercise the store layer
+ * directly, so this records an already-approved item with the same text the verification
+ * will use — keeping every downstream record identical to the pre-generation flow.
+ */
+function draftApproved(learning: LearningStore, incidentId: string, taskText: string) {
+  const { round } = learning.practiceDraftContext(incidentId);
+  return learning.recordPracticeItem({
+    incidentId,
+    round,
+    status: "approved",
+    taskText,
+    targetHypothesis: "剧本误解",
+    expectedAnswerSketch: "正确规则的应用",
+    difficulty: 3,
+    method: "transfer_example",
+    gate: "none",
+    noveltyScore: 0
+  });
+}
+
 function complete(
   learning: LearningStore,
   incidentId: string,
@@ -53,12 +74,14 @@ function complete(
     expectedSignal: "能解释递归出口",
     ...(linkage ?? {})
   });
+  const practiceItem0 = draftApproved(learning, incidentId, "请解释递归出口。");
   const verification = learning.requestVerification({
     incidentId,
     interventionId: intervention.id,
     method: "self_explanation",
     prompt: "请解释递归出口。",
-    rubric: "说明何时停止调用"
+    rubric: "说明何时停止调用",
+    practiceItemId: practiceItem0.id
   });
   learning.proposeSystemOutcome(verification.id, verdict, 0.75);
   return learning.confirmVerification(verification.id, verdict);
@@ -200,12 +223,14 @@ describe("LearningStore", () => {
       rationale: "show contrast",
       expectedSignal: "distinguishes cases"
     });
+    const practiceItem1 = draftApproved(learning, current.id, "比较两个例子");
     const verification = learning.requestVerification({
       incidentId: current.id,
       interventionId: intervention.id,
       method: "comparison",
       prompt: "比较两个例子",
-      rubric: "指出区别"
+      rubric: "指出区别",
+      practiceItemId: practiceItem1.id
     });
     expect(() => learning.confirmVerification(verification.id, "partial")).toThrow("before a system outcome");
     learning.proposeSystemOutcome(verification.id, "resolved", 0.9);
@@ -240,6 +265,7 @@ describe("LearningStore", () => {
       rationale: "解释基准情形",
       expectedSignal: "能指出终止条件"
     });
+    const practiceItem2 = draftApproved(verificationFixture.learning, verificationIncident.id, "解释终止条件");
     verificationFixture.learning.transitionSession(verificationFixture.session.id, "paused");
     expect(() =>
       verificationFixture.learning.requestVerification({
@@ -247,7 +273,8 @@ describe("LearningStore", () => {
         interventionId: verificationIntervention.id,
         method: "self_explanation",
         prompt: "解释终止条件",
-        rubric: "指出 base case"
+        rubric: "指出 base case",
+        practiceItemId: practiceItem2.id
       })
     ).toThrow("active session");
     verificationFixture.database.close();
@@ -260,12 +287,14 @@ describe("LearningStore", () => {
       rationale: "解释基准情形",
       expectedSignal: "能指出终止条件"
     });
+    const practiceItem3 = draftApproved(outcomeFixture.learning, outcomeIncident.id, "解释终止条件");
     const outcomeVerification = outcomeFixture.learning.requestVerification({
       incidentId: outcomeIncident.id,
       interventionId: outcomeIntervention.id,
       method: "self_explanation",
       prompt: "解释终止条件",
-      rubric: "指出 base case"
+      rubric: "指出 base case",
+      practiceItemId: practiceItem3.id
     });
     outcomeFixture.learning.transitionSession(outcomeFixture.session.id, "paused");
     expect(() => outcomeFixture.learning.proposeSystemOutcome(outcomeVerification.id, "resolved", 0.9)).toThrow(
@@ -289,12 +318,14 @@ describe("LearningStore", () => {
       rationale: "解释基准情形",
       expectedSignal: "能指出终止条件"
     });
+    const practiceItem4 = draftApproved(confirmationFixture.learning, confirmationIncident.id, "解释终止条件");
     const confirmationVerification = confirmationFixture.learning.requestVerification({
       incidentId: confirmationIncident.id,
       interventionId: confirmationIntervention.id,
       method: "self_explanation",
       prompt: "解释终止条件",
-      rubric: "指出 base case"
+      rubric: "指出 base case",
+      practiceItemId: practiceItem4.id
     });
     confirmationFixture.learning.proposeSystemOutcome(confirmationVerification.id, "resolved", 0.9);
     confirmationFixture.learning.transitionSession(confirmationFixture.session.id, "paused");
@@ -324,6 +355,7 @@ describe("LearningStore", () => {
       messageId: run.assistantMessageId
     });
     const prematureRun = agents.createRun(conversation.id, "这条消息在验证问题提出前已经排队。", "queue");
+    const practiceItem5 = draftApproved(learning, current.id, "预测这个新例子何时停止。");
     const verification = learning.requestVerification({
       incidentId: current.id,
       interventionId: intervention.id,
@@ -331,7 +363,8 @@ describe("LearningStore", () => {
       prompt: "预测这个新例子何时停止。",
       rubric: "指出 base case",
       runId: run.id,
-      messageId: run.assistantMessageId
+      messageId: run.assistantMessageId,
+      practiceItemId: practiceItem5.id
     });
     expect(() =>
       learning.proposeSystemOutcome(verification.id, "resolved", 0.8, {
@@ -681,11 +714,13 @@ describe("LearningStore", () => {
       rationale: "先问",
       expectedSignal: "能自述"
     });
+    const practiceItem7 = draftApproved(learning, first.id, "解释一下");
     learning.requestVerification({
       incidentId: first.id,
       method: "self_explanation",
       prompt: "解释一下",
-      rubric: "关键点"
+      rubric: "关键点",
+      practiceItemId: practiceItem7.id
     });
     // verifying: another intervention → point at propose + confirmation.
     expect(() =>
@@ -717,11 +752,13 @@ describe("LearningStore", () => {
         expectedSignal: "换个信号"
       })
     ).toThrow("single intervention");
+    const practiceItem8 = draftApproved(learning, first.id, "请解释递归出口。");
     const verification = learning.requestVerification({
       incidentId: first.id,
       method: "self_explanation",
       prompt: "请解释递归出口。",
-      rubric: "说明何时停止调用"
+      rubric: "说明何时停止调用",
+      practiceItemId: practiceItem8.id
     });
     learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
     learning.confirmVerification(verification.id, "unresolved");
@@ -755,11 +792,13 @@ describe("LearningStore", () => {
         rationale: `第 ${index + 1} 轮`,
         expectedSignal: "学习者能应用"
       });
+      const practiceItem9 = draftApproved(learning, first.id, "请解释递归出口。");
       const verification = learning.requestVerification({
         incidentId: first.id,
         method: "self_explanation",
         prompt: "请解释递归出口。",
-        rubric: "说明何时停止调用"
+        rubric: "说明何时停止调用",
+        practiceItemId: practiceItem9.id
       });
       learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
       learning.confirmVerification(verification.id, "unresolved");
@@ -843,11 +882,13 @@ describe("LearningStore", () => {
         rationale: "重复同一策略并让它失败",
         expectedSignal: "学习者能应用"
       });
+      const practiceItem10 = draftApproved(learning, current.id, "请解释递归出口。");
       const verification = learning.requestVerification({
         incidentId: current.id,
         method: "self_explanation",
         prompt: "请解释递归出口。",
-        rubric: "说明何时停止调用"
+        rubric: "说明何时停止调用",
+        practiceItemId: practiceItem10.id
       });
       learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
       learning.confirmVerification(verification.id, "unresolved");
@@ -957,12 +998,14 @@ describe("LearningStore", () => {
       rationale: "直接讲",
       expectedSignal: "能迁移"
     });
+    const practiceItem11 = draftApproved(learning, third.id, "换一个输入再做一次。");
     const verification = learning.requestVerification({
       incidentId: third.id,
       interventionId: intervention.id,
       method: "transfer_example",
       prompt: "换一个输入再做一次。",
-      rubric: "结果正确"
+      rubric: "结果正确",
+      practiceItemId: practiceItem11.id
     });
     learning.proposeSystemOutcome(verification.id, "resolved", 0.95);
     learning.confirmVerification(verification.id, "partial");
@@ -994,12 +1037,14 @@ describe("LearningStore", () => {
       rationale: "一次讲清",
       expectedSignal: "能复述"
     });
+    const practiceItem12 = draftApproved(learning, baselineIncident.id, "解释一下");
     const baselineVerification = learning.requestVerification({
       incidentId: baselineIncident.id,
       interventionId: baselineIntervention.id,
       method: "self_explanation",
       prompt: "解释一下",
-      rubric: "关键点齐全"
+      rubric: "关键点齐全",
+      practiceItemId: practiceItem12.id
     });
     learning.proposeSystemOutcome(baselineVerification.id, "unresolved", 0.75);
     learning.confirmVerification(baselineVerification.id, "unresolved");
@@ -1097,11 +1142,13 @@ describe("LearningStore", () => {
         rationale: "按误区选择",
         expectedSignal: "能解释递归出口"
       });
+      const practiceItem13 = draftApproved(omitted.learning, omittedIncident.id, "请解释递归出口。");
       const verification = omitted.learning.requestVerification({
         incidentId: omittedIncident.id,
         method: "self_explanation",
         prompt: "请解释递归出口。",
-        rubric: "说明何时停止调用"
+        rubric: "说明何时停止调用",
+        practiceItemId: practiceItem13.id
       });
       omitted.learning.proposeSystemOutcome(verification.id, "unresolved", 0.7);
       omitted.learning.confirmVerification(verification.id, "unresolved");
@@ -1514,6 +1561,361 @@ describe("learning condition assignment", () => {
     expect(learning.getSession(session.id)?.conditionAssignment).toBeNull();
     database.prepare("UPDATE learning_sessions SET condition_assignment = '0' WHERE id = ?").run(session.id);
     expect(learning.getSession(session.id)?.conditionAssignment).toBeNull();
+    database.close();
+  });
+});
+
+describe("learning practice items", () => {
+  it("enforces draft-first on the treatment arm and redirects instead of refusing", () => {
+    const { database, learning, session } = fixture();
+    const current = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "worked_example",
+      rationale: "示范",
+      expectedSignal: "能自己走一遍"
+    });
+    // On-call live agent: no item, no rejections yet → redirect to draft_practice_task.
+    expect(() =>
+      learning.requestVerification({
+        incidentId: current.id,
+        method: "self_explanation",
+        prompt: "解释一下",
+        rubric: "有出口条件"
+      })
+    ).toThrow("draft_practice_task");
+    // Two rejected drafts unlock the prose fallback, recorded with a NULL item.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      learning.recordPracticeItem({
+        incidentId: current.id,
+        round: 1,
+        status: "rejected",
+        taskText: `被拒草稿 ${attempt}`,
+        targetHypothesis: "误解",
+        expectedAnswerSketch: "答案",
+        difficulty: 3,
+        method: "self_explanation",
+        gate: "evaluator",
+        noveltyScore: 0.1
+      });
+    }
+    const fallback = learning.requestVerification({
+      incidentId: current.id,
+      method: "self_explanation",
+      prompt: "解释一下",
+      rubric: "有出口条件"
+    });
+    expect(fallback.practiceItemId).toBeNull();
+    database.close();
+  });
+
+  it("copies the approved task into the verification, consumes it, and expires unused siblings", () => {
+    const { database, learning, session } = fixture();
+    const current = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "contrastive_example",
+      rationale: "对比",
+      expectedSignal: "能区分"
+    });
+    const chosen = draftApproved(learning, current.id, "宿主核验过的新题");
+    const spare = draftApproved(learning, current.id, "另一道备用题");
+    const verification = learning.requestVerification({
+      incidentId: current.id,
+      method: "transfer_example",
+      prompt: "模型自己写的另一段话",
+      rubric: "按标准判断",
+      practiceItemId: chosen.id
+    });
+    // The record is what the host verified: the item's text wins over the model's prompt.
+    expect(verification.prompt).toBe("宿主核验过的新题");
+    expect(verification.practiceItemId).toBe(chosen.id);
+    expect(learning.getPracticeItem(chosen.id)).toMatchObject({ status: "consumed" });
+    expect(learning.getPracticeItem(spare.id)).toMatchObject({ status: "expired" });
+    // A consumed item can never be used again.
+    learning.proposeSystemOutcome(verification.id, "unresolved", 0.6);
+    learning.confirmVerification(verification.id, "unresolved");
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "analogical_example",
+      rationale: "换招",
+      expectedSignal: "能区分"
+    });
+    expect(() =>
+      learning.requestVerification({
+        incidentId: current.id,
+        method: "transfer_example",
+        prompt: "再来",
+        rubric: "标准",
+        practiceItemId: chosen.id
+      })
+    ).toThrow("already used");
+    database.close();
+  });
+
+  it("binds items to their incident and round", () => {
+    const { database, agents, learning, session } = fixture();
+    const current = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "worked_example",
+      rationale: "示范",
+      expectedSignal: "能自己走一遍"
+    });
+    const roundOne = draftApproved(learning, current.id, "第一轮的题");
+    const verification = learning.requestVerification({
+      incidentId: current.id,
+      method: "self_explanation",
+      prompt: "第一轮的题",
+      rubric: "标准",
+      practiceItemId: roundOne.id
+    });
+    learning.proposeSystemOutcome(verification.id, "unresolved", 0.6);
+    learning.confirmVerification(verification.id, "unresolved");
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "analogical_example",
+      rationale: "换招",
+      expectedSignal: "能自己走一遍"
+    });
+    // Approved at round two, but the tutor records another intervention before using it:
+    // the round moved on, so the item is retired and can never be replayed as a later
+    // round's check (the learner would pass it from memory).
+    const stale = draftApproved(learning, current.id, "第二轮的题");
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "socratic_question",
+      rationale: "第三轮",
+      expectedSignal: "能自己走一遍"
+    });
+    expect(learning.getPracticeItem(stale.id)).toMatchObject({ status: "expired" });
+    expect(() =>
+      learning.requestVerification({
+        incidentId: current.id,
+        method: "self_explanation",
+        prompt: "复用旧题",
+        rubric: "标准",
+        practiceItemId: stale.id
+      })
+    ).toThrow("not approved");
+    // Cross-incident use is rejected.
+    const other = agents.createConversation("web", "另一个会话", { profileId: "local-operator" });
+    const otherSession = learning.createSession({
+      conversationId: other.id,
+      profileId: "local-operator",
+      goal: "另一个目标"
+    });
+    const run = agents.createRun(other.id, "证据", "normal");
+    evidenceMessages.set(otherSession.id, run.userMessageId);
+    const foreign = incident(learning, otherSession.id);
+    learning.recordIntervention({
+      incidentId: foreign.id,
+      strategy: "worked_example",
+      rationale: "示范",
+      expectedSignal: "能自己走一遍"
+    });
+    const foreignItem = draftApproved(learning, foreign.id, "别的会话的题");
+    expect(() =>
+      learning.requestVerification({
+        incidentId: current.id,
+        method: "self_explanation",
+        prompt: "混用",
+        rubric: "标准",
+        practiceItemId: foreignItem.id
+      })
+    ).toThrow("does not belong");
+    database.close();
+  });
+
+  it("keeps rejected drafts out of the novelty corpus and expires bypassed approvals on the prose fallback", () => {
+    const { database, learning, session } = fixture();
+    const current = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "worked_example",
+      rationale: "示范",
+      expectedSignal: "能自己走一遍"
+    });
+    // A substantively rejected draft must not block its own revision: the learner never
+    // saw it, so it stays out of the corpus.
+    learning.recordPracticeItem({
+      incidentId: current.id,
+      round: 1,
+      status: "rejected",
+      taskText: "被拒的题面",
+      targetHypothesis: "误解",
+      expectedAnswerSketch: "答案要点",
+      difficulty: 3,
+      method: "self_explanation",
+      gate: "evaluator",
+      noveltyScore: 0.1
+    });
+    expect(learning.practiceCorpus(current.id)).not.toContain("被拒的题面");
+    const bypassed = draftApproved(learning, current.id, "没被用的通过题");
+    expect(learning.practiceCorpus(current.id)).toContain("没被用的通过题");
+    learning.recordPracticeItem({
+      incidentId: current.id,
+      round: 1,
+      status: "rejected",
+      taskText: "再拒一稿",
+      targetHypothesis: "误解",
+      expectedAnswerSketch: "答案要点",
+      difficulty: 3,
+      method: "self_explanation",
+      gate: "novelty",
+      noveltyScore: 0.9
+    });
+    // Two substantive rejections unlock prose; the bypassed approval retires with the
+    // round instead of lingering as "approved, pending use" in the export.
+    const fallback = learning.requestVerification({
+      incidentId: current.id,
+      method: "self_explanation",
+      prompt: "散文回退",
+      rubric: "标准"
+    });
+    expect(fallback.practiceItemId).toBeNull();
+    expect(learning.getPracticeItem(bypassed.id)).toMatchObject({ status: "expired" });
+    expect(learning.practiceCorpus(current.id)).not.toContain("没被用的通过题");
+    database.close();
+  });
+
+  it("does not count programmatic-gate rejections toward the prose fallback", () => {
+    const { database, learning, session } = fixture();
+    const current = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "worked_example",
+      rationale: "示范",
+      expectedSignal: "能自己走一遍"
+    });
+    // Form errors are always fixable; two malformed drafts must not buy an un-gated check.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      learning.recordPracticeItem({
+        incidentId: current.id,
+        round: 1,
+        status: "rejected",
+        taskText: `贴了答案的草稿 ${attempt}`,
+        targetHypothesis: "误解",
+        expectedAnswerSketch: "答案要点",
+        difficulty: 3,
+        method: "self_explanation",
+        gate: "programmatic",
+        noveltyScore: 0
+      });
+    }
+    expect(() =>
+      learning.requestVerification({
+        incidentId: current.id,
+        method: "self_explanation",
+        prompt: "散文",
+        rubric: "标准"
+      })
+    ).toThrow("draft_practice_task");
+    database.close();
+  });
+
+  it("re-validates the drafting context at write time", () => {
+    const { database, learning, session } = fixture();
+    const current = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "worked_example",
+      rationale: "示范",
+      expectedSignal: "能自己走一遍"
+    });
+    // The evaluator can hold a draft for seconds; if the round moved meanwhile, the stale
+    // draft errors instead of landing against the wrong round.
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "analogical_example",
+      rationale: "换招",
+      expectedSignal: "能自己走一遍"
+    });
+    expect(() =>
+      learning.recordPracticeItem({
+        incidentId: current.id,
+        round: 1,
+        status: "approved",
+        taskText: "过时的草稿",
+        targetHypothesis: "误解",
+        expectedAnswerSketch: "答案要点",
+        difficulty: 3,
+        method: "self_explanation",
+        gate: "none",
+        noveltyScore: 0
+      })
+    ).toThrow("moved");
+    // A foreign session id cannot farm rejections into this incident's fallback counter.
+    expect(() => learning.practiceDraftContext(current.id, "not-this-session")).toThrow("does not belong");
+    // Leftover approvals retire when the incident hands off, and closed incidents refuse
+    // further drafts entirely.
+    const leftover = draftApproved(learning, current.id, "升级前通过的题");
+    learning.escalateIncident(current.id, "需要人工接手");
+    expect(learning.getPracticeItem(leftover.id)).toMatchObject({ status: "expired" });
+    expect(() =>
+      learning.recordPracticeItem({
+        incidentId: current.id,
+        round: 2,
+        status: "rejected",
+        taskText: "关单后的草稿",
+        targetHypothesis: "误解",
+        expectedAnswerSketch: "答案要点",
+        difficulty: 3,
+        method: "self_explanation",
+        gate: "evaluator",
+        noveltyScore: 0
+      })
+    ).toThrow();
+    database.close();
+  });
+
+  it("records the reviewed method, not the model's", () => {
+    const { database, learning, session } = fixture();
+    const current = incident(learning, session.id);
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "contrastive_example",
+      rationale: "对比",
+      expectedSignal: "能区分"
+    });
+    const item = draftApproved(learning, current.id, "宿主核验过的迁移题");
+    // A reviewed transfer task must not be refiled as an un-gated self-report.
+    const verification = learning.requestVerification({
+      incidentId: current.id,
+      method: "user_report",
+      prompt: "模型的散文",
+      rubric: "标准",
+      practiceItemId: item.id
+    });
+    expect(verification.method).toBe("transfer_example");
+    expect(verification.prompt).toBe("宿主核验过的迁移题");
+    database.close();
+  });
+
+  it("keeps the baselines free of the drafting requirement and redirects diagnosed drafts", () => {
+    const { database, learning, session } = fixture("live", "multi-turn");
+    const current = incident(learning, session.id);
+    // Drafting before any intervention redirects to the missing step.
+    expect(() => learning.practiceDraftContext(current.id)).toThrow("record_learning_intervention");
+    learning.recordIntervention({
+      incidentId: current.id,
+      strategy: "direct_explanation",
+      rationale: "直接讲",
+      expectedSignal: "能复述"
+    });
+    // multi-turn: verification without any item is fine — the structure under test stays out
+    // of the baseline arm.
+    const verification = learning.requestVerification({
+      incidentId: current.id,
+      method: "self_explanation",
+      prompt: "复述一下",
+      rubric: "有要点"
+    });
+    expect(verification.practiceItemId).toBeNull();
+    // The corpus for a fresh draft carries earlier prompts and the session goal.
+    const corpus = learning.practiceCorpus(current.id);
+    expect(corpus).toContain("复述一下");
+    expect(corpus).toContain(session.goal);
     database.close();
   });
 });

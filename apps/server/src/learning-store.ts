@@ -156,6 +156,8 @@ export interface LearningVerificationDto {
   requestedMessageId: string | null;
   proposedRunId: string | null;
   proposedMessageId: string | null;
+  /** Set when the check was a host-reviewed generated practice item. */
+  practiceItemId: string | null;
   createdAt: string;
   proposedAt: string | null;
   confirmedAt: string | null;
@@ -288,6 +290,26 @@ export interface DemoLearningExperienceSeed {
 }
 
 export type LearningReviewStatus = "pending" | "fired" | "completed" | "cancelled";
+
+export type LearningPracticeItemStatus = "approved" | "rejected" | "consumed" | "expired";
+
+/** A generated practice task drafted by the tutor and reviewed by the host before delivery. */
+export interface LearningPracticeItemDto {
+  id: string;
+  incidentId: string;
+  round: number;
+  source: "tutor" | "review";
+  status: LearningPracticeItemStatus;
+  taskText: string;
+  targetHypothesis: string;
+  expectedAnswerSketch: string;
+  difficulty: number;
+  method: LearningVerificationMethod;
+  gate: "programmatic" | "novelty" | "evaluator" | "none";
+  evaluatorVerdict: unknown | null;
+  noveltyScore: number;
+  createdAt: string;
+}
 
 /** A live session whose loop owes the next move and has not made it for runsSinceProgress turns. */
 export interface LearningStallCandidate {
@@ -456,9 +478,29 @@ CREATE TABLE IF NOT EXISTS learning_verifications (
   proposed_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL,
   proposed_at INTEGER,
-  confirmed_at INTEGER
+  confirmed_at INTEGER,
+  practice_item_id TEXT REFERENCES learning_practice_items(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_learning_verifications_incident ON learning_verifications(incident_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS learning_practice_items (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
+  round INTEGER NOT NULL,
+  source TEXT NOT NULL DEFAULT 'tutor' CHECK (source IN ('tutor', 'review')),
+  status TEXT NOT NULL CHECK (status IN ('approved', 'rejected', 'consumed', 'expired')),
+  task_text TEXT NOT NULL,
+  target_hypothesis TEXT NOT NULL,
+  expected_answer_sketch TEXT NOT NULL,
+  difficulty INTEGER NOT NULL CHECK (difficulty BETWEEN 1 AND 5),
+  method TEXT NOT NULL CHECK (method IN ('self_explanation', 'transfer_example', 'prediction', 'comparison', 'user_report')),
+  gate TEXT NOT NULL DEFAULT 'none' CHECK (gate IN ('programmatic', 'novelty', 'evaluator', 'none')),
+  evaluator_verdict_json TEXT,
+  novelty_score REAL NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_learning_practice_items_incident
+  ON learning_practice_items(incident_id, round, status);
 
 ${LEARNING_EXPERIENCES_TABLE("learning_experiences")}
 CREATE INDEX IF NOT EXISTS idx_learning_experiences_selector ON learning_experiences(profile_id, topic_key, difficulty_type, dataset_kind, created_at DESC);
@@ -708,7 +750,8 @@ export class LearningStore {
       ["requested_run_id", "runs(id)"],
       ["requested_message_id", "messages(id)"],
       ["proposed_run_id", "runs(id)"],
-      ["proposed_message_id", "messages(id)"]
+      ["proposed_message_id", "messages(id)"],
+      ["practice_item_id", "learning_practice_items(id)"]
     ] as const) {
       if (!verificationColumns.some((column) => column.name === name)) {
         this.database.exec(
@@ -1057,6 +1100,14 @@ export class LearningStore {
       this.database
         .prepare("UPDATE learning_incidents SET status = 'intervening', updated_at = ? WHERE id = ?")
         .run(now, incident.id);
+      // The round moved on: approved drafts from earlier rounds can never satisfy the
+      // round-binding check again, so retire them instead of leaving phantom "approved,
+      // pending use" rows in the research export.
+      this.database
+        .prepare(
+          "UPDATE learning_practice_items SET status = 'expired' WHERE incident_id = ? AND status = 'approved' AND round < ?"
+        )
+        .run(incident.id, round);
     })();
     return this.requireIntervention(id);
   }
@@ -1067,6 +1118,7 @@ export class LearningStore {
     method: LearningVerificationMethod;
     prompt: string;
     rubric: string;
+    practiceItemId?: string | null;
     runId?: string | null;
     messageId?: string | null;
   }): LearningVerificationDto {
@@ -1091,11 +1143,39 @@ export class LearningStore {
     // the latest intervention at write time so downstream joins (handoff reports, research
     // exports) see every attempt linked instead of rendering it as never-verified.
     const interventionId = input.interventionId ?? this.latestIntervention(incident.id)?.id ?? null;
-    const prompt = clean(input.prompt, 4_000);
+    let prompt = clean(input.prompt, 4_000);
     const rubric = clean(input.rubric, 4_000);
     if (!prompt || !rubric) throw new Error("Verification prompt and rubric are required");
     const session = this.sessionForIncident(incident.id);
     this.assertSessionActive(session);
+    // In-loop generation: the treatment arm's checks are drafted first and host-reviewed.
+    // The record is what the host verified — with an approved item, its task text AND
+    // method become the verification's, so the draft and the delivered check cannot drift
+    // apart (a reviewed transfer task must not be refiled as an un-gated user_report).
+    const round = this.interventionCount(incident.id);
+    const practiceEnforced =
+      session.condition === "on-call" &&
+      session.executionMode === "agent" &&
+      (session.datasetKind === "live" || session.datasetKind === "eval");
+    let practiceItemId: string | null = null;
+    let method: LearningVerificationMethod = input.method;
+    if (input.practiceItemId) {
+      const item = this.getPracticeItem(input.practiceItemId);
+      if (!item || item.incidentId !== incident.id)
+        throw learningConflict("The practice item does not belong to this incident");
+      if (item.status === "consumed") throw learningConflict("The practice item was already used by a verification");
+      if (item.status !== "approved")
+        throw learningConflict("The practice item was not approved; draft a new one with draft_practice_task");
+      if (item.round !== round)
+        throw learningConflict("The practice item belongs to a different round; draft a fresh one for this round");
+      practiceItemId = item.id;
+      prompt = item.taskText;
+      method = item.method;
+    } else if (practiceEnforced && this.practiceRejectionCount(incident.id, round) < 2) {
+      throw learningConflict(
+        "This session drafts its checks first: call draft_practice_task for this incident, then request the verification with the approved practiceItemId"
+      );
+    }
     if (input.runId) this.assertRunInConversation(input.runId, session.conversationId, "Learning verification");
     if (input.messageId)
       this.assertMessageInConversation(input.messageId, session.conversationId, "assistant", "Learning verification");
@@ -1112,21 +1192,34 @@ export class LearningStore {
         .prepare(
           `INSERT INTO learning_verifications
          (id, incident_id, intervention_id, method, prompt, rubric, requested_run_id, requested_message_id,
-          response_after_run_created_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          response_after_run_created_at, practice_item_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
           incident.id,
           interventionId,
-          input.method,
+          method,
           prompt,
           rubric,
           input.runId ?? null,
           input.messageId ?? null,
           responseAfter,
+          practiceItemId,
           now
         );
+      if (practiceItemId) {
+        this.database
+          .prepare("UPDATE learning_practice_items SET status = 'consumed' WHERE id = ?")
+          .run(practiceItemId);
+      }
+      // The round got its check: any approved-but-unused drafts for it can never be used
+      // again (this also covers the prose fallback, which bypasses an approved sibling).
+      this.database
+        .prepare(
+          "UPDATE learning_practice_items SET status = 'expired' WHERE incident_id = ? AND round = ? AND status = 'approved'"
+        )
+        .run(incident.id, round);
       this.database
         .prepare("UPDATE learning_incidents SET status = 'verifying', updated_at = ? WHERE id = ?")
         .run(now, incident.id);
@@ -1216,12 +1309,22 @@ export class LearningStore {
       ...this.buildClosedSnapshot(incident, verification, verification?.userVerdict ?? null, now),
       reason: clean(reason, 2_000)
     };
-    this.database
-      .prepare(
-        "UPDATE learning_incidents SET status = 'escalated', updated_at = ?, closed_at = ?, closed_snapshot_json = ? WHERE id = ?"
-      )
-      .run(now, now, JSON.stringify(snapshot), id);
+    this.database.transaction(() => {
+      this.database
+        .prepare(
+          "UPDATE learning_incidents SET status = 'escalated', updated_at = ?, closed_at = ?, closed_snapshot_json = ? WHERE id = ?"
+        )
+        .run(now, now, JSON.stringify(snapshot), id);
+      this.expirePracticeItems(incident.id);
+    })();
     return this.requireIncident(id);
+  }
+
+  /** A closed or handed-off incident can never consume a draft; retire what is left. */
+  private expirePracticeItems(incidentId: string): void {
+    this.database
+      .prepare("UPDATE learning_practice_items SET status = 'expired' WHERE incident_id = ? AND status = 'approved'")
+      .run(incidentId);
   }
 
   private buildClosedSnapshot(
@@ -1308,6 +1411,7 @@ export class LearningStore {
           TERMINAL_INCIDENTS.has(incidentStatus) ? JSON.stringify(closedSnapshot) : null,
           incident.id
         );
+      if (TERMINAL_INCIDENTS.has(incidentStatus)) this.expirePracticeItems(incident.id);
       // Spaced review: a live on-call resolution earns a +2d revisit. Only the revisit's OWN
       // confirmation completes the fired task — the confirmed incident must have been opened
       // by the run the review runner submitted (fired_run_id), otherwise an unrelated
@@ -1998,6 +2102,186 @@ export class LearningStore {
   }
 
   /**
+   * Validates that a practice draft is allowed right now and returns the drafting context.
+   * Errors are redirect-style: they tell the model which tool to call instead.
+   * `expectedSessionId` pins a model-supplied incident id to the session the tool is
+   * mounted for — without it a foreign incident UUID could farm rejections into another
+   * session's fallback counter.
+   */
+  practiceDraftContext(
+    incidentId: string,
+    expectedSessionId?: string
+  ): {
+    incident: LearningIncidentDto;
+    session: LearningSessionDto;
+    round: number;
+  } {
+    const incident = this.requireIncident(incidentId);
+    this.assertIncidentCurrent(incident);
+    if (incident.status === "diagnosed")
+      throw learningConflict(
+        "Drafting a check requires an intervention first: call record_learning_intervention for this incident, then draft the practice task"
+      );
+    if (incident.status !== "intervening")
+      throw learningConflict(`A practice task cannot be drafted for a ${incident.status} learning incident`);
+    const session = this.sessionForIncident(incident.id);
+    if (expectedSessionId && session.id !== expectedSessionId)
+      throw learningConflict("The incident does not belong to this learning session");
+    this.assertSessionActive(session);
+    return { incident, session, round: this.interventionCount(incident.id) };
+  }
+
+  /**
+   * Texts a fresh practice task must not repeat: the session's approved/delivered practice
+   * items and verification prompts (the most common duplicate is re-asking a previous
+   * check), plus the session goal itself. Rejected and expired drafts are deliberately
+   * excluded — the learner never saw them, and counting a rejected draft against its own
+   * revision would turn every substantive rejection into an automatic novelty rejection
+   * on retry (two strikes and the prose fallback unlocks, gutting the treatment arm).
+   */
+  practiceCorpus(incidentId: string): string[] {
+    const session = this.sessionForIncident(incidentId);
+    const items = this.database
+      .prepare(
+        `SELECT p.task_text FROM learning_practice_items p
+           JOIN learning_incidents i ON i.id = p.incident_id
+          WHERE i.session_id = ? AND p.status IN ('approved', 'consumed') ORDER BY p.created_at ASC`
+      )
+      .all(session.id) as Array<{ task_text: string }>;
+    const prompts = this.database
+      .prepare(
+        `SELECT v.prompt FROM learning_verifications v
+           JOIN learning_incidents i ON i.id = v.incident_id
+          WHERE i.session_id = ? ORDER BY v.created_at ASC`
+      )
+      .all(session.id) as Array<{ prompt: string }>;
+    return [
+      ...items.map((row) => row.task_text),
+      ...prompts.map((row) => row.prompt),
+      ...(session.goal ? [session.goal] : [])
+    ];
+  }
+
+  recordPracticeItem(input: {
+    incidentId: string;
+    round: number;
+    source?: "tutor" | "review";
+    status: "approved" | "rejected";
+    taskText: string;
+    targetHypothesis: string;
+    expectedAnswerSketch: string;
+    difficulty: number;
+    method: LearningVerificationMethod;
+    gate: "programmatic" | "novelty" | "evaluator" | "none";
+    evaluatorVerdict?: unknown;
+    noveltyScore: number;
+    expectedSessionId?: string;
+  }): LearningPracticeItemDto {
+    // The evaluator tier can hold the draft for up to 15s, during which the learner may
+    // send a message (superseding the incident), escalate, pause the session, or the tutor
+    // may record another intervention. Re-derive the drafting context at write time so a
+    // stale draft errors instead of landing as a live attempt against a moved state.
+    const context = this.practiceDraftContext(input.incidentId, input.expectedSessionId);
+    if (context.round !== input.round)
+      throw learningConflict(
+        "The learning state moved while the draft was under review; draft a fresh task for the current round"
+      );
+    const id = randomUUID();
+    this.database
+      .prepare(
+        `INSERT INTO learning_practice_items
+           (id, incident_id, round, source, status, task_text, target_hypothesis, expected_answer_sketch,
+            difficulty, method, gate, evaluator_verdict_json, novelty_score, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.incidentId,
+        input.round,
+        input.source ?? "tutor",
+        input.status,
+        clean(input.taskText, 2_000),
+        clean(input.targetHypothesis, 1_000),
+        clean(input.expectedAnswerSketch, 1_000),
+        input.difficulty,
+        input.method,
+        input.gate,
+        input.evaluatorVerdict === undefined ? null : JSON.stringify(input.evaluatorVerdict),
+        input.noveltyScore,
+        this.clock()
+      );
+    return this.requirePracticeItem(id);
+  }
+
+  getPracticeItem(id: string): LearningPracticeItemDto | null {
+    const row = this.database.prepare("SELECT * FROM learning_practice_items WHERE id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? this.toPracticeItem(row) : null;
+  }
+
+  /** True when the run was fired by the spaced-review runner — items drafted in it are review-sourced. */
+  isReviewRun(runId: string): boolean {
+    const row = this.database
+      .prepare("SELECT 1 AS hit FROM learning_review_tasks WHERE fired_run_id = ? LIMIT 1")
+      .get(runId) as { hit: number } | undefined;
+    return Boolean(row);
+  }
+
+  /**
+   * Substantive rejections only: novelty/evaluator disagreements unlock the prose fallback
+   * after two strikes, but programmatic-gate failures do not count — they are form errors
+   * (empty text, out-of-range difficulty, pasted answer) the tutor can always fix, and
+   * counting them would let two deliberately malformed drafts buy an un-gated verification.
+   */
+  practiceRejectionCount(incidentId: string, round: number): number {
+    const row = this.database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM learning_practice_items WHERE incident_id = ? AND round = ? AND status = 'rejected' AND gate != 'programmatic'"
+      )
+      .get(incidentId, round) as { n: number };
+    return row.n;
+  }
+
+  private requirePracticeItem(id: string): LearningPracticeItemDto {
+    const item = this.getPracticeItem(id);
+    if (!item) throw new LearningNotFoundError("Learning practice item not found");
+    return item;
+  }
+
+  private interventionCount(incidentId: string): number {
+    return (
+      this.database
+        .prepare("SELECT COUNT(*) AS n FROM learning_interventions WHERE incident_id = ?")
+        .get(incidentId) as {
+        n: number;
+      }
+    ).n;
+  }
+
+  private toPracticeItem(row: Record<string, unknown>): LearningPracticeItemDto {
+    return {
+      id: String(row.id),
+      incidentId: String(row.incident_id),
+      round: Number(row.round),
+      source: row.source === "review" ? "review" : "tutor",
+      status: String(row.status) as LearningPracticeItemStatus,
+      taskText: String(row.task_text),
+      targetHypothesis: String(row.target_hypothesis),
+      expectedAnswerSketch: String(row.expected_answer_sketch),
+      difficulty: Number(row.difficulty),
+      method: String(row.method) as LearningVerificationMethod,
+      gate: String(row.gate) as LearningPracticeItemDto["gate"],
+      evaluatorVerdict:
+        row.evaluator_verdict_json === null || row.evaluator_verdict_json === undefined
+          ? null
+          : parseJson<unknown>(String(row.evaluator_verdict_json), null),
+      noveltyScore: Number(row.novelty_score ?? 0),
+      createdAt: iso(Number(row.created_at))!
+    };
+  }
+
+  /**
    * Live, active, agent-mode sessions whose open incident sits in a state where the tutor —
    * not the learner — owes the next move, with the two learner-owed states excluded:
    * waiting for the learner's confirmation, and waiting for the learner to answer a
@@ -2525,6 +2809,7 @@ export class LearningStore {
     policyRevisions: LearningPolicyRevisionDto[];
     handoffs: LearningHandoffReportDto[];
     strategyVariants: LearningStrategyVariantDto[];
+    practiceItems: LearningPracticeItemDto[];
     reviewTasks: LearningReviewTask[];
     watchdogEvents: Array<{
       id: string;
@@ -2559,6 +2844,7 @@ export class LearningStore {
         const counts = this.variantAttributedCounts(rows.map((row) => row.id));
         return rows.map((row) => this.toVariant(row, counts.get(row.id) ?? 0));
       })(),
+      practiceItems: all("learning_practice_items", (row) => this.toPracticeItem(row)),
       // Reliability is research data too: without the ledger, the sessions-health metrics
       // (stalled/nudged/recovered) could not be recomputed from the export.
       reviewTasks: all("learning_review_tasks", (row) => toReviewTask(row as unknown as ReviewTaskRow)),
@@ -2992,6 +3278,8 @@ export class LearningStore {
         row.proposed_message_id === null || row.proposed_message_id === undefined
           ? null
           : String(row.proposed_message_id),
+      practiceItemId:
+        row.practice_item_id === null || row.practice_item_id === undefined ? null : String(row.practice_item_id),
       createdAt: iso(Number(row.created_at))!,
       proposedAt: row.proposed_at === null ? null : iso(Number(row.proposed_at)),
       confirmedAt: row.confirmed_at === null ? null : iso(Number(row.confirmed_at))
