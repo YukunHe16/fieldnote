@@ -211,6 +211,7 @@ const zh = {
   learningCondition: "研究条件",
   learningConditionOnCall: "自适应回路",
   learningConditionOneShot: "一次性反馈基线",
+  learningConditionMultiTurn: "持续对话基线",
   learningConditionHint: "基线条件下每个问题只给一轮反馈，不换策略、不升级，用于对照实验。",
   learningConditionBadgeOneShot: "一次性反馈基线",
   learningMetricsTab: "指标",
@@ -1074,6 +1075,7 @@ const en = {
   learningCondition: "Research condition",
   learningConditionOnCall: "Adaptive loop",
   learningConditionOneShot: "One-shot baseline",
+  learningConditionMultiTurn: "Continued-conversation baseline",
   learningConditionHint:
     "The baseline gives a single feedback round per incident — no strategy switching, no escalation — for controlled comparison.",
   learningConditionBadgeOneShot: "One-shot baseline",

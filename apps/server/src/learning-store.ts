@@ -1238,7 +1238,7 @@ export class LearningStore {
       // confirmation in the same session would swallow the task, book a phantom round two,
       // and rob the new incident of its own round-one review. Unmatched fired tasks are
       // expired by the runner instead.
-      if (session.datasetKind === "live" && session.condition !== "one-shot") {
+      if (session.datasetKind === "live" && session.condition === "on-call") {
         const fired = this.database
           .prepare(
             "SELECT id, incident_id, round, fired_run_id FROM learning_review_tasks WHERE session_id = ? AND status = 'fired' ORDER BY created_at DESC LIMIT 1"
@@ -1278,10 +1278,13 @@ export class LearningStore {
       }
       // Experiences exist solely to feed strategy evolution: replay must not write live statistics,
       // eval runs must stay order-independent, and the one-shot baseline never adapted a strategy.
+      // Only the adaptive arm feeds the posterior: baseline sessions ignore the
+      // recommendation, so their outcomes are not evidence about it — and letting a control
+      // arm train the treatment policy would cross-contaminate any comparison.
       const recordsExperience =
         session.datasetKind === "eval"
           ? this.evalPolicyEvolution && session.condition === "on-call"
-          : session.datasetKind !== "replay" && session.condition !== "one-shot";
+          : session.datasetKind !== "replay" && session.condition === "on-call";
       if (recordsExperience) {
         this.database
           .prepare(

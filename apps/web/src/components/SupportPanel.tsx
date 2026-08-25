@@ -1281,7 +1281,11 @@ function LearningMetricsView({
     }
   ];
   const conditionLabel = (condition: "on-call" | "one-shot" | "multi-turn") =>
-    condition === "on-call" ? t("learningConditionOnCall") : t("learningConditionOneShot");
+    condition === "on-call"
+      ? t("learningConditionOnCall")
+      : condition === "one-shot"
+        ? t("learningConditionOneShot")
+        : t("learningConditionMultiTurn");
   const comparableConditions = metrics?.conditions.filter((cell) => cell.incidents > 0) ?? [];
   const calibration = (metrics?.calibration ?? []).filter((bin) => bin.count > 0);
   return (

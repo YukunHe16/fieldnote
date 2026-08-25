@@ -406,7 +406,7 @@ The model cannot confirm the final learning outcome, write strategy statistics d
 **中文**
 
 - 一个 live on-call incident 被学习者确认 resolved 时，会排一条 +2 天的复习任务；该复习本身再次 resolved 时，排第二轮 +5 天（约为原修复后一周）。
-- 合成会话（demo/eval/replay）与 one-shot 基线永不排复习，口径与经验门控一致。
+- 合成会话（demo/eval/replay）与两个基线条件（one-shot、multi-turn）永不排复习，口径与经验门控一致。
 - 60 秒一跳的复习 runner 到期后，把一段学习者口吻的回访提示直接发进**原对话**（Web 或飞书都可以），由真实 Agent 以完整学习回路出一道新的迁移任务，而不是宿主写死的问答。
 - 复习任务记录它发起的那次 Run；只有由这次回访开出的 incident 被确认时才算完成，别的确认不会顶替它。
 - 会话暂停或渠道当前不可达时，任务延后一小时重试，而不是卡住队头；始终没有回音的 fired 任务 7 天后过期。结束会话会取消其任务，删除对话会级联清除。
@@ -414,7 +414,7 @@ The model cannot confirm the final learning outcome, write strategy statistics d
 **English**
 
 - When a live on-call incident is confirmed resolved, a +2-day review is booked; when that review itself resolves, a second round is booked at +5 days (about a week after the original fix).
-- Synthetic sessions (demo/eval/replay) and the one-shot baseline never book reviews, mirroring the experience gate.
+- Synthetic sessions (demo/eval/replay) and both baseline conditions (one-shot, multi-turn) never book reviews, mirroring the experience gate.
 - A 60-second runner posts a learner-voiced revisit prompt into the **original conversation** (Web or Feishu) when a task comes due, and the real agent runs the full loop again with a fresh transfer task rather than a canned quiz.
 - A task remembers the run it fired; only a confirmation on an incident opened by that revisit completes it, so unrelated confirmations cannot claim it.
 - If the session is paused or the channel is currently unreachable, the task is deferred an hour instead of blocking the queue, and a fired task that never gets an answer expires after 7 days. Ending a session cancels its tasks and deleting the conversation cascades.
@@ -437,9 +437,9 @@ The model cannot confirm the final learning outcome, write strategy statistics d
 
 ### 6.10 讲法自发明 / Invented teaching approaches
 
-**中文**：live on-call 学习 incident 在换策略后解决时，宿主用一次后台单轮调用把"赢下那一轮的具体讲法"蒸馏成候选讲法（挂在八个基础策略之一下面，策略集合不变）。人审通过后进入试用：当宿主推荐该基础策略时，讲法说明会随上下文注入；归因以**投放核验**为准——渲染提示词时把当轮投放写进台账，记录干预时只认台账里的那一条，中途开出、从未收到讲法的轮次如实计入对照组。≥5 次归因后与同 scope 的无变体基线做 Beta 后验对比，±0.10 给出转正/退役建议——一切状态变更（试用、转正、退役、拒绝）都在学习面板人审。eval 与 one-shot 会话永不注入讲法。
+**中文**：live on-call 学习 incident 在换策略后解决时，宿主用一次后台单轮调用把"赢下那一轮的具体讲法"蒸馏成候选讲法（挂在八个基础策略之一下面，策略集合不变）。人审通过后进入试用：当宿主推荐该基础策略时，讲法说明会随上下文注入；归因以**投放核验**为准——渲染提示词时把当轮投放写进台账，记录干预时只认台账里的那一条，中途开出、从未收到讲法的轮次如实计入对照组。≥5 次归因后与同 scope 的无变体基线做 Beta 后验对比，±0.10 给出转正/退役建议——一切状态变更（试用、转正、退役、拒绝）都在学习面板人审。只有 live on-call 会话会注入讲法；eval 与两个基线条件永不注入。
 
-**English**: When a live on-call incident resolves after a strategy switch, a one-turn background call distills the winning round's concrete teaching move into a candidate approach under one of the eight base strategies (the strategy set itself never changes). After human approval it trials: the instruction rides along whenever the host recommends its base strategy, and attribution is **delivery-verified** — the offer is written to a ledger when the prompt is rendered, and only that ledger row counts at record time, so a round that opened mid-run and never received an approach stays an honest control. After ≥5 attributed outcomes a Beta-posterior comparison against the same-scope baseline recommends promotion or retirement at ±0.10 — every transition stays behind human review in the learning panel. Eval and one-shot sessions never see approaches.
+**English**: When a live on-call incident resolves after a strategy switch, a one-turn background call distills the winning round's concrete teaching move into a candidate approach under one of the eight base strategies (the strategy set itself never changes). After human approval it trials: the instruction rides along whenever the host recommends its base strategy, and attribution is **delivery-verified** — the offer is written to a ledger when the prompt is rendered, and only that ledger row counts at record time, so a round that opened mid-run and never received an approach stays an honest control. After ≥5 attributed outcomes a Beta-posterior comparison against the same-scope baseline recommends promotion or retirement at ±0.10 — every transition stays behind human review in the learning panel. Only live on-call sessions ever see approaches; eval and both baseline conditions never do.
 
 ## 7. 可信专家协作 / Trusted specialist collaboration
 

@@ -772,6 +772,16 @@ describe("LearningStore", () => {
     ]);
     // Three unresolved rounds would escalate under on-call. The baseline has no handoff.
     expect(learning.getIncident(first.id)).toMatchObject({ status: "unresolved" });
+    // And none of it feeds strategy evolution: a baseline that ignores the recommendation
+    // must not train it.
+    expect(
+      learning.listExperiences({
+        profileId: "local-operator",
+        topicKey: "programming",
+        difficultyType: "conceptual_misconception",
+        datasetKind: "live"
+      })
+    ).toEqual([]);
     const second = incident(learning, session.id);
     expect(() => learning.escalateIncident(second.id, "试试交接")).toThrow("on-call");
     database.close();

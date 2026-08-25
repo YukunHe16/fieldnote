@@ -629,7 +629,11 @@ export function Composer({
                         className={learningCondition === option ? "is-selected" : ""}
                         onClick={() => setLearningCondition(option)}
                       >
-                        {option === "on-call" ? t("learningConditionOnCall") : t("learningConditionOneShot")}
+                        {option === "on-call"
+                          ? t("learningConditionOnCall")
+                          : option === "one-shot"
+                            ? t("learningConditionOneShot")
+                            : t("learningConditionMultiTurn")}
                       </button>
                     ))}
                   </div>
