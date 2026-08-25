@@ -777,6 +777,51 @@ describe("LearningStore", () => {
     database.close();
   });
 
+  it("migrates an existing experiences table whose CHECK predates the eval dataset", () => {
+    // The in-memory fixtures are built from the current schema, so the migration never runs
+    // there. Only a database created before the eval dataset existed exercises it — and the
+    // rename it performs has to survive a trigger that reads the table being replaced.
+    const database = openDatabase(":memory:");
+    new LearningStore(database);
+    const legacyCheck = "CHECK (dataset_kind IN ('live', 'demo'))";
+    database.pragma("legacy_alter_table = ON");
+    database.exec(`
+      DROP TABLE learning_experiences;
+      CREATE TABLE learning_experiences (
+        id TEXT PRIMARY KEY,
+        verification_id TEXT NOT NULL UNIQUE,
+        incident_id TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        topic_key TEXT NOT NULL DEFAULT '',
+        difficulty_type TEXT NOT NULL,
+        strategy TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        dataset_kind TEXT NOT NULL ${legacyCheck},
+        snapshot_json TEXT NOT NULL DEFAULT '{}',
+        strategy_variant_id TEXT,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO learning_experiences
+        (id, verification_id, incident_id, profile_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, created_at)
+      VALUES ('legacy-1', 'v-1', 'i-1', 'local-operator', 'programming', 'planning_gap', 'worked_example', 'resolved', 'live', 1);
+    `);
+    database.pragma("legacy_alter_table = OFF");
+    expect(
+      (database.prepare("SELECT sql FROM sqlite_master WHERE name = 'learning_experiences'").get() as { sql: string })
+        .sql
+    ).toContain(legacyCheck);
+
+    // Reopening the store must widen the CHECK without losing the row or breaking the trigger.
+    new LearningStore(database);
+    const migrated = (
+      database.prepare("SELECT sql FROM sqlite_master WHERE name = 'learning_experiences'").get() as { sql: string }
+    ).sql;
+    expect(migrated).toContain("'eval'");
+    expect(database.prepare("SELECT COUNT(*) AS count FROM learning_experiences").get()).toMatchObject({ count: 1 });
+    expect(database.prepare("SELECT name FROM sqlite_master WHERE name = 'learning_supersede_run'").get()).toBeTruthy();
+    database.close();
+  });
+
   it("lets an opted-in eval accumulate its own strategy evidence without touching live", () => {
     const { database, learning, session } = fixture("eval", "on-call", true);
     const strategies: LearningInterventionStrategy[] = ["socratic_question", "socratic_question", "socratic_question"];

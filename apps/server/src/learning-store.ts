@@ -611,6 +611,11 @@ export class LearningStore {
     )?.sql;
     if (experiencesSql && !/dataset_kind[^,]*'eval'/.test(experiencesSql)) {
       this.database.pragma("foreign_keys = OFF");
+      // learning_supersede_run reads this table, and a modern RENAME re-parses every trigger
+      // in the schema — which fails while the old table is dropped and the new one has not
+      // been renamed into place yet. The legacy pragma skips that re-parse for the rename;
+      // the trigger is valid again the moment the name lands.
+      this.database.pragma("legacy_alter_table = ON");
       this.database.exec(`
         ${LEARNING_EXPERIENCES_TABLE("learning_experiences_eval")}
         INSERT INTO learning_experiences_eval
@@ -621,6 +626,7 @@ export class LearningStore {
         ALTER TABLE learning_experiences_eval RENAME TO learning_experiences;
         CREATE INDEX IF NOT EXISTS idx_learning_experiences_selector ON learning_experiences(profile_id, topic_key, difficulty_type, dataset_kind, created_at DESC);
       `);
+      this.database.pragma("legacy_alter_table = OFF");
       this.database.pragma("foreign_keys = ON");
     }
     const incidentColumns = this.database.pragma("table_info(learning_incidents)") as Array<{ name: string }>;
