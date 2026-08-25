@@ -108,6 +108,12 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 
 消费的题面与 method 由宿主原样落库进 `verifications`，因此 `practiceItemId` 连接两表时 `taskText`=`prompt`、两侧 `method` 恒等。
 
+**校准协议**：`scripts/practice-item-calibration.mjs export` 从本导出生成标注表（CSV，空白人工列，
+`--sample N --seed S` 可复现抽样）；人工填完后 `report --labels <csv> --labeler <who>` 输出
+evaluator-与-人工一致率报告（按 checks 维度的 fail-精确率/召回率 + 分歧分型）到
+`data/eval-runs/practice-calibration.md`。报告只讲质量审查一致率，不是学习效果证据；
+自标注版仅为协议烟测，标注者身份写在报告头。
+
 ### experiences
 
 只有 **on-call 且 live/demo** 的用户确认结果才会写入 experience——它是策略自进化（Beta 后验排序）的唯一
