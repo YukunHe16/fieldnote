@@ -86,6 +86,7 @@
       {
         "id": "trace-walk",
         "label": "walks the trace to show which access hits or misses",
+        "credit": "Any access-by-access walk of the sequence counts, laid out as a table or in prose, whether or not the word \"trace\" appears.",
         "patterns": ["a, b, a, c, a", "step (by|through)", "access by access", "trace"]
       }
     ],

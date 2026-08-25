@@ -10,6 +10,7 @@
  *     [--conditions on-call,one-shot] [--families planning_gap,...]
  *     [--items pg-sum-nested,...] [--out data/eval-runs] [--dry-run]
  *     [--learner-model <id>] [--learner-base <url>] [--learner-key <key>]
+ *     [--judge-model <id>]
  */
 
 import fs from "node:fs/promises";
@@ -42,6 +43,7 @@ function parseArgs(argv) {
     else if (key === "--items") args.items = next().split(",").filter(Boolean);
     else if (key === "--out") args.out = next();
     else if (key === "--learner-model") args.learnerModel = next();
+    else if (key === "--judge-model") args.judgeModel = next();
     else if (key === "--learner-base") args.learnerBase = next();
     else if (key === "--learner-key") args.learnerKey = next();
     else if (key === "--dry-run") args.dryRun = true;
@@ -83,6 +85,9 @@ async function loadItems(filter) {
     item.compiled = item.concepts.map((concept) => ({
       id: concept.id,
       label: concept.label,
+      // Optional note telling the judge what does and does not earn credit — used where a
+      // concept has more than one correct form, or where an adjacent answer looks right.
+      credit: concept.credit ?? null,
       patterns: concept.patterns.map((pattern) => new RegExp(pattern, "i"))
     }));
   }
@@ -193,12 +198,117 @@ async function learnerReply(cfg, item, messages, extraQuestion) {
   throw new Error("Learner model returned no text");
 }
 
-function grade(item, text) {
+const score = (item, matchedIds) => {
+  const coverage = item.compiled.length === 0 ? 0 : matchedIds.length / item.compiled.length;
+  const verdict =
+    matchedIds.length === item.compiled.length ? "resolved" : matchedIds.length > 0 ? "partial" : "unresolved";
+  return { matched: matchedIds, coverage, verdict };
+};
+
+// Literal-pattern grading. Kept as a cheap second opinion on every grading, never as the
+// verdict: it cannot tell a paraphrase from a miss, and only the on-call arm answers in
+// its own words often enough for that to matter — which biased the comparison it exists
+// to serve. Disagreements with the judge are recorded per grading and summarised in the
+// report so the instrument stays auditable.
+function gradeRegex(item, text) {
   const matched = item.compiled.filter((concept) => concept.patterns.some((pattern) => pattern.test(text)));
-  const coverage = item.compiled.length === 0 ? 0 : matched.length / item.compiled.length;
-  const verdict = matched.length === item.compiled.length ? "resolved" : matched.length > 0 ? "partial" : "unresolved";
-  return { matched: matched.map((concept) => concept.id), coverage, verdict };
+  return score(
+    item,
+    matched.map((concept) => concept.id)
+  );
 }
+
+const JUDGE_SYSTEM = [
+  "You grade a student's exit-check answer against a fixed concept checklist for a tutoring study.",
+  "Judge SUBSTANCE, not vocabulary: an answer in the student's own words counts as long as it",
+  "demonstrates the concept. Wording that merely echoes the textbook does not earn credit on its own.",
+  "",
+  "Rules:",
+  "- Credit a concept only if the answer actually states or demonstrates it. Do not credit something",
+  "  the student merely implies, gestures at, or would 'probably' know.",
+  "- An incorrect statement of a concept earns no credit.",
+  "- Unless a concept's `credit` note names one specific approach, ANY correct approach earns credit.",
+  "- Grade only the answer text. Never assume the tutoring that came before it worked.",
+  "",
+  'Reply with JSON only: {"concepts":[{"id":"<concept id>","demonstrated":true|false,"why":"<= 15 words"}]}',
+  "Include every concept id exactly once."
+].join("\n");
+
+async function judgeGrade(cfg, item, text) {
+  const checklist = item.compiled
+    .map(
+      (concept) =>
+        `- id: ${concept.id}\n  requires: ${concept.label}${concept.credit ? `\n  credit: ${concept.credit}` : ""}`
+    )
+    .join("\n");
+  const prompt = [
+    `Exit-check question:\n${item.postTest}`,
+    `\nConcept checklist:\n${checklist}`,
+    `\nStudent's answer:\n${text}`
+  ].join("\n");
+  const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": cfg.learnerKey,
+      authorization: `Bearer ${cfg.learnerKey}`,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: cfg.judgeModel,
+      max_tokens: 4_000,
+      temperature: 0,
+      system: JUDGE_SYSTEM,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  if (!response.ok) throw new Error(`Judge call failed: ${response.status} ${(await response.text()).slice(0, 200)}`);
+  const data = await response.json();
+  const raw = (data.content ?? [])
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
+  const json = /\{[\s\S]*\}/.exec(raw);
+  if (!json) throw new Error(`Judge returned no JSON: ${raw.slice(0, 200)}`);
+  const parsed = JSON.parse(json[0]);
+  const verdicts = new Map((parsed.concepts ?? []).map((entry) => [entry.id, entry]));
+  for (const concept of item.compiled) {
+    if (!verdicts.has(concept.id)) throw new Error(`Judge omitted concept ${concept.id}`);
+  }
+  return {
+    ...score(
+      item,
+      item.compiled.filter((concept) => verdicts.get(concept.id).demonstrated === true).map((concept) => concept.id)
+    ),
+    reasons: Object.fromEntries(
+      item.compiled.map((concept) => [concept.id, String(verdicts.get(concept.id).why ?? "")])
+    )
+  };
+}
+
+// The judge is the verdict; the regex checklist rides along as a recorded second opinion.
+// If the judge is unreachable the regex verdict stands, flagged so the report can say so.
+async function gradeAnswer(cfg, item, text) {
+  const regex = gradeRegex(item, text);
+  try {
+    const judged = await judgeGrade(cfg, item, text);
+    const agreed = JSON.stringify([...judged.matched].sort()) === JSON.stringify([...regex.matched].sort());
+    return { ...judged, method: "judge", regexMatched: regex.matched, regexCoverage: regex.coverage, agreed };
+  } catch (error) {
+    return {
+      ...regex,
+      method: "regex-fallback",
+      regexMatched: regex.matched,
+      regexCoverage: regex.coverage,
+      agreed: null,
+      judgeError: String(error && error.message ? error.message : error).slice(0, 200)
+    };
+  }
+}
+
+const VERDICT_RANK = { resolved: 3, partial: 2, unresolved: 1 };
+const bestOf = (postTests) =>
+  postTests.reduce((best, entry) => (entry.coverage > (best?.coverage ?? -1) ? entry : best), null);
 
 function latestIncident(session) {
   const incidents = (session?.incidents ?? []).filter((incident) => !incident.supersededAt);
@@ -226,6 +336,8 @@ async function runItem(cfg, item, condition, log) {
     finalVerdict: null,
     incidentStatus: null,
     conceptCoverage: null,
+    bestCoverage: null,
+    bestVerdict: null,
     matchedConcepts: [],
     status: "completed",
     durationMs: 0
@@ -246,6 +358,7 @@ async function runItem(cfg, item, condition, log) {
     const answered = new Set();
     let lastAnswer = "";
     let lastPostAnswer = "";
+    let lastGraded = null;
     let lastSignature = "";
     let stalls = 0;
 
@@ -297,7 +410,8 @@ async function runItem(cfg, item, condition, log) {
         // learner, and the concept checklist grades that answer — the same instrument
         // for both conditions.
         lastPostAnswer = await learnerReply(cfg, item, detail.messages, item.postTest);
-        const graded = grade(item, lastPostAnswer);
+        const graded = await gradeAnswer(cfg, item, lastPostAnswer);
+        lastGraded = graded;
         record.postTests.push({ round: incident.interventions.length, ...graded });
         record.confirmedVerdicts.push(graded.verdict);
         await api(cfg.base, "POST", `/api/learning/verifications/${verification.id}/confirm`, {
@@ -332,9 +446,17 @@ async function runItem(cfg, item, condition, log) {
     record.finalVerdict = finalVerification?.finalVerdict ?? null;
     // Coverage is measured on the standardized post-test, never on whatever shape the
     // tutor's own verification happened to take.
-    const graded = grade(item, lastPostAnswer);
+    const graded = lastGraded ?? gradeRegex(item, lastPostAnswer);
     record.conceptCoverage = lastPostAnswer ? graded.coverage : null;
     record.matchedConcepts = graded.matched;
+    // Only the on-call arm answers the post-test more than once, so scoring the last
+    // answer alone gives it extra chances to end on a bad draw that the baseline never
+    // faces. Both readings are reported; neither is silently preferred.
+    const best = bestOf(record.postTests);
+    record.bestCoverage = best ? best.coverage : record.conceptCoverage;
+    record.bestVerdict = record.postTests.length
+      ? record.postTests.reduce((a, b) => (VERDICT_RANK[b.verdict] > VERDICT_RANK[a.verdict] ? b : a)).verdict
+      : record.finalVerdict;
     record.finalPostTestAnswer = lastPostAnswer || null;
     if (record.status === "completed" && !record.finalVerdict) record.status = "incomplete";
     if (session && ["active", "paused"].includes(session.status)) {
@@ -348,7 +470,11 @@ async function runItem(cfg, item, condition, log) {
   log(
     `  ${item.id} [${condition}] → ${record.finalVerdict ?? record.status} · rounds=${record.rounds} · coverage=${
       record.conceptCoverage === null ? "—" : Math.round(record.conceptCoverage * 100)
-    }% · ${(record.durationMs / 1000).toFixed(0)}s`
+    }%${
+      record.bestCoverage != null && record.bestCoverage !== record.conceptCoverage
+        ? ` (best ${Math.round(record.bestCoverage * 100)}%)`
+        : ""
+    } · ${(record.durationMs / 1000).toFixed(0)}s`
   );
   return record;
 }
@@ -364,15 +490,20 @@ function aggregate(records) {
         unresolved: 0,
         escalated: 0,
         noOutcome: 0,
+        bestResolved: 0,
         rounds: [],
-        coverage: []
+        coverage: [],
+        bestCoverage: []
       };
       group.n += 1;
       if (record.finalVerdict) group[record.finalVerdict] += 1;
       else group.noOutcome += 1;
+      if (record.bestVerdict === "resolved") group.bestResolved += 1;
       if (record.incidentStatus === "escalated") group.escalated += 1;
       if (record.rounds > 0) group.rounds.push(record.rounds);
       if (record.conceptCoverage !== null) group.coverage.push(record.conceptCoverage);
+      if (record.bestCoverage !== null && record.bestCoverage !== undefined)
+        group.bestCoverage.push(record.bestCoverage);
       groups.set(key, group);
     }
   }
@@ -386,7 +517,13 @@ function renderReport(records, groups, meta) {
   const line = (label, group) =>
     `| ${label} | ${group.n} | ${group.resolved} | ${group.partial} | ${group.unresolved + group.noOutcome} | ${
       group.escalated
-    } | ${mean(group.rounds)?.toFixed(1) ?? "—"} | ${pct(mean(group.coverage))} |`;
+    } | ${mean(group.rounds)?.toFixed(1) ?? "—"} | ${pct(mean(group.coverage))} | ${group.bestResolved} | ${pct(
+      mean(group.bestCoverage)
+    )} |`;
+  const gradings = records.flatMap((record) => record.postTests ?? []);
+  const judged = gradings.filter((entry) => entry.method === "judge");
+  const disagreed = judged.filter((entry) => entry.agreed === false);
+  const fellBack = gradings.filter((entry) => entry.method === "regex-fallback").length;
   const conditionRows = [];
   for (const condition of meta.conditions) {
     const overall = groups.get(`all|${condition}`);
@@ -400,31 +537,36 @@ function renderReport(records, groups, meta) {
     (record) =>
       `| ${record.itemId} | ${record.condition} | ${record.finalVerdict ?? "—"} | ${record.rounds} | ${pct(
         record.conceptCoverage
-      )} | ${record.incidentStatus ?? "—"} | ${record.status} |`
+      )} | ${pct(record.bestCoverage ?? null)} | ${record.incidentStatus ?? "—"} | ${record.status} |`
   );
   return `# Learning-loop offline evaluation — ${meta.startedAt}
 
 > **Simulated-learner offline evaluation.** Every "learner" below is an LLM playing a scripted
-> persona with documented misconceptions; outcomes are graded by fixed concept checklists.
+> persona with documented misconceptions; outcomes are graded against fixed concept checklists.
 > These numbers describe how the loop behaves under simulation. They are **not** evidence about
 > real students, and sample sizes are small — read them descriptively, not statistically.
 
 - Server: ${meta.base} · items: ${meta.itemCount} · conditions: ${meta.conditions.join(", ")} · learner tier: **${meta.tier}**
 - Learner simulator: \`${meta.learnerModel}\` at ${meta.learnerBase}
+- Post-test grader: \`${meta.judgeModel}\` judging each answer against the checklist (temperature 0),
+  with the literal-pattern checklist recorded alongside as a second opinion
 - Tutor: whatever model the running Fieldnote server is configured with
-- Final verdicts come from concept-checklist grading of the learner's last answer; the
-  "unresolved" column also counts runs that never reached a confirmed outcome (see status).
+- Grader agreement: judge and literal patterns agreed on ${judged.length - disagreed.length}/${judged.length} gradings${fellBack ? ` · ${fellBack} grading(s) fell back to patterns after a judge error` : ""}
+- Two readings of every run are reported: **last** scores the final post-test answer, **best**
+  scores the strongest answer the learner gave. Only on-call answers the post-test more than
+  once, so the last-answer reading gives it extra chances to end on a bad draw.
+- The "unresolved/none" column also counts runs that never reached a confirmed outcome (see status).
 
 ## By condition and family
 
-| Slice | n | resolved | partial | unresolved/none | escalated | mean rounds | mean concept coverage |
-| --- | --- | --- | --- | --- | --- | --- | --- |
+| Slice | n | resolved | partial | unresolved/none | escalated | mean rounds | coverage (last) | resolved (best) | coverage (best) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ${conditionRows.join("\n")}
 
 ## Per run
 
-| Item | Condition | Final verdict | Rounds | Coverage | Incident status | Run status |
-| --- | --- | --- | --- | --- | --- | --- |
+| Item | Condition | Final verdict | Rounds | Coverage (last) | Coverage (best) | Incident status | Run status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
 ${itemRows.join("\n")}
 
 ## Reading the comparison
@@ -460,11 +602,14 @@ async function main() {
       env.ANTHROPIC_MODEL ??
       "claude-haiku-4-5-20251001"
   };
+  // The judge grades the post-test; it never sees the persona and never plays the learner.
+  cfg.judgeModel = args.judgeModel ?? cfg.learnerModel;
   const log = (message) => console.log(message);
   log(
     `Learning eval: ${items.length} items × ${args.conditions.length} conditions · tier=${cfg.tier} · against ${cfg.base}`
   );
   log(`Learner simulator: ${cfg.learnerModel} @ ${cfg.learnerBase}`);
+  log(`Post-test judge: ${cfg.judgeModel} (literal patterns kept as a second opinion)`);
   if (args.dryRun) {
     for (const item of items) log(`  - ${item.id} (${item.difficultyType}) · ${item.concepts.length} concepts`);
     log("Dry run only; nothing was executed.");
@@ -502,13 +647,20 @@ async function main() {
     itemCount: items.length,
     conditions: args.conditions,
     learnerModel: cfg.learnerModel,
-    learnerBase: cfg.learnerBase
+    learnerBase: cfg.learnerBase,
+    judgeModel: cfg.judgeModel
   });
   await fs.writeFile(path.join(outDir, "report.md"), report);
   log(`\nWrote ${path.relative(repo, outDir)}/results.json and report.md`);
 }
 
-main().catch((error) => {
-  console.error(`learning-eval failed: ${error.message ?? error}`);
-  process.exitCode = 1;
-});
+// Exported so the grader can be exercised on archived answers without launching a run;
+// main() stays behind the entry-point guard so importing this file has no side effects.
+export { gradeRegex, judgeGrade, gradeAnswer, loadItems };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`learning-eval failed: ${error.message ?? error}`);
+    process.exitCode = 1;
+  });
+}

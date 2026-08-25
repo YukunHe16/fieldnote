@@ -17,16 +17,19 @@
       {
         "id": "base-case",
         "label": "names the non-list / empty base case",
+        "credit": "Any statement of what happens at the bottom counts: a plain number returned or added directly, or an empty list contributing nothing. The phrase \"base case\" is not required.",
         "patterns": ["base case", "not a list", "plain number", "empty list", "just return (the )?(number|element|x)"]
       },
       {
         "id": "recursive-reduction",
         "label": "recursively handles arbitrarily deep sublists",
+        "credit": "Any statement that a sublist is handed to the same function counts, including informal phrasing such as \"hand it off to deep_sum\". Using the word \"recursion\" is not required.",
         "patterns": ["recurs", "call (deep_sum|itself|the function) (on|with)", "same function on the sublist"]
       },
       {
         "id": "combine-results",
         "label": "combines subresults by addition",
+        "credit": "Any statement that the value coming back from a sublist is added into the running total counts.",
         "patterns": ["add(ing)? (the |up )?(results|sums|totals)", "sum of the recursive", "total \\+=? deep_sum"]
       }
     ],
@@ -110,18 +113,23 @@
     "concepts": [
       {
         "id": "return-composition",
-        "label": "builds the result from the recursive return value",
+        "label": "carries the result through the recursion itself rather than a shared buffer",
+        "credit": "Either correct shape earns credit: composing the returned value (return reverse(rest) + s[0]) or threading a per-call accumulator parameter and returning it up. What must be present is that the answer says where the result is carried. Naming a shared/global buffer as the carrier earns no credit.",
         "patterns": [
           "return reverse\\(s\\[1:\\]\\)",
           "reverse\\(rest\\).{0,30}\\+",
           "use[s]? the return(ed)? value",
-          "combine.{0,40}return"
+          "combine.{0,40}return",
+          "accumulator (parameter|argument)",
+          "pass(es|ing)? .{0,30}(accumulator|partial|so far).{0,30}(down|along|in)",
+          "return(s|ing)? .{0,30}(up|back) (the |to )"
         ]
       },
       {
         "id": "base-case",
-        "label": "empty string returns itself as the base case",
-        "patterns": ["empty string", "if not s", "s == \"\"", "base case"]
+        "label": "says what the bottom of the recursion hands back when the string is exhausted",
+        "credit": "Matched to whichever shape the answer uses: returning the empty string itself, or returning the accumulator once nothing is left. Both are correct; what must be present is a statement of what the bottom returns.",
+        "patterns": ["empty string", "if not s", "s == \"\"", "base case", "return(s|ing)? (the )?acc"]
       },
       {
         "id": "no-shared-state",
@@ -129,7 +137,7 @@
         "patterns": ["global", "shared state", "left over from the (previous|last) call", "each call.{0,50}own"]
       }
     ],
-    "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, how the recursive call's return value is used to build the result, and why the global accumulator caused wrong answers on the second call.",
+    "postTest": "Exit check, in your own words: how should reverse be structured so repeated calls are always correct? Explain what the base case returns, where the answer is carried as the calls unwind, and why the global accumulator caused wrong answers on the second call.",
     "stubbornPersona": {
       "beliefs": [
         "Recursion needs an external accumulator because a call cannot hand a value back to its caller.",
@@ -166,6 +174,7 @@
       {
         "id": "odd-reduction",
         "label": "handles odd n with an extra factor of x",
+        "credit": "Any correct handling of an odd exponent counts: peeling off one factor of x, or reducing n to n-1 and then halving. Specific phrasing is not required.",
         "patterns": ["odd.{0,60}(extra|multiply|times) x", "x \\* half \\* half", "n - 1", "odd exponent"]
       },
       {
