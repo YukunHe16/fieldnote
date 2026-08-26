@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { deepRedact, redactSensitiveText } from "../src/redact.js";
 
 describe("redact", () => {
+  it("keeps the export's time axis and join keys intact", () => {
+    // "2026-08-25" matched the phone rule, so every createdAt in the research export used to
+    // arrive as "[REDACTED_PHONE]T06:11:40.287Z" and no time-based analysis was possible.
+    const row = {
+      id: "e46efc40-d968-4d03-a74c-3e467ee99be5",
+      createdAt: "2026-08-25T06:11:40.287Z",
+      dueAt: "2026-08-27 09:30",
+      note: "写于 2026-08-25，联系 student@example.edu"
+    };
+    const output = deepRedact(row);
+    expect(output.id).toBe(row.id);
+    expect(output.createdAt).toBe(row.createdAt);
+    expect(output.dueAt).toBe(row.dueAt);
+    // Shielding a date does not buy the rest of the sentence any immunity.
+    expect(output.note).toContain("2026-08-25");
+    expect(output.note).not.toContain("student@example.edu");
+  });
+
   it("scrubs contacts and long digit runs from free text", () => {
     const input = "Contact me at student@example.edu or +1 (217) 555-0100 tomorrow.";
     const output = redactSensitiveText(input);
