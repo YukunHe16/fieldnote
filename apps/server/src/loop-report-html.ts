@@ -145,6 +145,16 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
 <main>
   <section class="hero tone-${tone}">
     <p class="eyebrow rec">${escapeHtml(stamp(incident.closedAt ?? last?.confirmedAt ?? incident.updatedAt))}</p>
+    ${
+      incident.reviewOf
+        ? `<p class="revisit">${biSpan(
+            bi(
+              `这是第 ${incident.reviewOf.round} 次回访 —— 同一个知识点，隔了一段时间再考你一次。`,
+              `This is revisit ${incident.reviewOf.round} \u2014 the same idea, checked again after a gap.`
+            )
+          )}</p>`
+        : ""
+    }
     ${biSpan(headline, "h1")}
     <p class="lede prose">${escapeHtml(incident.hypothesis)}</p>
     <div class="spine-wrap">${spineSvg(report, verdict)}</div>
@@ -395,6 +405,7 @@ main { max-width: 780px; margin: 0 auto; padding: 0 var(--gutter) 5rem; }
 .hero { padding: 2.5rem 0 1.75rem; border-bottom: 3px solid var(--pen); }
 .hero.tone-moss { border-bottom-color: var(--moss); }
 .hero.tone-rust { border-bottom-color: var(--rust); }
+.hero .revisit { margin: 0 0 .1rem; color: var(--tag); font-size: .9rem; font-weight: 600; }
 .hero h1 { margin: .5rem 0 .6rem; font-size: clamp(1.6rem, 5vw, 2.3rem); line-height: 1.2; letter-spacing: -.015em; font-weight: 650; }
 .hero .lede { margin: 0 0 1.25rem; font-size: 1.05rem; color: var(--dust); max-width: 58ch; }
 .spine-wrap { overflow-x: auto; }

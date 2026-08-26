@@ -120,6 +120,14 @@ export interface LearningIncidentDto {
   severity: number;
   evidenceMessageIds: string[];
   openedRunId: string | null;
+  /**
+   * Set when this incident was opened by a spaced-review revisit: the earlier incident being
+   * revisited, and which revisit it was. A revisit deliberately gets its own loop so the
+   * decay has its own timestamps, strategy and outcome — but without this link the two read
+   * as unrelated problems, which is exactly how a resolved loop plus its partial revisit
+   * turns into "one difficulty, two rows" in the panel.
+   */
+  reviewOf: { incidentId: string; round: number } | null;
   status: LearningIncidentStatus;
   closedSnapshot: unknown | null;
   createdAt: string;
@@ -563,6 +571,7 @@ CREATE TABLE IF NOT EXISTS learning_review_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_learning_review_due ON learning_review_tasks(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_learning_review_session ON learning_review_tasks(session_id, status);
+CREATE INDEX IF NOT EXISTS idx_learning_review_fired_run ON learning_review_tasks(fired_run_id);
 
 CREATE TABLE IF NOT EXISTS learning_watchdog_events (
   id TEXT PRIMARY KEY,
@@ -3450,6 +3459,9 @@ export class LearningStore {
       severity: Number(row.severity),
       evidenceMessageIds: parseJson(String(row.evidence_message_ids_json), []),
       openedRunId: row.opened_run_id === null || row.opened_run_id === undefined ? null : String(row.opened_run_id),
+      reviewOf: this.reviewOrigin(
+        row.opened_run_id === null || row.opened_run_id === undefined ? null : String(row.opened_run_id)
+      ),
       status: String(row.status) as LearningIncidentStatus,
       closedSnapshot: row.closed_snapshot_json === null ? null : parseJson(String(row.closed_snapshot_json), null),
       createdAt: iso(Number(row.created_at))!,
@@ -3458,6 +3470,14 @@ export class LearningStore {
       supersededAt:
         row.superseded_at === null || row.superseded_at === undefined ? null : iso(Number(row.superseded_at))
     };
+  }
+  /** The revisit that opened this incident, if a fired review task submitted its run. */
+  private reviewOrigin(openedRunId: string | null): { incidentId: string; round: number } | null {
+    if (!openedRunId) return null;
+    const row = this.database
+      .prepare("SELECT incident_id, round FROM learning_review_tasks WHERE fired_run_id = ? LIMIT 1")
+      .get(openedRunId) as { incident_id: string; round: number } | undefined;
+    return row ? { incidentId: String(row.incident_id), round: Number(row.round) } : null;
   }
   private toIntervention(row: InterventionRow): LearningInterventionDto {
     return {

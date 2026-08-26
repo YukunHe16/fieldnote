@@ -2111,4 +2111,47 @@ describe("learning practice items", () => {
     expect(corpus).toContain(session.goal);
     database.close();
   });
+
+  it("marks a spaced-review incident as a revisit of the loop it re-checks", () => {
+    const { database, agents, conversation, learning, session } = fixture("live", "on-call");
+    const first = incident(learning, session.id);
+    const intervention = learning.recordIntervention({
+      incidentId: first.id,
+      strategy: "contrastive_example",
+      rationale: "并排对照",
+      expectedSignal: "能说出差别"
+    });
+    const draft = draftApproved(learning, first.id, "请解释递归出口。");
+    const verification = learning.requestVerification({
+      incidentId: first.id,
+      interventionId: intervention.id,
+      method: "self_explanation",
+      prompt: "请解释递归出口。",
+      rubric: "说明出口条件",
+      practiceItemId: draft.id
+    });
+    learning.proposeSystemOutcome(verification.id, "resolved", 0.95);
+    learning.confirmVerification(verification.id, "resolved");
+
+    // Resolving schedules the +2d revisit; firing it submits a run of its own, and the
+    // incident that run opens is a re-check of `first`, not an unrelated new difficulty.
+    const task = learning.listReviewTasks(session.id).find((item) => item.round === 1);
+    expect(task).toBeDefined();
+    const reviewRun = agents.createRun(conversation.id, "【间隔回访】两天前那道题…", "normal");
+    learning.markReviewTask(task!.id, "fired");
+    learning.attachReviewRun(task!.id, reviewRun.id);
+    const revisit = learning.openIncident({
+      sessionId: session.id,
+      difficultyType: "conceptual_misconception",
+      hypothesis: "两天后是否仍能区分",
+      confidence: 0.7,
+      severity: 3,
+      evidenceMessageIds: [reviewRun.userMessageId],
+      runId: reviewRun.id
+    });
+
+    expect(revisit.reviewOf).toEqual({ incidentId: first.id, round: 1 });
+    expect(learning.getIncident(first.id)?.reviewOf).toBeNull();
+    database.close();
+  });
 });

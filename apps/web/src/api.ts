@@ -572,6 +572,14 @@ export function normalizeLearningVerification(input: unknown): LearningVerificat
   };
 }
 
+function normalizeLearningReviewOrigin(value: unknown): { incidentId: string; round: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  const incidentId = optionalString(raw.incidentId ?? raw.incident_id);
+  if (!incidentId) return null;
+  return { incidentId, round: number(raw.round, 1) };
+}
+
 export function normalizeLearningIncident(input: unknown): LearningIncidentDto {
   const raw = object(input);
   const evidence = raw.evidenceMessageIds ?? raw.evidence_message_ids;
@@ -595,6 +603,7 @@ export function normalizeLearningIncident(input: unknown): LearningIncidentDto {
     severity: number(raw.severity, 1),
     evidenceMessageIds: Array.isArray(evidence) ? evidence.filter((id): id is string => typeof id === "string") : [],
     openedRunId: optionalString(raw.openedRunId ?? raw.opened_run_id),
+    reviewOf: normalizeLearningReviewOrigin(raw.reviewOf ?? raw.review_of),
     status: includes(
       [
         "observing",
