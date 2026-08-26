@@ -615,14 +615,17 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
  * Any real study run must leave them unset — the delayed-retention metric is defined by the
  * defaults, and a shortened revisit is a different (and much weaker) measurement.
  */
+// Read at SCHEDULING time, not module load: index.ts loads .env in its module body, which
+// runs after every static import's body — a module-level constant here would be baked in
+// before dotenv runs and the documented override could never work.
 const reviewDelayFromEnv = (name: string, fallback: number): number => {
   const raw = Number(process.env[name]);
   return Number.isInteger(raw) && raw >= 60_000 ? raw : fallback;
 };
 /** First revisit after a live on-call resolution (default two days). */
-const REVIEW_ROUND1_DELAY_MS = reviewDelayFromEnv("LEARNING_REVIEW_ROUND1_DELAY_MS", 2 * DAY_MS);
+const reviewRound1DelayMs = (): number => reviewDelayFromEnv("LEARNING_REVIEW_ROUND1_DELAY_MS", 2 * DAY_MS);
 /** Second revisit after the first one is confirmed (default five days, ≈ a week after the fix). */
-const REVIEW_ROUND2_DELAY_MS = reviewDelayFromEnv("LEARNING_REVIEW_ROUND2_DELAY_MS", 5 * DAY_MS);
+const reviewRound2DelayMs = (): number => reviewDelayFromEnv("LEARNING_REVIEW_ROUND2_DELAY_MS", 5 * DAY_MS);
 export const has = <T extends readonly string[]>(values: T, value: string): value is T[number] =>
   values.includes(value as T[number]);
 const iso = (value: number | null): string | null => (value === null ? null : new Date(value).toISOString());
@@ -1537,9 +1540,9 @@ export class LearningStore {
             .prepare("UPDATE learning_review_tasks SET status = 'completed', updated_at = ? WHERE id = ?")
             .run(now, fired.id);
           if (fired.round === 1 && verdict === "resolved")
-            this.insertReviewTask(session, fired.incident_id, 2, now + REVIEW_ROUND2_DELAY_MS, now);
+            this.insertReviewTask(session, fired.incident_id, 2, now + reviewRound2DelayMs(), now);
         } else if (incidentStatus === "resolved") {
-          this.insertReviewTask(session, incident.id, 1, now + REVIEW_ROUND1_DELAY_MS, now);
+          this.insertReviewTask(session, incident.id, 1, now + reviewRound1DelayMs(), now);
         }
       }
       // Experiences exist solely to feed strategy evolution: replay must not write live statistics,
