@@ -1168,6 +1168,13 @@ export const api = {
     return response.conversation ? normalizeConversationDetail(response.conversation) : undefined;
   },
 
+  async learningTopics(participantId?: string) {
+    const params = new URLSearchParams();
+    if (participantId) params.set("participantId", participantId);
+    const response = await request<{ topics: string[] }>(`/api/learning/topics?${params}`);
+    return response.topics;
+  },
+
   async learningMetrics(input: {
     profileId?: string;
     participantId?: string;

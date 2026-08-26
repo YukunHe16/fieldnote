@@ -1259,7 +1259,6 @@ function LearningMetricsView({
   topicKey,
   onScope,
   researchEnabled,
-  onToggleResearch,
   exportParticipantId
 }: {
   metrics?: LearningMetricsDto;
@@ -1269,7 +1268,6 @@ function LearningMetricsView({
   topicKey: string | null;
   onScope: (scope: "topic" | "all") => void;
   researchEnabled: boolean;
-  onToggleResearch: (enabled: boolean) => Promise<boolean>;
 }) {
   const cellRows = (cell: LearningMetricsCellDto) => [
     { label: t("learningMetricsIncidents"), value: String(cell.incidents) },
@@ -1296,17 +1294,7 @@ function LearningMetricsView({
   const hasCalibration = calibration.some((bin) => bin.count > 0);
   return (
     <div className="learning-metrics">
-      <div className="learning-research-toggle">
-        <label>
-          <input
-            type="checkbox"
-            checked={researchEnabled}
-            onChange={(event) => void onToggleResearch(event.target.checked)}
-          />
-          <span>{t("researchMode")}</span>
-        </label>
-        <small>{t("researchModeHint")}</small>
-      </div>
+      {!researchEnabled && <p className="learning-research-note">{t("researchModeWhere")}</p>}
       {topicKey && (
         <div className="learning-metrics-scope-row">
           <div className="learning-metrics-scope" role="radiogroup" aria-label={t("learningMetricsTab")}>
@@ -1603,14 +1591,12 @@ function LearningPanel({
   conversation,
   onSessionUpdate,
   onConfirmVerification,
-  researchEnabled,
-  onToggleResearch
+  researchEnabled
 }: {
   conversation?: ConversationDetail;
   onSessionUpdate: (input: { status?: "active" | "paused" | "completed" | "dismissed" }) => Promise<boolean>;
   onConfirmVerification: (id: string, verdict: "resolved" | "partial" | "unresolved") => Promise<boolean>;
   researchEnabled: boolean;
-  onToggleResearch: (enabled: boolean) => Promise<boolean>;
 }) {
   const { t } = useLocale();
   const [tab, setTab] = useState<"current" | "history" | "policies" | "metrics">("current");
@@ -1882,7 +1868,6 @@ function LearningPanel({
             topicKey={session.topicKey}
             onScope={setMetricsScope}
             researchEnabled={researchEnabled}
-            onToggleResearch={onToggleResearch}
           />
         ) : loadingPolicies ? (
           <div className="support-loading">{t("loading")}</div>
@@ -2032,8 +2017,7 @@ export function SupportPanel({
   conversation,
   onSessionUpdate,
   onConfirmVerification,
-  researchEnabled,
-  onToggleResearch
+  researchEnabled
 }: {
   kind?: SupportPanelKind;
   onClose: () => void;
@@ -2042,7 +2026,6 @@ export function SupportPanel({
   onSessionUpdate?: (input: { status?: "active" | "paused" | "completed" | "dismissed" }) => Promise<boolean>;
   onConfirmVerification?: (id: string, verdict: "resolved" | "partial" | "unresolved") => Promise<boolean>;
   researchEnabled?: boolean;
-  onToggleResearch?: (enabled: boolean) => Promise<boolean>;
 }) {
   const { t } = useLocale();
   const [docked, setDocked] = useState(
@@ -2110,7 +2093,6 @@ export function SupportPanel({
                   onSessionUpdate={onSessionUpdate ?? (async () => false)}
                   onConfirmVerification={onConfirmVerification ?? (async () => false)}
                   researchEnabled={researchEnabled ?? false}
-                  onToggleResearch={onToggleResearch ?? (async () => false)}
                 />
               )}
             </div>

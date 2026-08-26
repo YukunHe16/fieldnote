@@ -267,6 +267,35 @@ function ChatHeader({
         </div>
       </div>
       <div className="header-actions">
+        {(workspace.researchEnabled || workspace.participants.length > 1) && workspace.participants.length > 0 && (
+          <label className="axis-switcher">
+            <span className="axis-switcher-label">{t("participantSwitcher")}</span>
+            <select
+              className="axis-switcher-value"
+              value={workspace.participantId}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === "__add__") {
+                  // The select is controlled but React only re-syncs it on a re-render;
+                  // reset the DOM value now so a cancelled prompt cannot leave the dropdown
+                  // stuck on the add row (which would also swallow the next change event).
+                  event.target.value = workspace.participantId;
+                  const name = window.prompt(t("participantAddPrompt"));
+                  if (name?.trim()) void workspace.addParticipant(name.trim());
+                  return;
+                }
+                void workspace.switchParticipant(value);
+              }}
+            >
+              {workspace.participants.map((participant) => (
+                <option key={participant.id} value={participant.id}>
+                  {participant.id === "default" ? t("participantDefault") : participant.displayName}
+                </option>
+              ))}
+              <option value="__add__">{t("participantAdd")}</option>
+            </select>
+          </label>
+        )}
         <div className="header-menu-wrap profile-switcher-wrap">
           <button
             className="profile-switcher"
@@ -274,9 +303,12 @@ function ChatHeader({
             aria-label={t("chooseAssistant")}
             aria-expanded={profileMenu}
           >
-            <span>
-              {localizedProfile(conversation?.profileId ?? "", conversation?.profileName, undefined).name ||
-                t("chooseAssistant")}
+            <span className="axis-switcher-stack">
+              <span className="axis-switcher-label">{t("assistantSwitcher")}</span>
+              <span className="axis-switcher-value">
+                {localizedProfile(conversation?.profileId ?? "", conversation?.profileName, undefined).name ||
+                  t("chooseAssistant")}
+              </span>
             </span>
             <Icon name="chevronRight" size={14} className={profileMenu ? "is-open" : ""} />
           </button>
@@ -404,6 +436,30 @@ function ChatHeader({
                   </span>
                   <i className={`workspace-status ${runtimeReady ? "online" : "demo"}`} />
                 </header>
+                <section className="preference-row">
+                  <span>
+                    <b>{t("researchMode")}</b>
+                    <small>{t("researchModeHint")}</small>
+                  </span>
+                  <div className="theme-choice" role="radiogroup" aria-label={t("researchMode")}>
+                    <button
+                      role="radio"
+                      aria-checked={!workspace.researchEnabled}
+                      className={!workspace.researchEnabled ? "active" : ""}
+                      onClick={() => void workspace.setResearchMode(false)}
+                    >
+                      {t("researchModeOff")}
+                    </button>
+                    <button
+                      role="radio"
+                      aria-checked={workspace.researchEnabled}
+                      className={workspace.researchEnabled ? "active" : ""}
+                      onClick={() => void workspace.setResearchMode(true)}
+                    >
+                      {t("researchModeOn")}
+                    </button>
+                  </div>
+                </section>
                 <section className="preference-row">
                   <span>
                     <b>{t("appearance")}</b>
@@ -980,7 +1036,6 @@ export default function App() {
         onSessionUpdate={workspace.updateLearningSession}
         onConfirmVerification={workspace.confirmLearningVerification}
         researchEnabled={workspace.researchEnabled}
-        onToggleResearch={workspace.setResearchMode}
         onClose={closeSupportPanel}
       />
       <DeleteDialog

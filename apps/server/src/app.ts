@@ -988,6 +988,14 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       );
   });
 
+  // Topic suggestions for the start-a-session sheet: free text stays allowed, but offering
+  // what this person already used stops one subject from splitting across three spellings
+  // and quietly slicing their own statistics.
+  app.get("/api/learning/topics", async (request) => {
+    const query = request.query as { participantId?: string };
+    return { topics: learning.listTopicKeys(query.participantId || store.currentParticipantId()) };
+  });
+
   app.get("/api/learning/demo-scenarios", async (request) => {
     const locale = parseUiLocale(request.headers["accept-language"]);
     const agentAvailable = runtime.kind === "claude";

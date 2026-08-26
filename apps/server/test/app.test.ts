@@ -1317,6 +1317,36 @@ describe("learning condition assignment over HTTP", () => {
     });
   });
 
+  it("suggests the topics this participant has already used, scoped to them", async () => {
+    const { app, store, learning } = await learningApp();
+    const mine = store.createConversation("web", "\u6211\u7684", { profileId: "local-operator" });
+    learning.createSession({
+      conversationId: mine.id,
+      profileId: "local-operator",
+      goal: "\u7f13\u5b58",
+      topicKey: "computer-architecture"
+    });
+    const other = store.createParticipant("\u540c\u5b66B");
+    store.setCurrentParticipant(other.id);
+    const theirs = store.createConversation("web", "TA \u7684", { profileId: "local-operator" });
+    learning.createSession({
+      conversationId: theirs.id,
+      profileId: "local-operator",
+      goal: "\u9012\u5f52",
+      topicKey: "programming"
+    });
+
+    const scoped = await app.inject({ method: "GET", url: "/api/learning/topics?participantId=default" });
+    expect(scoped.statusCode).toBe(200);
+    expect(scoped.json().topics).toEqual(["computer-architecture"]);
+    // One person's vocabulary is never offered to another.
+    const theirTopics = await app.inject({ method: "GET", url: `/api/learning/topics?participantId=${other.id}` });
+    expect(theirTopics.json().topics).toEqual(["programming"]);
+    // With no participant given the endpoint follows whoever the workspace is currently on.
+    const current = await app.inject({ method: "GET", url: "/api/learning/topics" });
+    expect(current.json().topics).toEqual(["programming"]);
+  });
+
   it("renders the research corpus as a bilingual page whose data island cannot execute", async () => {
     const { app, store, learning } = await learningApp();
     const conversation = store.createConversation("web", "HTML 导出", { profileId: "local-operator" });

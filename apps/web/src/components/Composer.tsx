@@ -72,6 +72,7 @@ export function Composer({
   const [learningSetupOpen, setLearningSetupOpen] = useState(false);
   const [learningGoal, setLearningGoal] = useState("");
   const [learningTopic, setLearningTopic] = useState("");
+  const [topicSuggestions, setTopicSuggestions] = useState<string[]>([]);
   const [learningCondition, setLearningCondition] = useState<LearningCondition | "random">("on-call");
   const [learningBusy, setLearningBusy] = useState(false);
   const [learningDemos, setLearningDemos] = useState<LearningDemoScenarioDto[]>([]);
@@ -165,6 +166,16 @@ export function Composer({
       .then(setLearningDemos)
       .catch(() => setLearningDemos([]));
   }, [learningSetupOpen, learningSession, learningDemos.length]);
+
+  // Suggestions are fetched when the sheet opens, so a returning learner picks their existing
+  // spelling instead of inventing a third one.
+  useEffect(() => {
+    if (!learningSetupOpen || !workspace.researchEnabled) return;
+    void api
+      .learningTopics(workspace.participantId)
+      .then(setTopicSuggestions)
+      .catch(() => setTopicSuggestions([]));
+  }, [learningSetupOpen, workspace.researchEnabled, workspace.participantId]);
 
   useEffect(() => () => recognitionRef.current?.stop(), []);
 
@@ -609,15 +620,24 @@ export function Composer({
                   required
                 />
               </label>
-              <label>
-                {t("learningTopic")}
-                <input
-                  value={learningTopic}
-                  onChange={(event) => setLearningTopic(event.target.value)}
-                  placeholder={t("learningTopicPlaceholder")}
-                  maxLength={100}
-                />
-              </label>
+              {workspace.researchEnabled && (
+                <label>
+                  {t("learningTopic")}
+                  <input
+                    value={learningTopic}
+                    onChange={(event) => setLearningTopic(event.target.value)}
+                    placeholder={t("learningTopicPlaceholder")}
+                    list="learning-topic-suggestions"
+                    maxLength={100}
+                  />
+                  <datalist id="learning-topic-suggestions">
+                    {topicSuggestions.map((topic) => (
+                      <option key={topic} value={topic} />
+                    ))}
+                  </datalist>
+                  <small className="field-hint">{t("learningTopicHint")}</small>
+                </label>
+              )}
               {workspace.researchEnabled && (
                 <div className="learning-condition-picker">
                   <span>{t("learningCondition")}</span>

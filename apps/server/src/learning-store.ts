@@ -2201,6 +2201,19 @@ export class LearningStore {
     ).map((row) => this.toVerification(row));
   }
 
+  /** Topics this participant has studied before, most used first — suggestions, not a fixed set. */
+  listTopicKeys(participantId: string): string[] {
+    return (
+      this.database
+        .prepare(
+          `SELECT topic_key AS topicKey, COUNT(*) AS uses FROM learning_sessions
+             WHERE participant_id = ? AND topic_key IS NOT NULL AND TRIM(topic_key) != ''
+             GROUP BY topic_key ORDER BY uses DESC, topic_key ASC LIMIT 40`
+        )
+        .all(participantId) as Array<{ topicKey: string }>
+    ).map((row) => row.topicKey);
+  }
+
   listPracticeItems(incidentId: string): LearningPracticeItemDto[] {
     return (
       this.database
