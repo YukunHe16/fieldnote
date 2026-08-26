@@ -10,6 +10,19 @@ describe("redact", () => {
     expect(output).toContain("[REDACTED_EMAIL]");
   });
 
+  it("keeps UUID join keys intact while still scrubbing around them", () => {
+    // A UUID's digit-and-hyphen runs look like phone numbers to the patterns; mangling one
+    // sessionId breaks every cross-table reference in the research export.
+    const id = "51bb0fa0-b038-47ad-bf03-078025530b23";
+    const digitHeavy = "fc4be9e1-6abd-4441-942f-2dafaf362ff9";
+    const input = `session ${id} belongs to ${digitHeavy}; call +1 (217) 555-0100 instead.`;
+    const output = redactSensitiveText(input);
+    expect(output).toContain(id);
+    expect(output).toContain(digitHeavy);
+    expect(output).not.toContain("555-0100");
+    expect(deepRedact({ sessionId: id })).toEqual({ sessionId: id });
+  });
+
   it("never lets an API key through, whether dropped wholesale or masked", () => {
     const output = redactSensitiveText("Key: sk-ant-abc123DEF please keep");
     expect(output).not.toContain("sk-ant-abc123DEF");

@@ -1145,7 +1145,11 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     try {
       const raw = (await this.backgroundJson({
         workspacePath: input.workspacePath,
-        timeoutMs: 15_000,
+        // The first live run showed 15s losing the race against SDK cold start alone —
+        // every verdict came back as a timeout error and the fail-open made the evaluator
+        // tier a no-op. 30s stays bounded (≤2 drafts per round inside a turn that already
+        // runs minutes) while letting the judge actually judge.
+        timeoutMs: 30_000,
         schema,
         systemPrompt:
           "You review a drafted practice task before it reaches a learner. Judge only what is in front of you. Reject when: the task's premise or expected answer is wrong (correctness); the task would not discriminate the stated misconception — a learner still holding it could answer correctly (fitToHypothesis); the difficulty is clearly mismatched to the stated level (difficulty); or the task is a trivial re-skin of one of the alreadySeenByLearner texts (novelty). Approve otherwise. Give short, actionable reasons when rejecting.",
