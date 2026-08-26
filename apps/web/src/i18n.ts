@@ -234,6 +234,8 @@ const zh = {
   learningMetricsTab: "指标",
   learningMetricsScopeTopic: "本主题",
   learningMetricsScopeAll: "全部主题",
+  learningMetricsScopeHint:
+    "「本主题」只算 {topic} 的记录；「全部主题」去掉主题这一层——仍然限定在同一个助手、同一位参与者、同一类数据（真实/演示）之内。",
   learningMetricsEmpty: "还没有已关闭的学习问题",
   learningMetricsEmptyDetail: "完成几次学习回路（含用户确认）后，这里会出现按条件对比的指标。",
   learningMetricsIncidents: "已关闭问题",
@@ -247,8 +249,9 @@ const zh = {
   learningMetricsByCondition: "按研究条件对比",
   learningMetricsConditionColumn: "条件",
   learningMetricsStrategyTitle: "策略 × 结局",
-  learningMetricsCalibration: "系统判定校准",
-  learningMetricsCalibrationDetail: "横轴为系统置信度分桶，柱高为系统判定与你最终确认一致的比例；n 为样本数。",
+  learningMetricsCalibration: "系统有多确定 vs 你怎么判",
+  learningMetricsCalibrationDetail:
+    "横轴按系统当时的置信度分桶，柱高是「系统判定 = 你最终确认」的比例，n 是该桶的样本数。空心柱表示样本不足 5 条——只作记录，别当结论读。",
   learningMetricsExport: "导出研究数据（匿名化 JSON）",
   learningMetricsExportDetail: "字段说明见 docs/RESEARCH_EXPORT.md；导出前请自行复查。",
   learningEvidenceCount: "证据 {count} 条",
@@ -1115,6 +1118,8 @@ const en = {
   learningMetricsTab: "Metrics",
   learningMetricsScopeTopic: "This topic",
   learningMetricsScopeAll: "All topics",
+  learningMetricsScopeHint:
+    "\u201cThis topic\u201d counts only records under {topic}; \u201cAll topics\u201d drops the topic filter \u2014 still the same assistant, the same participant, and the same kind of data (live or demo).",
   learningMetricsEmpty: "No closed learning incidents yet",
   learningMetricsEmptyDetail: "Finish a few confirmed learning loops and condition-level comparisons will appear here.",
   learningMetricsIncidents: "Closed incidents",
@@ -1128,9 +1133,9 @@ const en = {
   learningMetricsByCondition: "By research condition",
   learningMetricsConditionColumn: "Condition",
   learningMetricsStrategyTitle: "Strategy × outcome",
-  learningMetricsCalibration: "System verdict calibration",
+  learningMetricsCalibration: "How sure the system was vs how you called it",
   learningMetricsCalibrationDetail:
-    "Bars show how often the system verdict matched your final confirmation, per confidence bucket; n is the sample count.",
+    "Bars show how often the system's verdict matched your final confirmation, bucketed by how confident it was; n is the sample count. A hollow bar means fewer than 5 samples \u2014 a record, not a result.",
   learningMetricsExport: "Export research data (anonymized JSON)",
   learningMetricsExportDetail: "Field reference: docs/RESEARCH_EXPORT.md. Review the file before sharing.",
   learningTryAnotherPrompt:

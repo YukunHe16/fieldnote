@@ -1249,11 +1249,14 @@ function formatRounds(value: number | null): string {
   return value === null ? "—" : (Math.round(value * 10) / 10).toString();
 }
 
+/** Below this many confirmed verifications a confidence bucket is a record, not a rate. */
+const CALIBRATION_MIN_N = 5;
+
 function LearningMetricsView({
   metrics,
   loading,
   scope,
-  hasTopic,
+  topicKey,
   onScope,
   researchEnabled,
   onToggleResearch,
@@ -1263,7 +1266,7 @@ function LearningMetricsView({
   loading: boolean;
   exportParticipantId?: string;
   scope: "topic" | "all";
-  hasTopic: boolean;
+  topicKey: string | null;
   onScope: (scope: "topic" | "all") => void;
   researchEnabled: boolean;
   onToggleResearch: (enabled: boolean) => Promise<boolean>;
@@ -1289,7 +1292,8 @@ function LearningMetricsView({
         ? t("learningConditionOneShot")
         : t("learningConditionMultiTurn");
   const comparableConditions = metrics?.conditions.filter((cell) => cell.incidents > 0) ?? [];
-  const calibration = (metrics?.calibration ?? []).filter((bin) => bin.count > 0);
+  const calibration = metrics?.calibration ?? [];
+  const hasCalibration = calibration.some((bin) => bin.count > 0);
   return (
     <div className="learning-metrics">
       <div className="learning-research-toggle">
@@ -1303,20 +1307,23 @@ function LearningMetricsView({
         </label>
         <small>{t("researchModeHint")}</small>
       </div>
-      {hasTopic && (
-        <div className="learning-metrics-scope" role="radiogroup" aria-label={t("learningMetricsTab")}>
-          {(["topic", "all"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="radio"
-              aria-checked={scope === option}
-              className={scope === option ? "is-selected" : ""}
-              onClick={() => onScope(option)}
-            >
-              {option === "topic" ? t("learningMetricsScopeTopic") : t("learningMetricsScopeAll")}
-            </button>
-          ))}
+      {topicKey && (
+        <div className="learning-metrics-scope-row">
+          <div className="learning-metrics-scope" role="radiogroup" aria-label={t("learningMetricsTab")}>
+            {(["topic", "all"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={scope === option}
+                className={scope === option ? "is-selected" : ""}
+                onClick={() => onScope(option)}
+              >
+                {option === "topic" ? t("learningMetricsScopeTopic") : t("learningMetricsScopeAll")}
+              </button>
+            ))}
+          </div>
+          <small>{t("learningMetricsScopeHint", { topic: topicKey })}</small>
         </div>
       )}
       {loading ? (
@@ -1418,29 +1425,52 @@ function LearningMetricsView({
               </table>
             </section>
           )}
-          {calibration.length > 0 && (
+          {hasCalibration && (
             <section className="learning-metrics-section">
               <h4>{t("learningMetricsCalibration")}</h4>
               <svg
                 className="learning-calibration-chart"
-                viewBox={`0 0 ${calibration.length * 64 + 8} 96`}
+                viewBox="0 0 240 86"
+                preserveAspectRatio="xMidYMid meet"
                 role="img"
                 aria-label={t("learningMetricsCalibration")}
               >
                 {calibration.map((bin, index) => {
-                  const rate = bin.agreementRate ?? 0;
-                  const height = Math.max(2, Math.round(rate * 64));
+                  const slot = 240 / calibration.length;
+                  const cx = index * slot + slot / 2;
+                  const width = Math.min(28, slot - 12);
+                  const rate = bin.agreementRate;
+                  const height = rate === null ? 0 : Math.max(2, Math.round(rate * 56));
+                  // A bucket holding one or two verifications is a record, not a rate.
+                  // Hollow bars keep it from being read as a result.
+                  const sparse = bin.count > 0 && bin.count < CALIBRATION_MIN_N;
+                  const onBar = height > 40;
                   return (
-                    <g key={bin.lower} transform={`translate(${index * 64 + 8}, 0)`}>
-                      <rect className="calibration-track" x={8} y={8} width={40} height={64} rx={4} />
-                      <rect className="calibration-bar" x={8} y={8 + (64 - height)} width={40} height={height} rx={4} />
-                      <text className="calibration-value" x={28} y={Math.max(18, 8 + (64 - height) - 3)}>
-                        {Math.round(rate * 100)}%
-                      </text>
-                      <text className="calibration-label" x={28} y={84}>
+                    <g key={bin.lower}>
+                      <rect className="calibration-track" x={cx - width / 2} y={6} width={width} height={56} rx={3} />
+                      {rate !== null && (
+                        <rect
+                          className={sparse ? "calibration-bar is-sparse" : "calibration-bar"}
+                          x={cx - width / 2}
+                          y={6 + (56 - height)}
+                          width={width}
+                          height={height}
+                          rx={3}
+                        />
+                      )}
+                      {rate !== null && (
+                        <text
+                          className={onBar && !sparse ? "calibration-value on-bar" : "calibration-value"}
+                          x={cx}
+                          y={onBar ? 18 : 6 + (56 - height) - 3}
+                        >
+                          {Math.round(rate * 100)}%
+                        </text>
+                      )}
+                      <text className="calibration-label" x={cx} y={74}>
                         {bin.lower.toFixed(1)}–{bin.upper.toFixed(1)}
                       </text>
-                      <text className="calibration-count" x={28} y={94}>
+                      <text className="calibration-count" x={cx} y={84}>
                         n={bin.count}
                       </text>
                     </g>
@@ -1452,25 +1482,27 @@ function LearningMetricsView({
           )}
           {researchEnabled && (
             <section className="learning-metrics-section">
-              <a
-                className="learning-metrics-export"
-                href={`/api/learning/export?includeMessages=true${
-                  exportParticipantId ? `&participantId=${encodeURIComponent(exportParticipantId)}` : ""
-                }`}
-                download
-              >
-                {t("learningMetricsExport")}
-              </a>
-              <a
-                className="learning-metrics-export"
-                href={`/api/learning/export/html${
-                  exportParticipantId ? `?participantId=${encodeURIComponent(exportParticipantId)}` : ""
-                }`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t("learningMetricsExportHtml")}
-              </a>
+              <div className="learning-metrics-exports">
+                <a
+                  className="learning-metrics-export"
+                  href={`/api/learning/export?includeMessages=true${
+                    exportParticipantId ? `&participantId=${encodeURIComponent(exportParticipantId)}` : ""
+                  }`}
+                  download
+                >
+                  {t("learningMetricsExport")}
+                </a>
+                <a
+                  className="learning-metrics-export"
+                  href={`/api/learning/export/html${
+                    exportParticipantId ? `?participantId=${encodeURIComponent(exportParticipantId)}` : ""
+                  }`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("learningMetricsExportHtml")}
+                </a>
+              </div>
               <small>{t("learningMetricsExportDetail")}</small>
             </section>
           )}
@@ -1847,7 +1879,7 @@ function LearningPanel({
             metrics={metrics}
             loading={loadingMetrics}
             scope={metricsScope}
-            hasTopic={Boolean(session.topicKey)}
+            topicKey={session.topicKey}
             onScope={setMetricsScope}
             researchEnabled={researchEnabled}
             onToggleResearch={onToggleResearch}
