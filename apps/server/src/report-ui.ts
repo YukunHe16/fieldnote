@@ -156,6 +156,53 @@ export const LEXICON = {
   }
 } as const;
 
+/**
+ * Plain-language glosses for the learner's own report. `LEXICON` holds the research
+ * vocabulary a codebook can be written against; these say the same thing to the person who
+ * just finished the loop. A student should never have to learn our enum names to read their
+ * own page, so the report leads with these and keeps the formal term as a quiet second chip.
+ */
+export const PLAIN = {
+  difficultyType: {
+    planning_gap: bi("不知道从哪儿下手", "Not sure where to start"),
+    conceptual_misconception: bi("有个概念理解反了", "A concept was understood backwards"),
+    procedural_gap: bi("步骤会漏掉或做错", "A step kept going wrong"),
+    feedback_uncertainty: bi("拿不准自己做得对不对", "Hard to tell if your own answer was right"),
+    prerequisite_gap: bi("前面的基础没跟上", "An earlier building block was missing"),
+    other: bi("别的原因", "Something else")
+  },
+  strategy: {
+    socratic_question: bi("用问题带你自己想出来", "Asked questions until you got there"),
+    conceptual_hint: bi("给你一句关键提示", "Gave you one key hint"),
+    contrastive_example: bi("拿两个例子做对比", "Put two examples side by side"),
+    worked_example: bi("完整演一遍给你看", "Worked one all the way through"),
+    analogical_example: bi("换个你熟悉的东西打比方", "Used something familiar as an analogy"),
+    direct_explanation: bi("直接讲清楚", "Just explained it"),
+    evidence_check: bi("回去核对原始材料", "Went back and checked the source"),
+    abstain_escalate: bi("交给真人", "Handed it to a person")
+  },
+  method: {
+    self_explanation: bi("让你自己讲一遍", "Asked you to explain it back"),
+    transfer_example: bi("换个新情境再做一题", "A fresh problem in a new setting"),
+    prediction: bi("先让你猜结果", "Asked you to predict the result"),
+    comparison: bi("让你比较两种情况", "Asked you to compare two cases"),
+    user_report: bi("直接问你会没会", "Just asked how it felt")
+  },
+  gate: {
+    programmatic: bi("题面里夹带了答案", "The task gave its own answer away"),
+    novelty: bi("跟你做过的题太像", "Too close to something you had already seen"),
+    evaluator: bi("另一个 AI 审下来觉得不合格", "A second AI reviewer turned it down"),
+    none: bi("三关都过了", "Cleared all three checks")
+  }
+} as const;
+
+/** Plain wording where we have it, the research label where we do not. */
+export function plain(group: keyof typeof PLAIN, code: string | null | undefined): Bi {
+  if (!code) return bi("—", "—");
+  const table = PLAIN[group] as Record<string, Bi | undefined>;
+  return table[code] ?? label(group as LexiconGroup, code);
+}
+
 export type LexiconGroup = keyof typeof LEXICON;
 
 /** Look a code up in the lexicon, falling back to the raw code so new enum values still read. */

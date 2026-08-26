@@ -93,7 +93,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 var(--gutter) 5rem; }
 .thesis .typelegend .rec { color: var(--ink); }
 .overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; margin: 1.5rem 0; overflow: hidden; }
 .card { background: var(--panel); padding: .9rem 1.1rem 1.1rem; display: flex; flex-direction: column; }
-.card svg { margin-top: auto; }
+.card svg { margin-top: .2rem; }
 .legend { display: grid; grid-template-columns: auto 1fr; gap: .3rem .55rem; align-items: center; font-size: .72rem; margin-top: .1rem; }
 .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; }
 .legend .hollow { border: 1.5px solid var(--tag); background: transparent; }
@@ -235,15 +235,17 @@ const UI_STRINGS = {
     emptyTitle: "没有符合条件的回路。",
     emptyHint: "放宽筛选，或清空后重看全部。",
     chartOutcome: "结果 × 条件",
-    chartOutcomeHint: "自适应回路与两个对照的收尾情况",
-    chartRounds: "收敛轮次",
-    chartRoundsHint: "已收尾的回路各花了几轮教学",
-    chartGates: "草稿死在哪道门",
-    chartGatesHint: "三道门各拦下多少份草稿",
-    chartNovelty: "查重分分布",
-    chartNoveltyHint: "每份草稿与学习者已见文本的最高相似度；0.6 以上硬拒",
-    chartStrategy: "讲法 × 结果",
-    chartStrategyHint: "按学习者确认的结果统计，只算已确认的",
+    chartOutcomeHint: "自适应回路与两个对照，各自收尾成什么样",
+    chartRounds: "几轮讲明白",
+    chartRoundsHint: "已经收尾的回路，各花了几轮教学",
+    chartGates: "草稿卡在哪一关",
+    chartGatesHint: "三关各拦下多少道题；「三门全过」是全部通过的",
+    chartNovelty: "新题有多新",
+    chartNoveltyHint: "每一点是一道草稿：越靠左越不像学习者做过的题；越过 0.6 就当成旧题直接拒",
+    chartStrategy: "哪种讲法管用",
+    chartStrategyHint: "只统计学习者已经确认过结果的回路",
+    noveltyLow: "← 全新",
+    noveltyHigh: "越像旧题 →",
     noData: "还没有数据",
     rounds: "{n} 轮",
     roundNo: "第 {n} 轮",
@@ -356,15 +358,17 @@ const UI_STRINGS = {
     emptyHint: "Loosen a filter, or clear them to see everything.",
     chartOutcome: "Outcome × condition",
     chartOutcomeHint: "How loops ended in the adaptive arm and the two baselines",
-    chartRounds: "Rounds to close",
+    chartRounds: "How many rounds it took",
     chartRoundsHint: "Teaching rounds spent on each closed loop",
-    chartGates: "Where drafts died",
-    chartGatesHint: "Drafts stopped by each of the three gates",
-    chartNovelty: "Novelty spread",
+    chartGates: "Which check stopped it",
+    chartGatesHint: "Drafts stopped by each of the three checks; \u201cpassed all three\u201d cleared them",
+    chartNovelty: "How new each question was",
     chartNoveltyHint:
-      "Each draft's highest similarity to text the learner has already seen; above 0.6 is a hard reject",
-    chartStrategy: "Move × outcome",
-    chartStrategyHint: "By the learner's confirmed verdict; unconfirmed loops are not counted",
+      "Each dot is one draft: further left means less like anything the learner has done. Past 0.6 it counts as a repeat and is rejected",
+    chartStrategy: "Which move worked",
+    chartStrategyHint: "Only loops the learner has already confirmed are counted",
+    noveltyLow: "\u2190 brand new",
+    noveltyHigh: "more like a repeat \u2192",
     noData: "Nothing recorded yet",
     rounds: "rounds: {n}",
     roundNo: "round {n}",
@@ -683,22 +687,26 @@ const CORPUS_JS = `
   }
   function stripPlot(points) {
     if (!points.length) return noData();
-    var W = 320, H = 86, x0 = 14, x1 = W - 10;
+    var W = 320, H = 92, x0 = 16, x1 = W - 12, axis = 62;
     var svg = sv("svg", { viewBox: "0 0 " + W + " " + H, role: "img" });
-    svg.appendChild(sv("line", { x1: x0, y1: 62, x2: x1, y2: 62, class: "s-rule", "stroke-width": "1" }));
     var tx = x0 + 0.6 * (x1 - x0);
-    svg.appendChild(sv("line", { x1: tx, y1: 8, x2: tx, y2: 62, class: "s-tag", "stroke-width": "1", "stroke-dasharray": "3 3" }));
+    // Shading the reject side means the reader never has to hold "above 0.6 is bad" in mind.
+    svg.appendChild(sv("rect", { x: tx, y: 8, width: x1 - tx, height: axis - 8, class: "f-tag", "fill-opacity": "0.09" }));
+    svg.appendChild(sv("line", { x1: x0, y1: axis, x2: x1, y2: axis, class: "s-rule", "stroke-width": "1" }));
+    svg.appendChild(sv("line", { x1: tx, y1: 8, x2: tx, y2: axis, class: "s-tag", "stroke-width": "1", "stroke-dasharray": "3 3" }));
     svg.appendChild(sv("text", { x: tx + 3, y: 14, class: "tick-label" }, "0.6"));
     points.forEach(function (p, i) {
       var cx = x0 + Math.max(0, Math.min(1, p.v)) * (x1 - x0);
-      var cy = 20 + ((i * 13) % 38);
-      var dot = sv("circle", { cx: cx, cy: cy, r: 3, class: p.rejected ? "f-tag" : "f-pen", "fill-opacity": p.rejected ? "0.45" : "0.75" });
+      var cy = 22 + ((i * 11) % 34);
+      var dot = sv("circle", { cx: cx, cy: cy, r: 3.2, class: p.rejected ? "f-tag" : "f-pen", "fill-opacity": p.rejected ? "0.5" : "0.8" });
       dot.appendChild(sv("title", {}, p.title));
       svg.appendChild(dot);
     });
-    ["0", "0.5", "1"].forEach(function (t, i) {
-      svg.appendChild(sv("text", { x: x0 + [0, 0.5, 1][i] * (x1 - x0), y: 74, "text-anchor": "middle", class: "tick-label" }, t));
+    [0, 0.5, 1].forEach(function (v) {
+      svg.appendChild(sv("text", { x: x0 + v * (x1 - x0), y: 73, "text-anchor": "middle", class: "tick-label" }, String(v)));
     });
+    svg.appendChild(sv("text", { x: x0, y: 86, "text-anchor": "start", class: "tick-label" }, T("noveltyLow")));
+    svg.appendChild(sv("text", { x: x1, y: 86, "text-anchor": "end", class: "tick-label" }, T("noveltyHigh")));
     return svg;
   }
   function renderCharts(rows) {
@@ -772,15 +780,16 @@ const CORPUS_JS = `
       T("rejected", { n: loop.rejected.length }), L("outcome", loop.outcome)].join(" \\u00b7 ");
   }
   function spine(loop) {
-    var base = 52, x0 = 44, xEnd = 660, trackA = 90, trackB = 480;
+    var base = 52, x0 = 44, xEnd = 660;
     var svg = sv("svg", { viewBox: "0 0 720 100", class: "spine", preserveAspectRatio: "xMidYMid meet", role: "img", "aria-label": spineSummary(loop) });
     svg.appendChild(sv("title", {}, spineSummary(loop)));
     svg.appendChild(sv("line", { x1: x0, y1: base, x2: xEnd, y2: base, class: "s-rule", "stroke-width": "2" }));
     svg.appendChild(sv("rect", { x: x0 - 4, y: base - 4, width: 8, height: 8, class: "f-pen" }));
     var ivs = loop.interventions, n = ivs.length;
-    var step = n > 1 ? Math.min(200, (trackB - trackA) / (n - 1)) : 0;
+    // Rounds spread evenly between "noticed" and the verdict, so a one-round loop does not
+    // leave most of the track empty.
     var xs = [];
-    for (var i = 0; i < n; i += 1) xs.push(trackA + i * step);
+    for (var i = 0; i < n; i += 1) xs.push(x0 + ((i + 1) * (xEnd - x0)) / (n + 1));
     ivs.forEach(function (iv, i) {
       var x = xs[i];
       svg.appendChild(sv("path", { d: "M" + x + " " + (base - 6) + "L" + (x + 6) + " " + base + "L" + x + " " + (base + 6) + "L" + (x - 6) + " " + base + "Z", class: "f-pen" }));
@@ -793,7 +802,7 @@ const CORPUS_JS = `
     Object.keys(byRound).forEach(function (round) {
       var group = byRound[round];
       var idx = Math.max(0, Math.min(xs.length - 1, Number(round) - 1));
-      var mx = xs.length ? xs[idx] : trackA;
+      var mx = xs.length ? xs[idx] : (x0 + xEnd) / 2;
       group.forEach(function (d, j) {
         var x = mx + (j - (group.length - 1) / 2) * 10;
         var h = Math.max(2.5, Math.min(1, d.noveltyScore) * 30);

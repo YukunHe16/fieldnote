@@ -1412,10 +1412,11 @@ describe("learning condition assignment over HTTP", () => {
     // The learner's own verdict is the headline, in both languages.
     expect(report.body).toContain("你说你学会了");
     expect(report.body).toContain("You said you had it");
-    // The rejected draft is part of the record, labelled by the gate that stopped it.
+    // The rejected draft is part of the record, and the report says in the learner's own
+    // words which check stopped it — not the enum name.
     expect(report.body).toContain("跟你刚做过的那题几乎一样的题面");
-    expect(report.body).toContain("0.810");
-    expect(report.body).toContain("查重门");
+    expect(report.body).toContain("跟你见过的题像 81%");
+    expect(report.body).toContain("跟你做过的题太像");
     // Learner-authored text is escaped, never executed.
     expect(report.body).toContain("&lt;script&gt;alert(2)&lt;/script&gt;");
     expect(report.body).not.toContain("<script>alert(2)</script>");

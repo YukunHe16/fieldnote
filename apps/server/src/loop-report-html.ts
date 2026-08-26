@@ -8,6 +8,7 @@ import {
   LANG_SWITCH_HTML,
   LANG_SWITCH_JS,
   label,
+  plain,
   stamp
 } from "./report-ui.js";
 
@@ -47,13 +48,14 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
       return `<li class="round">
         <div class="round-head">
           <span class="eyebrow rec">${escapeHtml(String(item.round))}</span>
-          ${chip(label("strategy", item.strategy), "chip-pen")}
+          <b class="round-move">${biSpan(plain("strategy", item.strategy))}</b>
+          ${chip(label("strategy", item.strategy), "")}
           ${variant ? `<span class="chip">${escapeHtml(variant.title)}</span>` : ""}
         </div>
         <p class="prose">${escapeHtml(item.rationale)}</p>
         ${
           item.expectedSignal
-            ? `<p class="aside">${biSpan(bi("想看到的信号", "Signal it was watching for"))}：<span class="prose">${escapeHtml(item.expectedSignal)}</span></p>`
+            ? `<p class="aside">${biSpan(bi("这么讲之后，导师想听你说出", "What it hoped to hear from you next"))}：<span class="prose">${escapeHtml(item.expectedSignal)}</span></p>`
             : ""
         }
       </li>`;
@@ -72,10 +74,16 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
       return `<li class="draft ${passed ? "passed" : "stopped"}">
         <div class="draft-head">
           ${chip(bi(`第 ${item.round} 轮`, `Round ${item.round}`), "")}
-          ${chip(label("practiceStatus", item.status), passed ? "chip-moss" : "chip-tag")}
-          ${chip(label("gate", item.gate), passed ? "chip-moss" : "chip-tag")}
-          ${chip(bi(`查重分 ${item.noveltyScore.toFixed(3)}`, `Novelty ${item.noveltyScore.toFixed(3)}`), item.gate === "novelty" ? "chip-tag" : "")}
-          ${chip(label("method", item.method), "")}
+          ${chip(plain("gate", item.gate), passed ? "chip-moss" : "chip-tag")}
+          ${chip(
+            bi(
+              `跟你见过的题像 ${Math.round(item.noveltyScore * 100)}%`,
+              `${Math.round(item.noveltyScore * 100)}% like something you had seen`
+            ),
+            item.gate === "novelty" ? "chip-tag" : ""
+          )}
+          ${chip(plain("method", item.method), "")}
+          ${passed ? chip(label("practiceStatus", item.status), "") : ""}
         </div>
         <p class="prose task">${escapeHtml(item.taskText)}</p>
         ${
@@ -84,7 +92,7 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
             : ""
         }
         ${reasons ? `<p class="why prose">${escapeHtml(reasons)}</p>` : ""}
-        ${failedOpen ? `<p class="aside">${biSpan(bi("评审员当时没能答复，按放行处理。", "The reviewer did not answer in time, so the draft was let through."))}</p>` : ""}
+        ${failedOpen ? `<p class="aside">${biSpan(bi("第三关的 AI 审稿当时没答上来，这道题按放行处理。", "The third check timed out, so this one was let through."))}</p>` : ""}
       </li>`;
     })
     .join("");
@@ -94,29 +102,29 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
       const decided = entry.finalVerdict;
       return `<li class="check">
         <div class="draft-head">
-          ${chip(label("method", entry.method), "")}
+          ${chip(plain("method", entry.method), "chip-pen")}
           ${
             entry.practiceItemId
-              ? chip(bi("题面逐字来自过审题记", "Text copied verbatim from an approved draft"), "chip-moss")
-              : chip(bi("散文式检查", "Prose check"), "")
+              ? chip(bi("就是上面审过的那道题，一个字没改", "The approved task above, word for word"), "chip-moss")
+              : chip(bi("直接在对话里问的", "Asked in conversation"), "")
           }
           <span class="eyebrow rec">${escapeHtml(stamp(entry.createdAt))}</span>
         </div>
         <p class="prose task">${escapeHtml(entry.prompt)}</p>
         ${
           entry.rubric
-            ? `<details class="sketch"><summary>${biSpan(bi("评判标准", "Rubric"))}</summary><p class="prose">${escapeHtml(entry.rubric)}</p></details>`
+            ? `<details class="sketch"><summary>${biSpan(bi("怎么算答对", "What counted as right"))}</summary><p class="prose">${escapeHtml(entry.rubric)}</p></details>`
             : ""
         }
         <div class="verdicts">
           <div class="verdict proposed">
-            <span class="eyebrow">${biSpan(bi("系统的提议", "The system proposed"))}</span>
+            <span class="eyebrow">${biSpan(bi("系统觉得", "The system thought"))}</span>
             <b>${entry.systemVerdict ? biSpan(label("outcome", entry.systemVerdict)) : "—"}</b>
             ${entry.systemConfidence === null ? "" : `<small class="rec">${escapeHtml(String(entry.systemConfidence))}</small>`}
           </div>
           <div class="verdict decided ${decided ? `tone-${decided === "resolved" ? "moss" : decided === "partial" ? "pen" : "rust"}` : ""}">
-            <span class="eyebrow">${biSpan(bi("你的决定", "You decided"))}</span>
-            <b>${decided ? biSpan(label("outcome", decided)) : biSpan(bi("还没确认", "Not confirmed yet"))}</b>
+            <span class="eyebrow">${biSpan(bi("你说", "You said"))}</span>
+            <b>${decided ? biSpan(label("outcome", decided)) : biSpan(bi("还没回答", "Not answered yet"))}</b>
             ${entry.confirmedAt ? `<small class="rec">${escapeHtml(stamp(entry.confirmedAt))}</small>` : ""}
           </div>
         </div>
@@ -136,11 +144,14 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
 </header>
 <main>
   <section class="hero tone-${tone}">
-    <p class="eyebrow rec">${escapeHtml(stamp(incident.closedAt ?? last?.confirmedAt ?? incident.updatedAt))} · ${escapeHtml(session.participantId)} · ${biSpan(label("condition", session.condition))}</p>
+    <p class="eyebrow rec">${escapeHtml(stamp(incident.closedAt ?? last?.confirmedAt ?? incident.updatedAt))}</p>
     ${biSpan(headline, "h1")}
     <p class="lede prose">${escapeHtml(incident.hypothesis)}</p>
     <div class="spine-wrap">${spineSvg(report, verdict)}</div>
-    <p class="spine-key">${biSpan(bi("线上方是每一轮讲法，线下方每一根是为你起草的一道题——高度就是查重分，空心的那些被门拦下了，你没见过。", "Above the line, each teaching round. Below it, each practice task drafted for you — bar height is the novelty score, and the hollow ones were stopped by a gate before they ever reached you."))}</p>
+    <ul class="spine-key">
+      <li>${biSpan(bi("■ 发现你卡住了 → ◆ 每换一种讲法就是一个菱形 → ● 最后你自己怎么判", "■ noticed you were stuck → ◆ one diamond per teaching move → ● how you finally called it"))}</li>
+      <li>${biSpan(bi("线下方每一根小柱＝为你写的一道题；越高说明越像你做过的题，空心的那些没通过检查，你从没见过。", "Each small bar below the line is one question written for you. Taller means more like something you had already done; the hollow ones failed a check and never reached you."))}</li>
+    </ul>
   </section>
 
   <section class="block">
@@ -150,19 +161,32 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
   </section>
 
   <section class="block">
-    ${biSpan(bi("卡在哪", "Where it stuck"), "h2")}
+    ${biSpan(bi("你卡在哪", "Where you got stuck"), "h2")}
+    <p class="prose lead-plain">${biSpan(plain("difficultyType", incident.difficultyType))}</p>
     <div class="draft-head">
-      ${chip(label("difficultyType", incident.difficultyType), "chip-pen")}
-      ${chip(bi(`置信度 ${Math.round(incident.confidence * 100)}%`, `${Math.round(incident.confidence * 100)}% confidence`), "")}
-      ${chip(bi(`${incident.evidenceMessageIds.length} 条对话证据`, `evidence: ${incident.evidenceMessageIds.length}`), "")}
+      ${chip(
+        bi(
+          `导师有 ${Math.round(incident.confidence * 100)}% 把握是这个`,
+          `The tutor was ${Math.round(incident.confidence * 100)}% sure of this`
+        ),
+        ""
+      )}
+      ${chip(
+        bi(
+          `依据你说过的 ${incident.evidenceMessageIds.length} 句话`,
+          `Based on ${incident.evidenceMessageIds.length} thing(s) you said`
+        ),
+        ""
+      )}
+      ${chip(label("difficultyType", incident.difficultyType), "")}
     </div>
-    <p class="aside">${biSpan(bi("上面那句就是导师读你的对话得出的判断，不是定论——所以最后由你确认。", "The sentence at the top is the tutor's read of your conversation, not a fact — which is why you get the last word."))}</p>
+    <p class="aside">${biSpan(bi("这是导师读你的对话猜出来的，不一定准——所以学没学会，最后由你自己说。", "The tutor worked this out from your conversation; it can be wrong. That is why whether you learned it is yours to say."))}</p>
   </section>
 
   ${
     interventions.length
       ? `<section class="block">
-    ${biSpan(bi("试了哪些讲法", "What was tried"), "h2")}
+    ${biSpan(bi("导师试了什么办法", "What the tutor tried"), "h2")}
     <ol class="rounds">${rounds}</ol>
   </section>`
       : ""
@@ -171,16 +195,16 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
   ${
     practiceItems.length
       ? `<section class="block">
-    ${biSpan(bi("为你出的题", "The tasks drafted for you"), "h2")}
+    ${biSpan(bi("给你出的题", "The questions written for you"), "h2")}
     <p class="aside">${biSpan(
       rejected.length
         ? bi(
-            `起草 ${practiceItems.length} 道，其中 ${rejected.length} 道被门拦下、没发给你。被拦下的也留在这里——它们是三道门在干活的证据。`,
-            `${practiceItems.length} drafted, ${rejected.length} stopped before reaching you. The stopped ones stay in the record: they are the evidence the three gates do their job.`
+            `一共写了 ${practiceItems.length} 道，其中 ${rejected.length} 道没通过检查、没发给你。没通过的也列在下面，你可以看到把关是真的在做。`,
+            `${practiceItems.length} questions were written, and ${rejected.length} failed a check and never reached you. The failed ones are listed too, so you can see the checks are real.`
           )
         : bi(
-            `起草 ${practiceItems.length} 道，三道门全部放行。被拦下的草稿也会留在这里，这次没有。`,
-            `${practiceItems.length} drafted, and all three gates let them through. Stopped drafts would be listed here too; this loop had none.`
+            `一共写了 ${practiceItems.length} 道，全部通过了检查。没通过的也会列在这里，这次一道都没有。`,
+            `${practiceItems.length} questions were written and all of them passed. Failed ones would be listed here too; this time there were none.`
           )
     )}</p>
     <ul class="drafts">${drafts}</ul>
@@ -191,7 +215,7 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
   ${
     verifications.length
       ? `<section class="block">
-    ${biSpan(bi("检查题，和你的判断", "The check, and your call"), "h2")}
+    ${biSpan(bi("最后那道题，和你的答复", "The last question, and your answer"), "h2")}
     <ul class="checks">${checks}</ul>
   </section>`
       : ""
@@ -201,7 +225,9 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
 
   <footer class="foot">
     <p class="aside">${biSpan(bi("这份报告只写这一次学习，由本机数据生成，从未上传。文字与研究导出经过同一套脱敏；分享前请自行复查。", "This report covers this one loop, is generated from data on this machine, and is never uploaded. Its text is redacted the same way the research export is — read it once before sharing."))}</p>
-    <p class="aside rec">${escapeHtml(`${incident.id} · ${stamp(meta.generatedAt)}`)}</p>
+    <p class="aside rec">${escapeHtml(
+      `${incident.id} · ${session.participantId} · ${session.condition} · ${session.datasetKind} · ${stamp(meta.generatedAt)}`
+    )}</p>
   </footer>
 </main>`;
 
@@ -233,7 +259,7 @@ function nextSection(report: LearningLoopReportDto, verdict: string): string {
     const done = task.status === "fired" || task.status === "completed";
     items.push(
       `<li>${chip(label("reviewStatus", task.status), done ? "chip-pen" : "")} ${biSpan(
-        bi(`第 ${task.round} 次间隔回访 · ${when}`, `Spaced revisit ${task.round} · ${when}`)
+        bi(`第 ${task.round} 次回访 · ${when}`, `Revisit ${task.round} · ${when}`)
       )}</li>`
     );
   }
@@ -255,6 +281,11 @@ function nextSection(report: LearningLoopReportDto, verdict: string): string {
   return `<section class="block">
     ${biSpan(bi("接下来", "What happens next"), "h2")}
     <ul class="next">${items.join("")}</ul>
+    ${
+      reviewTasks.length
+        ? `<p class="aside">${biSpan(bi("学会之后过一阵，导师会回到这个对话再出一道新情境的题——看你是真的懂了，还是当时刚好记着。", "A while after you learn something, the tutor comes back to this thread with the same idea in a new setting — to see whether you understood it or just remembered it that day."))}</p>`
+        : ""
+    }
   </section>`;
 }
 
@@ -263,20 +294,17 @@ function spineSvg(report: LearningLoopReportDto, verdict: string): string {
   const base = 52;
   const x0 = 44;
   const xEnd = 660;
-  const trackA = 90;
-  const trackB = 480;
   const parts: string[] = [];
   parts.push(`<line x1="${x0}" y1="${base}" x2="${xEnd}" y2="${base}" class="s-rule" stroke-width="2" />`);
   parts.push(`<rect x="${x0 - 4}" y="${base - 4}" width="8" height="8" class="f-pen" />`);
 
   const rounds = report.interventions;
-  const step = rounds.length > 1 ? Math.min(200, (trackB - trackA) / (rounds.length - 1)) : 0;
-  const xs = rounds.map((_, index) => trackA + index * step);
+  const xs = rounds.map((_, index) => x0 + ((index + 1) * (xEnd - x0)) / (rounds.length + 1));
   rounds.forEach((item, index) => {
     const x = xs[index]!;
     parts.push(
       `<path d="M${x} ${base - 6}L${x + 6} ${base}L${x} ${base + 6}L${x - 6} ${base}Z" class="f-pen" />`,
-      svgBiText(label("strategy", item.strategy), x, base - 13)
+      svgBiText(plain("strategy", item.strategy), x, base - 13)
     );
   });
 
@@ -289,7 +317,7 @@ function spineSvg(report: LearningLoopReportDto, verdict: string): string {
   const tickXs: number[] = [];
   for (const [round, group] of byRound) {
     const index = Math.max(0, Math.min(xs.length - 1, round - 1));
-    const mx = xs.length ? xs[index]! : trackA;
+    const mx = xs.length ? xs[index]! : (x0 + xEnd) / 2;
     group.forEach((item, position) => {
       const x = mx + (position - (group.length - 1) / 2) * 10;
       const height = Math.max(2.5, Math.min(1, item.noveltyScore) * 30);
@@ -371,7 +399,10 @@ main { max-width: 780px; margin: 0 auto; padding: 0 var(--gutter) 5rem; }
 .hero .lede { margin: 0 0 1.25rem; font-size: 1.05rem; color: var(--dust); max-width: 58ch; }
 .spine-wrap { overflow-x: auto; }
 .spine { display: block; width: 100%; min-width: 640px; max-width: 720px; height: auto; }
-.spine-key { margin: .4rem 0 0; font-size: .74rem; color: var(--dust); max-width: 62ch; }
+.spine-key { list-style: none; margin: .5rem 0 0; padding: 0; font-size: .74rem; color: var(--dust); max-width: 64ch; }
+.spine-key li { margin: .18rem 0; }
+.lead-plain { margin: 0 0 .5rem; font-size: 1.02rem; font-weight: 600; }
+.round-move { font-size: .92rem; }
 .tick-label { font-family: var(--mono); font-size: 8.5px; fill: var(--dust); }
 .f-moss { fill: var(--moss); } .f-pen { fill: var(--pen); } .f-rust { fill: var(--rust); } .f-tag { fill: var(--tag); }
 .s-tag { stroke: var(--tag); } .s-rule { stroke: var(--rule); } .s-pen { stroke: var(--pen); }
