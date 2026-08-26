@@ -97,6 +97,7 @@ export interface LearningSessionDto {
   id: string;
   conversationId: string;
   profileId: string;
+  participantId: string;
   goal: string;
   topicKey: string | null;
   status: LearningSessionStatus;
@@ -168,6 +169,7 @@ export interface LearningExperienceDto {
   verificationId: string;
   incidentId: string;
   profileId: string;
+  participantId: string;
   topicKey: string | null;
   difficultyType: LearningDifficultyType;
   strategy: LearningInterventionStrategy;
@@ -187,6 +189,7 @@ export type LearningVariantStatus = "pending" | "trial" | "enabled" | "rejected"
 export interface LearningStrategyVariantDto {
   id: string;
   profileId: string;
+  participantId: string;
   topicKey: string;
   difficultyType: LearningDifficultyType;
   baseStrategy: LearningInterventionStrategy;
@@ -206,6 +209,7 @@ export interface LearningStrategyVariantDto {
 interface VariantRow {
   id: string;
   profile_id: string;
+  participant_id: string;
   topic_key: string;
   difficulty_type: string;
   base_strategy: string;
@@ -225,6 +229,7 @@ interface VariantRow {
 export interface LearningPolicyRevisionDto {
   id: string;
   profileId: string;
+  participantId: string;
   topicKey: string | null;
   difficultyType: LearningDifficultyType;
   datasetKind: LearningEvolvingDatasetKind;
@@ -297,6 +302,7 @@ export type LearningPracticeItemStatus = "approved" | "rejected" | "consumed" | 
 export interface LearningPracticeItemDto {
   id: string;
   incidentId: string;
+  participantId: string;
   round: number;
   source: "tutor" | "review";
   status: LearningPracticeItemStatus;
@@ -332,6 +338,7 @@ export interface LearningReviewTask {
   sessionId: string;
   conversationId: string;
   profileId: string;
+  participantId: string;
   round: 1 | 2;
   dueAt: number;
   status: LearningReviewStatus;
@@ -344,6 +351,7 @@ interface ReviewTaskRow {
   session_id: string;
   conversation_id: string;
   profile_id: string;
+  participant_id: string;
   round: number;
   due_at: number;
   status: string;
@@ -357,6 +365,7 @@ function toReviewTask(row: ReviewTaskRow): LearningReviewTask {
     sessionId: row.session_id,
     conversationId: row.conversation_id,
     profileId: row.profile_id,
+    participantId: row.participant_id ?? "default",
     round: row.round === 2 ? 2 : 1,
     dueAt: row.due_at,
     status:
@@ -371,6 +380,7 @@ CREATE TABLE IF NOT EXISTS ${name} (
   verification_id TEXT NOT NULL UNIQUE REFERENCES learning_verifications(id) ON DELETE CASCADE,
   incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
   profile_id TEXT NOT NULL,
+  participant_id TEXT NOT NULL DEFAULT 'default',
   topic_key TEXT NOT NULL DEFAULT '',
   difficulty_type TEXT NOT NULL CHECK (difficulty_type IN ('planning_gap', 'conceptual_misconception', 'procedural_gap', 'feedback_uncertainty', 'prerequisite_gap', 'other')),
   strategy TEXT NOT NULL CHECK (strategy IN ('socratic_question', 'conceptual_hint', 'contrastive_example', 'worked_example', 'analogical_example', 'direct_explanation', 'evidence_check', 'abstain_escalate')),
@@ -389,6 +399,7 @@ CREATE TABLE IF NOT EXISTS ${name} (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL UNIQUE REFERENCES conversations(id) ON DELETE CASCADE,
   profile_id TEXT NOT NULL,
+  participant_id TEXT NOT NULL DEFAULT 'default',
   goal TEXT NOT NULL,
   topic_key TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL CHECK (status IN ('suggested', 'active', 'paused', 'completed', 'dismissed')),
@@ -427,6 +438,7 @@ CREATE INDEX IF NOT EXISTS idx_learning_incidents_session ON learning_incidents(
 CREATE TABLE IF NOT EXISTS learning_strategy_variants (
   id TEXT PRIMARY KEY,
   profile_id TEXT NOT NULL,
+  participant_id TEXT NOT NULL DEFAULT 'default',
   topic_key TEXT NOT NULL DEFAULT '',
   difficulty_type TEXT NOT NULL CHECK (difficulty_type IN ('planning_gap', 'conceptual_misconception', 'procedural_gap', 'feedback_uncertainty', 'prerequisite_gap', 'other')),
   base_strategy TEXT NOT NULL CHECK (base_strategy IN ('socratic_question', 'conceptual_hint', 'contrastive_example', 'worked_example', 'analogical_example', 'direct_explanation', 'evidence_check', 'abstain_escalate')),
@@ -486,6 +498,7 @@ CREATE INDEX IF NOT EXISTS idx_learning_verifications_incident ON learning_verif
 CREATE TABLE IF NOT EXISTS learning_practice_items (
   id TEXT PRIMARY KEY,
   incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
+  participant_id TEXT NOT NULL DEFAULT 'default',
   round INTEGER NOT NULL,
   source TEXT NOT NULL DEFAULT 'tutor' CHECK (source IN ('tutor', 'review')),
   status TEXT NOT NULL CHECK (status IN ('approved', 'rejected', 'consumed', 'expired')),
@@ -508,6 +521,7 @@ CREATE INDEX IF NOT EXISTS idx_learning_experiences_selector ON learning_experie
 CREATE TABLE IF NOT EXISTS learning_policy_revisions (
   id TEXT PRIMARY KEY,
   profile_id TEXT NOT NULL,
+  participant_id TEXT NOT NULL DEFAULT 'default',
   topic_key TEXT NOT NULL DEFAULT '',
   difficulty_type TEXT NOT NULL CHECK (difficulty_type IN ('planning_gap', 'conceptual_misconception', 'procedural_gap', 'feedback_uncertainty', 'prerequisite_gap', 'other')),
   dataset_kind TEXT NOT NULL CHECK (dataset_kind IN ('live', 'demo')),
@@ -526,6 +540,7 @@ CREATE TABLE IF NOT EXISTS learning_review_tasks (
   session_id TEXT NOT NULL REFERENCES learning_sessions(id) ON DELETE CASCADE,
   conversation_id TEXT NOT NULL,
   profile_id TEXT NOT NULL,
+  participant_id TEXT NOT NULL DEFAULT 'default',
   round INTEGER NOT NULL CHECK (round IN (1, 2)),
   due_at INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'fired', 'completed', 'cancelled')),
@@ -790,6 +805,22 @@ export class LearningStore {
         "ALTER TABLE learning_review_tasks ADD COLUMN fired_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL"
       );
     }
+    // Participant axis: upgraded databases gain the denormalized column with DEFAULT
+    // 'default', which is exactly the backfill — every pre-participant row belongs to the
+    // default participant, so single-user behavior is unchanged.
+    for (const table of [
+      "learning_sessions",
+      "learning_experiences",
+      "learning_strategy_variants",
+      "learning_policy_revisions",
+      "learning_review_tasks",
+      "learning_practice_items"
+    ]) {
+      const columns = this.database.pragma(`table_info(${table})`) as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "participant_id")) {
+        this.database.exec(`ALTER TABLE ${table} ADD COLUMN participant_id TEXT NOT NULL DEFAULT 'default'`);
+      }
+    }
     // Created here rather than in the static schema: on an upgraded database the column only
     // exists after the guarded ALTER above has run.
     this.database.exec(
@@ -845,16 +876,20 @@ export class LearningStore {
       throw new Error("Deterministic learning execution is available only for demo sessions");
     const now = this.clock();
     const id = randomUUID();
+    // The conversation is the participant anchor: sessions inherit it at creation so no
+    // caller can stamp a person the conversation does not belong to.
+    const participantId = this.conversationParticipant(input.conversationId);
     try {
       this.database
         .prepare(
-          `INSERT INTO learning_sessions (id, conversation_id, profile_id, goal, topic_key, status, dataset_kind, condition, condition_assignment, execution_mode, suggestion_reason, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO learning_sessions (id, conversation_id, profile_id, participant_id, goal, topic_key, status, dataset_kind, condition, condition_assignment, execution_mode, suggestion_reason, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
           input.conversationId,
           profileId,
+          participantId,
           goal,
           topic(input.topicKey),
           status,
@@ -872,6 +907,13 @@ export class LearningStore {
       throw error;
     }
     return this.requireSession(id);
+  }
+
+  private conversationParticipant(conversationId: string): string {
+    const row = this.database.prepare("SELECT participant_id FROM conversations WHERE id = ?").get(conversationId) as
+      | { participant_id: string | null }
+      | undefined;
+    return row?.participant_id ?? "default";
   }
 
   getSession(id: string): LearningSessionDto | null {
@@ -1469,14 +1511,15 @@ export class LearningStore {
         this.database
           .prepare(
             `INSERT INTO learning_experiences
-           (id, verification_id, incident_id, profile_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, strategy_variant_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, verification_id, incident_id, profile_id, participant_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, strategy_variant_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             randomUUID(),
             id,
             incident.id,
             session.profileId,
+            session.participantId,
             topic(session.topicKey),
             incident.difficultyType,
             intervention.strategy,
@@ -1501,10 +1544,21 @@ export class LearningStore {
     this.database
       .prepare(
         `INSERT INTO learning_review_tasks
-         (id, incident_id, session_id, conversation_id, profile_id, round, due_at, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+         (id, incident_id, session_id, conversation_id, profile_id, participant_id, round, due_at, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
       )
-      .run(randomUUID(), incidentId, session.id, session.conversationId, session.profileId, round, dueAt, now, now);
+      .run(
+        randomUUID(),
+        incidentId,
+        session.id,
+        session.conversationId,
+        session.profileId,
+        session.participantId,
+        round,
+        dueAt,
+        now,
+        now
+      );
   }
 
   dueReviewTasks(now = this.clock(), limit = 10): LearningReviewTask[] {
@@ -1586,11 +1640,12 @@ export class LearningStore {
 
   listVariants(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType?: LearningDifficultyType;
   }): LearningStrategyVariantDto[] {
-    const conditions = ["profile_id = ?"];
-    const values: unknown[] = [clean(input.profileId, 100)];
+    const conditions = ["profile_id = ?", "participant_id = ?"];
+    const values: unknown[] = [clean(input.profileId, 100), input.participantId];
     if (input.topicKey !== undefined) {
       conditions.push("topic_key = ?");
       values.push(topic(input.topicKey));
@@ -1615,6 +1670,7 @@ export class LearningStore {
    */
   createVariant(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType: LearningDifficultyType;
     baseStrategy: LearningInterventionStrategy;
@@ -1636,9 +1692,9 @@ export class LearningStore {
     // rejected 讲法 under one strategy must not block candidates for the other seven.
     const scoped = this.database
       .prepare(
-        "SELECT * FROM learning_strategy_variants WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ?"
+        "SELECT * FROM learning_strategy_variants WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ?"
       )
-      .all(profileId, topicKey, input.difficultyType, input.baseStrategy) as VariantRow[];
+      .all(profileId, input.participantId, topicKey, input.difficultyType, input.baseStrategy) as VariantRow[];
     for (const row of scoped) {
       if (variantTextsSimilar(`${row.title} ${row.instruction}`, `${title} ${instruction}`)) return null;
     }
@@ -1648,12 +1704,13 @@ export class LearningStore {
     this.database
       .prepare(
         `INSERT INTO learning_strategy_variants
-         (id, profile_id, topic_key, difficulty_type, base_strategy, title, instruction, origin, status, source_incident_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'distilled', 'pending', ?, ?, ?)`
+         (id, profile_id, participant_id, topic_key, difficulty_type, base_strategy, title, instruction, origin, status, source_incident_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'distilled', 'pending', ?, ?, ?)`
       )
       .run(
         id,
         profileId,
+        input.participantId,
         topicKey,
         input.difficultyType,
         input.baseStrategy,
@@ -1676,6 +1733,7 @@ export class LearningStore {
    */
   offerVariant(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType: LearningDifficultyType;
     baseStrategy: LearningInterventionStrategy;
@@ -1686,12 +1744,13 @@ export class LearningStore {
     const rows = this.database
       .prepare(
         `SELECT * FROM learning_strategy_variants
-       WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ?
+       WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ?
          AND status IN ('enabled', 'trial')
        ORDER BY created_at ASC`
       )
       .all(
         clean(input.profileId, 100),
+        input.participantId,
         topic(input.topicKey),
         input.difficultyType,
         input.baseStrategy
@@ -1750,9 +1809,11 @@ export class LearningStore {
         this.database
           .prepare(
             `SELECT COUNT(*) AS count FROM learning_strategy_variants
-           WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ? AND status = 'trial'`
+           WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ? AND status = 'trial'`
           )
-          .get(row.profile_id, row.topic_key, row.difficulty_type, row.base_strategy) as { count: number }
+          .get(row.profile_id, row.participant_id, row.topic_key, row.difficulty_type, row.base_strategy) as {
+          count: number;
+        }
       ).count;
       if (trials >= 2) throw learningConflict("At most two variants may trial per strategy and difficulty");
       update("status = 'trial'", []);
@@ -1769,9 +1830,9 @@ export class LearningStore {
           .prepare(
             `UPDATE learning_strategy_variants
              SET status = 'retired', recommendation = NULL, recommendation_summary = '已被新转正的讲法替代', updated_at = ?
-             WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ? AND status = 'enabled' AND id != ?`
+             WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND base_strategy = ? AND status = 'enabled' AND id != ?`
           )
-          .run(now, row.profile_id, row.topic_key, row.difficulty_type, row.base_strategy, id);
+          .run(now, row.profile_id, row.participant_id, row.topic_key, row.difficulty_type, row.base_strategy, id);
         update("status = 'enabled', recommendation = NULL", []);
       })();
     } else if (verdict === "retire") {
@@ -1795,6 +1856,7 @@ export class LearningStore {
    */
   maybeRecommendVariantPromotion(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType: LearningDifficultyType;
   }): LearningStrategyVariantDto[] {
@@ -1803,19 +1865,19 @@ export class LearningStore {
     const rows = this.database
       .prepare(
         `SELECT * FROM learning_strategy_variants
-       WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND status = 'trial'`
+       WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND status = 'trial'`
       )
-      .all(profileId, topicKey, input.difficultyType) as VariantRow[];
+      .all(profileId, input.participantId, topicKey, input.difficultyType) as VariantRow[];
     const changed: LearningStrategyVariantDto[] = [];
     for (const row of rows) {
       const experiences = this.database
         .prepare(
           `SELECT e.id, e.outcome, e.strategy_variant_id FROM learning_experiences e
          JOIN learning_incidents i ON i.id = e.incident_id
-        WHERE e.profile_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.strategy = ?
+        WHERE e.profile_id = ? AND e.participant_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.strategy = ?
           AND e.dataset_kind = 'live' AND i.superseded_at IS NULL`
         )
-        .all(profileId, topicKey, input.difficultyType, row.base_strategy) as Array<{
+        .all(profileId, input.participantId, topicKey, input.difficultyType, row.base_strategy) as Array<{
         id: string;
         outcome: string;
         strategy_variant_id: string | null;
@@ -1853,6 +1915,7 @@ export class LearningStore {
 
   selectStrategy(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType: LearningDifficultyType;
     datasetKind: LearningDatasetKind;
@@ -1868,6 +1931,7 @@ export class LearningStore {
       return this.selection([...DEFAULT_STRATEGIES], null, 0, {}, input.failedStrategies ?? [], "default");
     const scope = {
       profileId,
+      participantId: input.participantId,
       topicKey: topic(input.topicKey),
       difficultyType: input.difficultyType,
       datasetKind: input.datasetKind
@@ -1882,11 +1946,17 @@ export class LearningStore {
       .prepare(
         `SELECT e.* FROM learning_experiences e
        JOIN learning_incidents i ON i.id = e.incident_id
-       WHERE e.profile_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.dataset_kind = ?
+       WHERE e.profile_id = ? AND e.participant_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.dataset_kind = ?
          AND i.superseded_at IS NULL
        ORDER BY e.created_at ASC`
       )
-      .all(scope.profileId, scope.topicKey, scope.difficultyType, input.datasetKind) as ExperienceRow[];
+      .all(
+        scope.profileId,
+        scope.participantId,
+        scope.topicKey,
+        scope.difficultyType,
+        input.datasetKind
+      ) as ExperienceRow[];
     if (rows.length < 3)
       return this.selection(
         base,
@@ -1913,6 +1983,7 @@ export class LearningStore {
 
   maybeCreatePendingPolicyRevision(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType: LearningDifficultyType;
     datasetKind: LearningDatasetKind;
@@ -1922,6 +1993,7 @@ export class LearningStore {
     if (selection.historyCount < 5 || selection.reason !== "evidence") return null;
     const scope = {
       profileId: clean(input.profileId, 100),
+      participantId: input.participantId,
       topicKey: topic(input.topicKey),
       difficultyType: input.difficultyType,
       datasetKind: input.datasetKind
@@ -1933,30 +2005,35 @@ export class LearningStore {
     if (candidate === currentFirst || selection.scores[candidate] - selection.scores[currentFirst] < 0.1) return null;
     const existing = this.database
       .prepare(
-        `SELECT * FROM learning_policy_revisions WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1`
+        `SELECT * FROM learning_policy_revisions WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1`
       )
-      .get(scope.profileId, scope.topicKey, scope.difficultyType, scope.datasetKind) as PolicyRow | undefined;
+      .get(scope.profileId, scope.participantId, scope.topicKey, scope.difficultyType, scope.datasetKind) as
+      | PolicyRow
+      | undefined;
     if (existing) return this.toPolicy(existing);
     const evidenceRows = this.database
       .prepare(
         `SELECT e.id FROM learning_experiences e
        JOIN learning_incidents i ON i.id = e.incident_id
-       WHERE e.profile_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.dataset_kind = ?
+       WHERE e.profile_id = ? AND e.participant_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.dataset_kind = ?
          AND i.superseded_at IS NULL
        ORDER BY e.created_at ASC`
       )
-      .all(scope.profileId, scope.topicKey, scope.difficultyType, input.datasetKind) as Array<{ id: string }>;
+      .all(scope.profileId, scope.participantId, scope.topicKey, scope.difficultyType, input.datasetKind) as Array<{
+      id: string;
+    }>;
     const orderedStrategiesJson = JSON.stringify(selection.orderedStrategies);
     const evidenceExperienceIdsJson = JSON.stringify(evidenceRows.map((row) => row.id));
     const rejected = this.database
       .prepare(
         `SELECT id FROM learning_policy_revisions
-       WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ?
+       WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ?
          AND status = 'rejected' AND ordered_strategies_json = ? AND evidence_experience_ids_json = ?
        LIMIT 1`
       )
       .get(
         scope.profileId,
+        scope.participantId,
         scope.topicKey,
         scope.difficultyType,
         scope.datasetKind,
@@ -1974,13 +2051,14 @@ export class LearningStore {
         this.database
           .prepare(
             `INSERT INTO learning_policy_revisions
-           (id, profile_id, topic_key, difficulty_type, dataset_kind, ordered_strategies_json,
+           (id, profile_id, participant_id, topic_key, difficulty_type, dataset_kind, ordered_strategies_json,
             evidence_experience_ids_json, previous_revision_id, status, evaluation_summary, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, '[]', NULL, 'enabled', ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, '[]', NULL, 'enabled', ?, ?, ?)`
           )
           .run(
             baselineId,
             scope.profileId,
+            scope.participantId,
             scope.topicKey,
             scope.difficultyType,
             scope.datasetKind,
@@ -1992,12 +2070,13 @@ export class LearningStore {
       }
       this.database
         .prepare(
-          `INSERT INTO learning_policy_revisions (id, profile_id, topic_key, difficulty_type, dataset_kind, ordered_strategies_json, evidence_experience_ids_json, previous_revision_id, status, evaluation_summary, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+          `INSERT INTO learning_policy_revisions (id, profile_id, participant_id, topic_key, difficulty_type, dataset_kind, ordered_strategies_json, evidence_experience_ids_json, previous_revision_id, status, evaluation_summary, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
         )
         .run(
           id,
           scope.profileId,
+          scope.participantId,
           scope.topicKey,
           scope.difficultyType,
           scope.datasetKind,
@@ -2021,9 +2100,16 @@ export class LearningStore {
         this.database
           .prepare(
             `UPDATE learning_policy_revisions SET status = 'disabled', updated_at = ?
-           WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ? AND status = 'enabled'`
+           WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ? AND status = 'enabled'`
           )
-          .run(now, policy.profileId, topic(policy.topicKey), policy.difficultyType, policy.datasetKind);
+          .run(
+            now,
+            policy.profileId,
+            policy.participantId,
+            topic(policy.topicKey),
+            policy.difficultyType,
+            policy.datasetKind
+          );
       }
       this.database
         .prepare("UPDATE learning_policy_revisions SET status = ?, updated_at = ? WHERE id = ?")
@@ -2051,13 +2137,19 @@ export class LearningStore {
 
   listPolicies(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType?: LearningDifficultyType;
     datasetKind: LearningEvolvingDatasetKind;
     includeDisabled?: boolean;
   }): LearningPolicyRevisionDto[] {
-    const clauses = ["profile_id = ?", "topic_key = ?", "dataset_kind = ?"];
-    const params: unknown[] = [clean(input.profileId, 100), topic(input.topicKey), input.datasetKind];
+    const clauses = ["profile_id = ?", "participant_id = ?", "topic_key = ?", "dataset_kind = ?"];
+    const params: unknown[] = [
+      clean(input.profileId, 100),
+      input.participantId,
+      topic(input.topicKey),
+      input.datasetKind
+    ];
     if (input.difficultyType) {
       clauses.push("difficulty_type = ?");
       params.push(input.difficultyType);
@@ -2182,6 +2274,7 @@ export class LearningStore {
     // may record another intervention. Re-derive the drafting context at write time so a
     // stale draft errors instead of landing as a live attempt against a moved state.
     const context = this.practiceDraftContext(input.incidentId, input.expectedSessionId);
+    const participantId = context.session.participantId;
     if (context.round !== input.round)
       throw learningConflict(
         "The learning state moved while the draft was under review; draft a fresh task for the current round"
@@ -2190,13 +2283,14 @@ export class LearningStore {
     this.database
       .prepare(
         `INSERT INTO learning_practice_items
-           (id, incident_id, round, source, status, task_text, target_hypothesis, expected_answer_sketch,
+           (id, incident_id, participant_id, round, source, status, task_text, target_hypothesis, expected_answer_sketch,
             difficulty, method, gate, evaluator_verdict_json, novelty_score, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         input.incidentId,
+        participantId,
         input.round,
         input.source ?? "tutor",
         input.status,
@@ -2263,6 +2357,7 @@ export class LearningStore {
     return {
       id: String(row.id),
       incidentId: String(row.incident_id),
+      participantId: String(row.participant_id ?? "default"),
       round: Number(row.round),
       source: row.source === "review" ? "review" : "tutor",
       status: String(row.status) as LearningPracticeItemStatus,
@@ -2485,6 +2580,7 @@ export class LearningStore {
     const tried = [...new Set(interventions.map((item) => item.strategy))];
     const selection = this.selectStrategy({
       profileId: session.profileId,
+      participantId: session.participantId,
       topicKey: session.topicKey,
       difficultyType: incident.difficultyType,
       datasetKind: session.datasetKind,
@@ -2529,6 +2625,7 @@ export class LearningStore {
 
   listExperiences(input: {
     profileId: string;
+    participantId: string;
     topicKey?: string | null;
     difficultyType: LearningDifficultyType;
     datasetKind: LearningEvolvingDatasetKind;
@@ -2538,12 +2635,13 @@ export class LearningStore {
         .prepare(
           `SELECT e.* FROM learning_experiences e
        JOIN learning_incidents i ON i.id = e.incident_id
-       WHERE e.profile_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.dataset_kind = ?
+       WHERE e.profile_id = ? AND e.participant_id = ? AND e.topic_key = ? AND e.difficulty_type = ? AND e.dataset_kind = ?
          AND i.superseded_at IS NULL
        ORDER BY e.created_at ASC`
         )
         .all(
           clean(input.profileId, 100),
+          input.participantId,
           topic(input.topicKey),
           input.difficultyType,
           input.datasetKind
@@ -2558,6 +2656,8 @@ export class LearningStore {
    */
   metricsSummary(input: {
     profileId?: string | null;
+    /** Required and explicit: a participant id scopes, null is the whole-study view. */
+    participantId: string | null;
     topicKey?: string | null;
     difficultyType?: LearningDifficultyType | null;
     datasetKind?: LearningDatasetKind | null;
@@ -2567,6 +2667,10 @@ export class LearningStore {
     if (input.profileId) {
       clauses.push("s.profile_id = ?");
       params.push(clean(input.profileId, 100));
+    }
+    if (input.participantId) {
+      clauses.push("s.participant_id = ?");
+      params.push(input.participantId);
     }
     if (input.topicKey) {
       clauses.push("s.topic_key = ?");
@@ -2715,6 +2819,10 @@ export class LearningStore {
         sessionClauses.push("s.profile_id = ?");
         sessionParams.push(clean(input.profileId, 100));
       }
+      if (input.participantId) {
+        sessionClauses.push("s.participant_id = ?");
+        sessionParams.push(input.participantId);
+      }
       if (input.topicKey) {
         sessionClauses.push("s.topic_key = ?");
         sessionParams.push(topic(input.topicKey));
@@ -2784,6 +2892,7 @@ export class LearningStore {
     return {
       scope: {
         profileId: input.profileId ? clean(input.profileId, 100) : null,
+        participantId: input.participantId ?? null,
         topicKey: input.topicKey ? topic(input.topicKey) : null,
         difficultyType: input.difficultyType ?? null,
         datasetKind: input.datasetKind ?? null
@@ -2800,7 +2909,7 @@ export class LearningStore {
   }
 
   /** Everything the research export needs, as plain DTOs; redaction happens at the API layer. */
-  exportResearch(): {
+  exportResearch(participantId?: string): {
     sessions: LearningSessionDto[];
     incidents: LearningIncidentDto[];
     interventions: LearningInterventionDto[];
@@ -2821,42 +2930,66 @@ export class LearningStore {
       createdAt: string;
     }>;
   } {
-    const all = <T>(table: string, map: (row: Record<string, unknown>) => T): T[] =>
-      (this.database.prepare(`SELECT * FROM ${table} ORDER BY created_at ASC`).all() as Record<string, unknown>[]).map(
-        map
-      );
-    const incidents = all("learning_incidents", (row) => this.toIncident(row));
+    // With a participant filter, every table is scoped through its own participant column
+    // or its incident/session lineage, so a per-person export is self-consistent (joins
+    // inside it never dangle).
+    const bySession = "session_id IN (SELECT id FROM learning_sessions WHERE participant_id = ?)";
+    const byIncident =
+      "incident_id IN (SELECT i.id FROM learning_incidents i JOIN learning_sessions s ON s.id = i.session_id WHERE s.participant_id = ?)";
+    const all = <T>(table: string, map: (row: Record<string, unknown>) => T, where?: string): T[] => {
+      const filter = participantId && where ? ` WHERE ${where}` : "";
+      const params = participantId && where ? [participantId] : [];
+      return (
+        this.database.prepare(`SELECT * FROM ${table}${filter} ORDER BY created_at ASC`).all(...params) as Record<
+          string,
+          unknown
+        >[]
+      ).map(map);
+    };
+    const incidents = all("learning_incidents", (row) => this.toIncident(row), bySession);
     return {
-      sessions: all("learning_sessions", (row) => this.toSession(row)),
+      sessions: all("learning_sessions", (row) => this.toSession(row), "participant_id = ?"),
       incidents,
-      interventions: all("learning_interventions", (row) => this.toIntervention(row)),
-      verifications: all("learning_verifications", (row) => this.toVerification(row)),
-      experiences: all("learning_experiences", (row) => this.toExperience(row)),
-      policyRevisions: all("learning_policy_revisions", (row) => this.toPolicy(row)),
+      interventions: all("learning_interventions", (row) => this.toIntervention(row), byIncident),
+      verifications: all("learning_verifications", (row) => this.toVerification(row), byIncident),
+      experiences: all("learning_experiences", (row) => this.toExperience(row), "participant_id = ?"),
+      policyRevisions: all("learning_policy_revisions", (row) => this.toPolicy(row), "participant_id = ?"),
       handoffs: incidents
         .filter((incident) => incident.status === "escalated")
         .map((incident) => this.handoffReport(incident.id))
         .filter((report): report is LearningHandoffReportDto => report !== null),
       strategyVariants: (() => {
-        const rows = this.database
-          .prepare("SELECT * FROM learning_strategy_variants ORDER BY created_at ASC")
-          .all() as VariantRow[];
+        const rows = (
+          participantId
+            ? this.database
+                .prepare("SELECT * FROM learning_strategy_variants WHERE participant_id = ? ORDER BY created_at ASC")
+                .all(participantId)
+            : this.database.prepare("SELECT * FROM learning_strategy_variants ORDER BY created_at ASC").all()
+        ) as VariantRow[];
         const counts = this.variantAttributedCounts(rows.map((row) => row.id));
         return rows.map((row) => this.toVariant(row, counts.get(row.id) ?? 0));
       })(),
-      practiceItems: all("learning_practice_items", (row) => this.toPracticeItem(row)),
+      practiceItems: all("learning_practice_items", (row) => this.toPracticeItem(row), "participant_id = ?"),
       // Reliability is research data too: without the ledger, the sessions-health metrics
       // (stalled/nudged/recovered) could not be recomputed from the export.
-      reviewTasks: all("learning_review_tasks", (row) => toReviewTask(row as unknown as ReviewTaskRow)),
-      watchdogEvents: all("learning_watchdog_events", (row) => ({
-        id: String(row.id),
-        sessionId: String(row.session_id),
-        incidentId: String(row.incident_id),
-        signature: String(row.signature),
-        action: String(row.action),
-        runId: row.run_id === null || row.run_id === undefined ? null : String(row.run_id),
-        createdAt: iso(Number(row.created_at))!
-      }))
+      reviewTasks: all(
+        "learning_review_tasks",
+        (row) => toReviewTask(row as unknown as ReviewTaskRow),
+        "participant_id = ?"
+      ),
+      watchdogEvents: all(
+        "learning_watchdog_events",
+        (row) => ({
+          id: String(row.id),
+          sessionId: String(row.session_id),
+          incidentId: String(row.incident_id),
+          signature: String(row.signature),
+          action: String(row.action),
+          runId: row.run_id === null || row.run_id === undefined ? null : String(row.run_id),
+          createdAt: iso(Number(row.created_at))!
+        }),
+        bySession
+      )
     };
   }
 
@@ -2961,14 +3094,15 @@ export class LearningStore {
           this.database
             .prepare(
               `INSERT INTO learning_experiences
-             (id, verification_id, incident_id, profile_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'demo', ?, ?)`
+             (id, verification_id, incident_id, profile_id, participant_id, topic_key, difficulty_type, strategy, outcome, dataset_kind, snapshot_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'demo', ?, ?)`
             )
             .run(
               experienceId,
               verificationId,
               incidentId,
               session.profileId,
+              session.participantId,
               topic(session.topicKey),
               difficultyType,
               seed.strategy,
@@ -3013,15 +3147,18 @@ export class LearningStore {
 
   private enabledPolicy(scope: {
     profileId: string;
+    participantId: string;
     topicKey: string;
     difficultyType: LearningDifficultyType;
     datasetKind: LearningEvolvingDatasetKind;
   }): LearningPolicyRevisionDto | null {
     const row = this.database
       .prepare(
-        `SELECT * FROM learning_policy_revisions WHERE profile_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ? AND status = 'enabled' ORDER BY updated_at DESC LIMIT 1`
+        `SELECT * FROM learning_policy_revisions WHERE profile_id = ? AND participant_id = ? AND topic_key = ? AND difficulty_type = ? AND dataset_kind = ? AND status = 'enabled' ORDER BY updated_at DESC LIMIT 1`
       )
-      .get(scope.profileId, scope.topicKey, scope.difficultyType, scope.datasetKind) as PolicyRow | undefined;
+      .get(scope.profileId, scope.participantId, scope.topicKey, scope.difficultyType, scope.datasetKind) as
+      | PolicyRow
+      | undefined;
     return row ? this.toPolicy(row) : null;
   }
 
@@ -3201,6 +3338,7 @@ export class LearningStore {
       id: String(row.id),
       conversationId: String(row.conversation_id),
       profileId: String(row.profile_id),
+      participantId: String(row.participant_id ?? "default"),
       goal: String(row.goal),
       topicKey: optionalTopic(String(row.topic_key)),
       status: String(row.status) as LearningSessionStatus,
@@ -3291,6 +3429,7 @@ export class LearningStore {
       verificationId: String(row.verification_id),
       incidentId: String(row.incident_id),
       profileId: String(row.profile_id),
+      participantId: String(row.participant_id ?? "default"),
       topicKey: optionalTopic(String(row.topic_key)),
       difficultyType: String(row.difficulty_type) as LearningDifficultyType,
       strategy: String(row.strategy) as LearningInterventionStrategy,
@@ -3307,6 +3446,7 @@ export class LearningStore {
     return {
       id: row.id,
       profileId: row.profile_id,
+      participantId: row.participant_id ?? "default",
       topicKey: row.topic_key,
       difficultyType: row.difficulty_type as LearningDifficultyType,
       baseStrategy: row.base_strategy as LearningInterventionStrategy,
@@ -3327,6 +3467,7 @@ export class LearningStore {
     return {
       id: String(row.id),
       profileId: String(row.profile_id),
+      participantId: String(row.participant_id ?? "default"),
       topicKey: optionalTopic(String(row.topic_key)),
       difficultyType: String(row.difficulty_type) as LearningDifficultyType,
       datasetKind: String(row.dataset_kind) as LearningEvolvingDatasetKind,

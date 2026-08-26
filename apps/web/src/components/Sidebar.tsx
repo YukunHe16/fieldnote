@@ -253,6 +253,36 @@ export function Sidebar({
             </span>
             <span>{t("searchConversations")}</span>
           </button>
+
+          {workspace.participants.length > 0 && (workspace.researchEnabled || workspace.participants.length > 1) && (
+            <label className="participant-switcher">
+              <span className="participant-switcher-label">{t("participantSwitcher")}</span>
+              <select
+                value={workspace.participantId}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "__add__") {
+                    // The select is controlled but React only re-syncs it on a re-render;
+                    // reset the DOM value now so a cancelled prompt cannot leave the
+                    // dropdown stuck on the add row (which would also swallow the next
+                    // change event).
+                    event.target.value = workspace.participantId;
+                    const name = window.prompt(t("participantAddPrompt"));
+                    if (name?.trim()) void workspace.addParticipant(name.trim());
+                    return;
+                  }
+                  void workspace.switchParticipant(value);
+                }}
+              >
+                {workspace.participants.map((participant) => (
+                  <option key={participant.id} value={participant.id}>
+                    {participant.id === "default" ? t("participantDefault") : participant.displayName}
+                  </option>
+                ))}
+                <option value="__add__">{t("participantAdd")}</option>
+              </select>
+            </label>
+          )}
         </div>
 
         <nav className="sidebar-nav" aria-label={t("conversationCategories")}>

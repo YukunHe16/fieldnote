@@ -334,6 +334,7 @@ export interface LearningSessionDto {
   id: string;
   conversationId: string;
   profileId: string;
+  participantId: string;
   goal: string;
   topicKey: string | null;
   status: LearningSessionStatus;
@@ -362,6 +363,7 @@ export interface LearningPolicyPreviewDto {
 export interface LearningPolicyRevisionDto {
   id: string;
   profileId: string;
+  participantId: string;
   topicKey: string | null;
   difficultyType: LearningDifficultyType;
   datasetKind: Exclude<LearningDatasetKind, "replay" | "eval">;
@@ -443,6 +445,7 @@ export interface LearningSessionsHealthDto {
 export interface LearningMetricsDto {
   scope: {
     profileId: string | null;
+    participantId: string | null;
     topicKey: string | null;
     difficultyType: LearningDifficultyType | null;
     datasetKind: LearningDatasetKind | null;
@@ -726,12 +729,23 @@ export interface MessageDto {
   collaboration?: CollaborationTraceDto | null;
 }
 
+/**
+ * A person using the learning workbench — the WHO axis, orthogonal to agent profiles
+ * (the agent-configuration axis). Managed as data, never validated against a registry.
+ */
+export interface ParticipantDto {
+  id: string;
+  displayName: string;
+  createdAt: string;
+}
+
 export interface ConversationSummaryDto {
   id: string;
   title: string;
   channel: ChannelKind;
   profileId: string;
   profileName: string;
+  participantId: string;
   archived: boolean;
   pinned: boolean;
   temporary: boolean;

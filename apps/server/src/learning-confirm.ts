@@ -73,6 +73,7 @@ export function confirmLearningVerification(
   }
   const policy = deps.learning.maybeCreatePendingPolicyRevision({
     profileId: session.profileId,
+    participantId: session.participantId,
     topicKey: session.topicKey,
     difficultyType: incident.difficultyType,
     datasetKind: session.datasetKind
@@ -90,6 +91,7 @@ export function confirmLearningVerification(
       // Cheap SQL: each confirmed outcome may shift a trial variant's posterior.
       deps.learning.maybeRecommendVariantPromotion({
         profileId: session.profileId,
+        participantId: session.participantId,
         topicKey: session.topicKey,
         difficultyType: incident.difficultyType
       });

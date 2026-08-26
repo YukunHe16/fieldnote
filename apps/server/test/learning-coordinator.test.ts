@@ -40,6 +40,7 @@ describe("LearningCoordinator demo loop", () => {
       });
       learning.seedDemoExperiences(session.id, scenario.difficultyType, [...scenario.seeds], "en");
       learning.maybeCreatePendingPolicyRevision({
+        participantId: "default",
         profileId: session.profileId,
         topicKey: session.topicKey,
         difficultyType: scenario.difficultyType,

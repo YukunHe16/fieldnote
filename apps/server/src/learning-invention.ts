@@ -53,6 +53,7 @@ export async function maybeDistillFromResolvedIncident(deps: {
     if (!distilled) return null;
     return deps.learning.createVariant({
       profileId: session.profileId,
+      participantId: session.participantId,
       topicKey: session.topicKey,
       difficultyType: incident.difficultyType,
       // The host, not the model, decides which base strategy the approach refines.

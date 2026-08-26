@@ -25,6 +25,7 @@ import type {
   ChatMessage,
   ConversationDetail,
   ConversationSummary,
+  Participant,
   SendMode,
   ToastMessage
 } from "./types";
@@ -111,6 +112,8 @@ export function useWorkspace() {
   const [active, setActive] = useState<ConversationSummary[]>([]);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummary[]>(fallbackProfiles);
   const [researchEnabled, setResearchEnabled] = useState(false);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [participantId, setParticipantId] = useState("default");
   const [researchStudy, setResearchStudy] = useState<ResearchStudyConfig | null>(null);
   const [archived, setArchived] = useState<ConversationSummary[]>([]);
   const [details, setDetails] = useState<Record<string, ConversationDetail>>({});
@@ -155,14 +158,21 @@ export function useWorkspace() {
   const loadLists = useCallback(async (query = "", options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
     try {
-      const [caps, activeItems, archivedItems] = await Promise.all([
+      const [caps, activeItems, archivedItems, participantState] = await Promise.all([
         api.capabilities(),
         api.conversations("active", query),
-        api.conversations("archived", query)
+        api.conversations("archived", query),
+        // Re-sync the switcher on every list load so a second tab cannot keep showing one
+        // participant's name over another participant's threads.
+        api.participants().catch(() => null)
       ]);
       setCapabilities(caps);
       setActive(sortConversations(activeItems));
       setArchived(sortConversations(archivedItems));
+      if (participantState) {
+        setParticipants(participantState.participants);
+        setParticipantId(participantState.currentId);
+      }
       setBackendDown(false);
       setSelectedIdState((current) => current ?? activeItems[0]?.id);
     } catch {
@@ -184,7 +194,43 @@ export function useWorkspace() {
         setResearchStudy(settings.study ?? null);
       })
       .catch(() => {});
+    void api
+      .participants()
+      .then((response) => {
+        setParticipants(response.participants);
+        setParticipantId(response.currentId);
+      })
+      .catch(() => {});
   }, []);
+
+  // Switching people swaps the whole visible workspace: the conversation list is scoped
+  // server-side to the current participant, so the stale selection must not survive.
+  const switchParticipant = useCallback(
+    async (id: string) => {
+      try {
+        await api.selectParticipant(id);
+        setParticipantId(id);
+        setSelectedIdState(undefined);
+        await loadLists();
+      } catch {
+        toast(t("participantSwitchFailed"), "danger");
+      }
+    },
+    [loadLists, toast]
+  );
+
+  const addParticipant = useCallback(
+    async (displayName: string) => {
+      try {
+        const response = await api.createParticipant(displayName);
+        setParticipants((current) => [...current, response.participant]);
+        await switchParticipant(response.participant.id);
+      } catch {
+        toast(t("participantCreateFailed"), "danger");
+      }
+    },
+    [switchParticipant, toast]
+  );
 
   // While the local server is unreachable the workspace polls quietly; a successful
   // load clears `backendDown` and repopulates the lists in the same pass.
@@ -695,7 +741,10 @@ export function useWorkspace() {
               profileId,
               profileName: profile?.name
             })
-          : await api.createConversation(temporary, profileId);
+          : // Pin the participant this tab believes it is showing; a stale second tab
+            // must not silently create threads for whoever the global switcher points
+            // at now.
+            await api.createConversation(temporary, profileId, participantId);
       } catch {
         created = normalizeConversation({
           id: `local-${crypto.randomUUID()}`,
@@ -729,7 +778,7 @@ export function useWorkspace() {
       setSelectedIdState(created.id);
       return created.id;
     },
-    [backendDown, toast, selectedId, details, agentProfiles]
+    [backendDown, toast, selectedId, details, agentProfiles, participantId]
   );
 
   const updateConversation = useCallback(
@@ -1372,6 +1421,10 @@ export function useWorkspace() {
     removeAttachment,
     researchEnabled,
     researchStudy,
+    participants,
+    participantId,
+    switchParticipant,
+    addParticipant,
     setResearchMode,
     createLearningSession,
     updateLearningSession,

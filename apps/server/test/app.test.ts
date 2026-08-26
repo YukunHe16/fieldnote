@@ -1094,6 +1094,7 @@ describe("HTTP API", () => {
     expect(confirmedDemoOutcome.json()).toMatchObject({ incident: { status: "resolved" } });
     const demoPendingPolicy = learning
       .listPolicies({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming-plans",
         difficultyType: "planning_gap",
@@ -1303,5 +1304,56 @@ describe("learning condition assignment over HTTP", () => {
       condition: "one-shot",
       conditionAssignment: null
     });
+  });
+
+  it("manages participants and scopes the workspace to the current one", async () => {
+    const { app, store } = await learningApp();
+    const initial = await app.inject({ method: "GET", url: "/api/participants" });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json().currentId).toBe("default");
+    expect(initial.json().participants.map((item: { id: string }) => item.id)).toContain("default");
+
+    // A conversation created before the switch belongs to the default participant.
+    const mine = store.createConversation("web", "我的对话", { profileId: "local-operator" });
+    store.createRun(mine.id, "你好", "normal");
+
+    const created = await app.inject({ method: "POST", url: "/api/participants", payload: { displayName: "同学B" } });
+    expect(created.statusCode).toBe(200);
+    const participantB = created.json().participant as { id: string };
+    const switched = await app.inject({
+      method: "PUT",
+      url: "/api/participants/current",
+      payload: { id: participantB.id }
+    });
+    expect(switched.statusCode).toBe(200);
+
+    const theirs = store.createConversation("web", "B 的对话", { profileId: "local-operator" });
+    store.createRun(theirs.id, "你好", "normal");
+
+    // The sidebar list follows the current participant; an explicit id overrides.
+    const currentList = await app.inject({ method: "GET", url: "/api/conversations" });
+    const currentIds = currentList.json().items.map((item: { id: string }) => item.id);
+    expect(currentIds).toContain(theirs.id);
+    expect(currentIds).not.toContain(mine.id);
+    const defaultList = await app.inject({ method: "GET", url: "/api/conversations?participantId=default" });
+    const defaultIds = defaultList.json().items.map((item: { id: string }) => item.id);
+    expect(defaultIds).toContain(mine.id);
+    expect(defaultIds).not.toContain(theirs.id);
+
+    // Feishu conversations stay pinned to the default participant even via the HTTP
+    // route, no matter who the switcher points at — the codebook states this as a fact.
+    const feishu = await app.inject({
+      method: "POST",
+      url: "/api/conversations",
+      payload: { channel: "feishu", profileId: "local-operator" }
+    });
+    expect(feishu.statusCode).toBe(201);
+    expect(store.getConversation(feishu.json().id)?.participantId).toBe("default");
+
+    // Unknown participants are rejected, and the whole-study metrics view stays reachable.
+    const missing = await app.inject({ method: "PUT", url: "/api/participants/current", payload: { id: "nope" } });
+    expect(missing.statusCode).toBe(404);
+    const metrics = await app.inject({ method: "GET", url: "/api/learning/metrics?participantId=all" });
+    expect(metrics.statusCode).toBe(200);
   });
 });

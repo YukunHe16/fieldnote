@@ -3,6 +3,7 @@ import type {
   LearningIncidentDto,
   LearningInterventionStrategy,
   LearningOutcome,
+  LearningSessionDto,
   LearningStore,
   LearningVerificationMethod
 } from "./learning-store.js";
@@ -97,7 +98,7 @@ export class LearningCoordinator {
         .find((incident) => ["observing", "diagnosed", "intervening", "verifying"].includes(incident.status)) ?? null;
     if (current?.status === "verifying") return this.proposeDemoOutcome(current, input);
     if (current && ["diagnosed", "intervening"].includes(current.status)) {
-      return this.createDemoIntervention(current, session.profileId, session.topicKey, session.datasetKind, input);
+      return this.createDemoIntervention(current, session, input);
     }
     if (incidents.some((incident) => isCompletedInteractiveDemoIncident(incident))) return null;
 
@@ -111,25 +112,24 @@ export class LearningCoordinator {
       evidenceMessageIds: [input.userMessageId],
       runId: input.runId
     });
-    return this.createDemoIntervention(incident, session.profileId, session.topicKey, session.datasetKind, input);
+    return this.createDemoIntervention(incident, session, input);
   }
 
   private createDemoIntervention(
     incident: LearningIncidentDto,
-    profileId: string,
-    topicKey: string | null,
-    datasetKind: "demo",
+    session: LearningSessionDto,
     input: DemoLearningTurnInput
   ): DemoLearningTurnResult {
     const interventions = this.store.listInterventions(incident.id);
     const selection = this.store.selectStrategy({
-      profileId,
-      topicKey,
+      profileId: session.profileId,
+      participantId: session.participantId,
+      topicKey: session.topicKey,
       difficultyType: incident.difficultyType,
-      datasetKind,
+      datasetKind: "demo",
       failedStrategies: interventions.map((item) => item.strategy)
     });
-    const copy = demoCopy(topicKey, input.locale, selection.strategy);
+    const copy = demoCopy(session.topicKey, input.locale, selection.strategy);
     const intervention = this.store.recordIntervention({
       incidentId: incident.id,
       strategy: selection.strategy,

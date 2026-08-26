@@ -1256,10 +1256,12 @@ function LearningMetricsView({
   hasTopic,
   onScope,
   researchEnabled,
-  onToggleResearch
+  onToggleResearch,
+  exportParticipantId
 }: {
   metrics?: LearningMetricsDto;
   loading: boolean;
+  exportParticipantId?: string;
   scope: "topic" | "all";
   hasTopic: boolean;
   onScope: (scope: "topic" | "all") => void;
@@ -1450,7 +1452,13 @@ function LearningMetricsView({
           )}
           {researchEnabled && (
             <section className="learning-metrics-section">
-              <a className="learning-metrics-export" href="/api/learning/export?includeMessages=true" download>
+              <a
+                className="learning-metrics-export"
+                href={`/api/learning/export?includeMessages=true${
+                  exportParticipantId ? `&participantId=${encodeURIComponent(exportParticipantId)}` : ""
+                }`}
+                download
+              >
                 {t("learningMetricsExport")}
               </a>
               <small>{t("learningMetricsExportDetail")}</small>
@@ -1584,16 +1592,21 @@ function LearningPanel({
       setPolicies(
         await api.learningPolicies({
           profileId,
+          conversationId: conversation?.id,
           topicKey: session.topicKey,
           datasetKind: session.datasetKind === "demo" ? "demo" : "live",
           includeDisabled: true
         })
       );
-      setVariants(await api.learningVariants({ profileId, topicKey: session.topicKey }).catch(() => []));
+      setVariants(
+        await api
+          .learningVariants({ profileId, conversationId: conversation?.id, topicKey: session.topicKey })
+          .catch(() => [])
+      );
     } finally {
       setLoadingPolicies(false);
     }
-  }, [session, profileId]);
+  }, [session, profileId, conversation?.id]);
 
   useEffect(() => {
     if (tab === "policies") void loadPolicies();
@@ -1609,6 +1622,8 @@ function LearningPanel({
       setMetrics(
         await api.learningMetrics({
           profileId,
+          // The panel follows its conversation's person, not the global switcher.
+          ...(conversation?.participantId ? { participantId: conversation.participantId } : {}),
           datasetKind: session.datasetKind,
           ...(metricsScope === "topic" && session.topicKey ? { topicKey: session.topicKey } : {})
         })
@@ -1618,7 +1633,7 @@ function LearningPanel({
     } finally {
       setLoadingMetrics(false);
     }
-  }, [session, profileId, metricsScope]);
+  }, [session, profileId, metricsScope, conversation?.participantId]);
 
   useEffect(() => {
     if (tab === "metrics") void loadMetrics();
@@ -1808,6 +1823,7 @@ function LearningPanel({
           )
         ) : tab === "metrics" ? (
           <LearningMetricsView
+            exportParticipantId={conversation?.participantId}
             metrics={metrics}
             loading={loadingMetrics}
             scope={metricsScope}

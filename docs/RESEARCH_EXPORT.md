@@ -8,6 +8,16 @@ Fieldnote 的学习模式把一次性 LLM 反馈改造成可测量的连续干�
 - 隐私：数据从不离开本机；导出时所有字符串都会经过模式脱敏（邮箱、电话、密钥、长数字串等，见
   `apps/server/src/redact.ts`），命中敏感模式的整段文本会被整体替换。**分享前请自行复查一遍文件。**
 - `includeMessages=true` 时附带学习会话所属对话的全部消息正文（同样脱敏），用于对话层面的分析。
+- `?participantId=<id>` 只导出该参与者的切片（各表按自身 `participantId` 列或 incident/session 血缘过滤，切片内部关联自洽）；缺省仍导出全库。
+
+## 参与者（participantId）
+
+`participants` 是"谁在学"的轴，与 `profileId`（Agent 配置档位）**正交**。对话在创建时归属当前参与者，
+学习 session 从对话继承，经验/讲法/策略修订/复习任务/练习题记在写入时反规范化盖章。策略统计、讲法
+offer、复习与指标全部按参与者隔离——A 的经验不会调 B 的教学。历史数据（加列前）全部属于
+`'default'` 参与者（本机所有者）；非默认参与者的对话不进通用记忆抽取与能力自进化。飞书渠道恒为
+`'default'`。分析时注意：`'default'` 混有加列前的全部历史，把它当"研究前数据 + 机主"读，不要当作
+一名受试者。
 
 ## 研究条件（condition）
 
@@ -56,6 +66,7 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 | 字段 | 说明 |
 | --- | --- |
 | `id` / `conversationId` / `profileId` | 会话、所属对话、助手档位 |
+| `participantId` | 参与者（见上节；experiences/strategyVariants/policyRevisions/reviewTasks/practiceItems 同名列同义） |
 | `goal` / `topicKey` | 学习目标与主题键（主题键用于策略经验隔离与指标分组） |
 | `status` | 见状态机 |
 | `datasetKind` / `condition` | 见上两节 |

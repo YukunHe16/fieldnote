@@ -1,6 +1,7 @@
 import type {
   LearningCondition,
   LearningConditionAssignment,
+  Participant,
   AgentEvent,
   AgentProfileSummary,
   ApiList,
@@ -792,7 +793,8 @@ export function normalizeConversation(
     temporary: bool(raw.temporary) ?? false,
     expiresAt: string(raw.expiresAt ?? raw.expires_at) || undefined,
     profileId: string(raw.profileId ?? raw.profile_id) || undefined,
-    profileName: string(raw.profileName ?? raw.profile_name) || undefined
+    profileName: string(raw.profileName ?? raw.profile_name) || undefined,
+    participantId: string(raw.participantId ?? raw.participant_id) || undefined
   };
 }
 
@@ -1038,11 +1040,11 @@ export const api = {
     });
   },
 
-  async createConversation(temporary = false, profileId = "graduate-admissions") {
+  async createConversation(temporary = false, profileId = "graduate-admissions", participantId?: string) {
     const response = await request<ConversationSummary | { conversation: ConversationSummary }>("/api/conversations", {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ profileId, temporary })
+      body: JSON.stringify({ profileId, temporary, ...(participantId ? { participantId } : {}) })
     });
     return normalizeConversation("conversation" in response ? response.conversation : response);
   },
@@ -1116,12 +1118,14 @@ export const api = {
   },
   async learningPolicies(input: {
     profileId: string;
+    conversationId?: string;
     topicKey?: string | null;
     difficultyType?: string;
     datasetKind?: "live" | "demo";
     includeDisabled?: boolean;
   }) {
     const params = new URLSearchParams({ profileId: input.profileId, datasetKind: input.datasetKind ?? "live" });
+    if (input.conversationId) params.set("conversationId", input.conversationId);
     if (input.topicKey !== undefined && input.topicKey !== null) params.set("topicKey", input.topicKey);
     if (input.difficultyType) params.set("difficultyType", input.difficultyType);
     if (input.includeDisabled) params.set("includeDisabled", "true");
@@ -1166,12 +1170,14 @@ export const api = {
 
   async learningMetrics(input: {
     profileId?: string;
+    participantId?: string;
     topicKey?: string | null;
     difficultyType?: string;
     datasetKind?: string;
   }) {
     const params = new URLSearchParams();
     if (input.profileId) params.set("profileId", input.profileId);
+    if (input.participantId) params.set("participantId", input.participantId);
     if (input.topicKey) params.set("topicKey", input.topicKey);
     if (input.difficultyType) params.set("difficultyType", input.difficultyType);
     if (input.datasetKind) params.set("datasetKind", input.datasetKind);
@@ -1179,9 +1185,10 @@ export const api = {
     return response.metrics;
   },
 
-  async learningVariants(input: { profileId: string; topicKey?: string | null }) {
+  async learningVariants(input: { profileId: string; conversationId?: string; topicKey?: string | null }) {
     const params = new URLSearchParams();
     params.set("profileId", input.profileId);
+    if (input.conversationId) params.set("conversationId", input.conversationId);
     // A topicless session's scope is the empty topic, which is a real filter value —
     // omitting the param would list every topic's variants for the profile.
     if (input.topicKey !== undefined) params.set("topicKey", input.topicKey ?? "");
@@ -1208,6 +1215,20 @@ export const api = {
     );
     return response.report;
   },
+
+  participants: () => request<{ participants: Participant[]; currentId: string }>("/api/participants"),
+  createParticipant: (displayName: string) =>
+    request<{ participant: Participant }>("/api/participants", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ displayName })
+    }),
+  selectParticipant: (id: string) =>
+    request<{ participant: Participant; currentId: string }>("/api/participants/current", {
+      method: "PUT",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ id })
+    }),
 
   researchSettings: () => request<{ enabled: boolean; study?: ResearchStudyConfig }>("/api/research/settings"),
   updateResearchSettings: (enabled: boolean, study?: Partial<ResearchStudyConfig>) =>

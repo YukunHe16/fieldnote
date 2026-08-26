@@ -22,7 +22,7 @@ import type { RunOrchestrator } from "./orchestrator.js";
 import type { AgentRuntime, ConfigurableAgentRuntime } from "./runtime.js";
 import { collectWorkspaceFileCandidates, describeCreatedWorkspaceFile, preflightClaudeRuntime } from "./runtime.js";
 import { runDoctor } from "./doctor.js";
-import { type AgentStore, InputAttachmentOverwriteError } from "./store.js";
+import { type AgentStore, DEFAULT_PARTICIPANT_ID, InputAttachmentOverwriteError } from "./store.js";
 import { deleteConversationData } from "./temporary-conversations.js";
 import { DEFAULT_PROFILE_ID, getAgentProfile, isAgentProfileId, listAgentProfileSummaries } from "./agent-profiles.js";
 import type { AdmissionsStore } from "./admissions-store.js";
@@ -106,6 +106,14 @@ export interface AppDependencies {
   liveCard?: LiveDomainCard;
   replay?: RunReplayStore;
 }
+
+const participantCreateSchema = z.object({
+  displayName: z.string().trim().min(1).max(100)
+});
+
+const participantSelectSchema = z.object({
+  id: z.string().trim().min(1).max(100)
+});
 
 const updateConversationSchema = z.object({
   title: z.string().max(120).optional(),
@@ -695,8 +703,24 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return { report };
   });
 
+  // The learning panel is anchored on a CONVERSATION (deep links are unscoped by design),
+  // so its variant/policy lists must follow that conversation's participant — never the
+  // mutable global switcher, which can point at someone else while the panel is open.
+  const panelParticipant = (conversationId: string | undefined): string => {
+    if (conversationId) {
+      const conversation = store.getConversation(conversationId);
+      if (conversation) return conversation.participantId;
+    }
+    return store.currentParticipantId();
+  };
+
   app.get("/api/learning/variants", async (request, reply) => {
-    const query = request.query as { profileId?: string; topicKey?: string; difficultyType?: string };
+    const query = request.query as {
+      profileId?: string;
+      topicKey?: string;
+      difficultyType?: string;
+      conversationId?: string;
+    };
     const profileId = requestedProfileId(query.profileId);
     if (!profileId) return reply.code(400).send({ error: "讲法列表需要指定助手" });
     const difficultyType =
@@ -706,6 +730,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return {
       variants: learning.listVariants({
         profileId,
+        participantId: panelParticipant(query.conversationId),
         ...(query.topicKey !== undefined ? { topicKey: query.topicKey } : {}),
         ...(difficultyType ? { difficultyType } : {})
       })
@@ -741,6 +766,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       difficultyType?: string;
       datasetKind?: string;
       includeDisabled?: string;
+      conversationId?: string;
     };
     if (!query.profileId) return reply.code(400).send({ error: "profileId is required" });
     const datasetKind = query.datasetKind === "demo" ? "demo" : "live";
@@ -751,6 +777,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return {
       policies: learning.listPolicies({
         profileId: query.profileId,
+        participantId: panelParticipant(query.conversationId),
         ...(query.topicKey !== undefined ? { topicKey: query.topicKey } : {}),
         datasetKind,
         ...(difficultyType ? { difficultyType } : {}),
@@ -791,6 +818,24 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         payload: { policy }
       });
     return { policy };
+  });
+
+  app.get("/api/participants", async () => ({
+    participants: store.listParticipants(),
+    currentId: store.currentParticipantId()
+  }));
+
+  app.post("/api/participants", async (request, reply) => {
+    const body = participantCreateSchema.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: "参与者名称不能为空" });
+    return { participant: store.createParticipant(body.data.displayName) };
+  });
+
+  app.put("/api/participants/current", async (request, reply) => {
+    const body = participantSelectSchema.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: "无效的参与者" });
+    if (!store.getParticipant(body.data.id)) return reply.code(404).send({ error: "参与者不存在" });
+    return { participant: store.setCurrentParticipant(body.data.id), currentId: body.data.id };
   });
 
   app.get("/api/research/settings", async () => ({
@@ -847,10 +892,15 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   app.get("/api/learning/metrics", async (request) => {
     const query = request.query as {
       profileId?: string;
+      participantId?: string;
       topicKey?: string;
       difficultyType?: string;
       datasetKind?: string;
     };
+    // The metrics tab reads the current participant by default; "all" gives the
+    // whole-study view (research use), any other value scopes to that participant.
+    // An empty string must mean "default", not silently the whole study.
+    const participantId = query.participantId === "all" ? null : query.participantId || store.currentParticipantId();
     const difficultyType =
       query.difficultyType && LEARNING_DIFFICULTY_TYPES.includes(query.difficultyType as LearningDifficultyType)
         ? (query.difficultyType as LearningDifficultyType)
@@ -862,6 +912,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return {
       metrics: learning.metricsSummary({
         profileId: query.profileId ?? null,
+        participantId,
         topicKey: query.topicKey ?? null,
         difficultyType,
         datasetKind
@@ -870,8 +921,8 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   });
 
   app.get("/api/learning/export", async (request, reply) => {
-    const query = request.query as { includeMessages?: string };
-    const data = learning.exportResearch();
+    const query = request.query as { includeMessages?: string; participantId?: string };
+    const data = learning.exportResearch(query.participantId || undefined);
     const payload: Record<string, unknown> = {
       exportedAt: new Date().toISOString(),
       codebook: "docs/RESEARCH_EXPORT.md",
@@ -948,6 +999,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       learning.seedDemoExperiences(session.id, scenario.difficultyType, [...scenario.seeds], locale);
       const policy = learning.maybeCreatePendingPolicyRevision({
         profileId: session.profileId,
+        participantId: session.participantId,
         topicKey: session.topicKey,
         difficultyType: scenario.difficultyType,
         datasetKind: "demo"
@@ -999,7 +1051,10 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     // Same eligibility gate as the implicit retry/edit signals: feedback given inside a
     // replay or eval/demo learning conversation must not feed live self-evolution, and a
     // thumbs-up there must not confirm or mint playbooks.
-    if (conversationId && !isEvolutionEligibleConversation(conversationId, { learning, replay: dependencies.replay })) {
+    if (
+      conversationId &&
+      !isEvolutionEligibleConversation(conversationId, { learning, replay: dependencies.replay, store })
+    ) {
       return reply.code(202).send({ ignored: true, reason: "Synthetic conversations do not feed self-evolution" });
     }
     const runId = input.runId ?? message?.runId ?? null;
@@ -1167,9 +1222,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   });
 
   app.get("/api/conversations", async (request) => {
-    const query = request.query as { state?: string; query?: string; q?: string };
+    const query = request.query as { state?: string; query?: string; q?: string; participantId?: string };
     const state = query.state === "archived" ? "archived" : "active";
-    return { items: store.listConversations(state, query.query ?? query.q ?? "") };
+    return { items: store.listConversations(state, query.query ?? query.q ?? "", query.participantId) };
   });
 
   app.post("/api/conversations", async (request, reply) => {
@@ -1178,6 +1233,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       channel?: "web" | "feishu";
       temporary?: boolean;
       profileId?: string;
+      participantId?: string;
     };
     const channel = body.channel ?? "web";
     if (body.temporary && channel !== "web") {
@@ -1190,9 +1246,20 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!getAgentProfile(profileId).channelPolicy[channel]) {
       return reply.code(400).send({ error: "Agent profile is unavailable on this channel" });
     }
+    if (body.participantId && !store.getParticipant(body.participantId)) {
+      return reply.code(400).send({ error: "参与者不存在" });
+    }
     const conversation = store.createConversation(channel, body.title?.trim() || "新对话", {
       profileId,
       temporary: body.temporary === true,
+      // Feishu rows are always the default participant (the codebook states this as a
+      // fact); web rows may pin the participant the client believes it is showing, so a
+      // stale tab cannot silently write into whoever the global switcher points at now.
+      ...(channel === "feishu"
+        ? { participantId: DEFAULT_PARTICIPANT_ID }
+        : body.participantId
+          ? { participantId: body.participantId }
+          : {}),
       ...(body.temporary ? { expiresAt: Date.now() + 24 * 60 * 60_000 } : {})
     });
     events.append({
@@ -1437,7 +1504,10 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       "web",
       `${withArtifact ? "回放（启用后）" : "回放"} · ${source?.title ?? "对话"}`,
       {
-        profileId: snapshot.profileId
+        profileId: snapshot.profileId,
+        // A replay re-runs that person's recording; stamping the current switcher value
+        // would move the replay session into someone else's export slice.
+        ...(source ? { participantId: source.participantId } : {})
       }
     );
     const workspacePath = path.join(config.workspaceRoot, created.id);
@@ -1583,7 +1653,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     );
     const conversation = store.getConversation(branched.id);
     const overlay = evolution.overlayForRun(sourceRun.id);
-    if (isEvolutionEligibleConversation(message.conversationId, { learning, replay: dependencies.replay })) {
+    if (isEvolutionEligibleConversation(message.conversationId, { learning, replay: dependencies.replay, store })) {
       evolution.createSignal({
         source: "implicit",
         kind: "retry",
@@ -1667,7 +1737,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       if (sourceRun) orchestrator.restoreWorkspaceFromRun(sourceRun, branched.id);
       const run = orchestrator.submit(branched.id, input.content, "normal");
       const conversation = store.getConversation(branched.id);
-      if (isEvolutionEligibleConversation(sourceMessage.conversationId, { learning, replay: dependencies.replay })) {
+      if (
+        isEvolutionEligibleConversation(sourceMessage.conversationId, { learning, replay: dependencies.replay, store })
+      ) {
         // Like the retry route: overlayRevision points at the REJECTED run's overlay, so
         // usage stats can blame the run that actually failed, not the corrective one.
         const sourceOverlay = sourceRun ? evolution.overlayForRun(sourceRun) : null;

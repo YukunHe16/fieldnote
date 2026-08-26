@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/database.js";
 import { LearningStore, type LearningDatasetKind, type LearningInterventionStrategy } from "../src/learning-store.js";
 import { AgentStore } from "../src/store.js";
+import { isEvolutionEligibleConversation } from "../src/evolution-eligibility.js";
 import { CollaborationStore } from "../src/collaboration-store.js";
 
 const evidenceMessages = new Map<string, string>();
@@ -408,6 +409,7 @@ describe("LearningStore", () => {
     });
     expect(
       live.learning.listExperiences({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -416,6 +418,7 @@ describe("LearningStore", () => {
     ).toHaveLength(1);
     expect(
       live.learning.listExperiences({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -428,6 +431,7 @@ describe("LearningStore", () => {
     complete(replay.learning, incident(replay.learning, replay.session.id).id, "worked_example");
     expect(() =>
       replay.learning.listExperiences({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -436,6 +440,7 @@ describe("LearningStore", () => {
     ).not.toThrow();
     expect(
       replay.learning.selectStrategy({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -449,6 +454,7 @@ describe("LearningStore", () => {
     const { database, learning, session } = fixture();
     for (let index = 0; index < 3; index += 1) complete(learning, incident(learning, session.id).id, "worked_example");
     const selected = learning.selectStrategy({
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception",
@@ -485,6 +491,7 @@ describe("LearningStore", () => {
       );
     for (let index = 0; index < 5; index += 1) complete(learning, incident(learning, session.id).id, "worked_example");
     const pending = learning.maybeCreatePendingPolicyRevision({
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception",
@@ -502,6 +509,7 @@ describe("LearningStore", () => {
     expect(enabled.status).toBe("enabled");
     expect(
       learning.selectStrategy({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -512,6 +520,7 @@ describe("LearningStore", () => {
     expect(
       learning
         .listPolicies({
+          participantId: "default",
           profileId: "local-operator",
           topicKey: "programming",
           difficultyType: "conceptual_misconception",
@@ -548,6 +557,7 @@ describe("LearningStore", () => {
     for (let index = 0; index < 5; index += 1) complete(learning, incident(learning, session.id).id, "worked_example");
     const scope = {
       profileId: "local-operator",
+      participantId: "default",
       topicKey: "programming",
       difficultyType: "conceptual_misconception" as const,
       datasetKind: "live" as const
@@ -575,6 +585,7 @@ describe("LearningStore", () => {
       });
     }
     const pending = learning.maybeCreatePendingPolicyRevision({
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception",
@@ -594,6 +605,7 @@ describe("LearningStore", () => {
     ).toBe(true);
     expect(
       learning.listExperiences({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -602,6 +614,7 @@ describe("LearningStore", () => {
     ).toEqual([]);
     expect(
       learning.selectStrategy({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -666,6 +679,7 @@ describe("LearningStore", () => {
     ).toBe(6);
     expect(learning.listIncidents(session.id)).toHaveLength(6);
     const pending = learning.maybeCreatePendingPolicyRevision({
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "planning_gap",
@@ -677,6 +691,7 @@ describe("LearningStore", () => {
     expect(pending?.previousRevisionId).not.toBeNull();
     expect(
       learning.listPolicies({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "planning_gap",
@@ -687,6 +702,7 @@ describe("LearningStore", () => {
     expect(learning.rollbackPolicyRevision(enabled.id).id).toBe(pending!.previousRevisionId);
     expect(
       learning.listExperiences({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "planning_gap",
@@ -768,6 +784,7 @@ describe("LearningStore", () => {
     // One-shot outcomes never feed strategy evolution.
     expect(
       learning.listExperiences({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -815,6 +832,7 @@ describe("LearningStore", () => {
     // must not train it.
     expect(
       learning.listExperiences({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -902,11 +920,11 @@ describe("LearningStore", () => {
       topicKey: "programming",
       difficultyType: "conceptual_misconception"
     } as const;
-    expect(learning.listExperiences({ ...scope, datasetKind: "eval" })).toHaveLength(3);
-    expect(learning.listExperiences({ ...scope, datasetKind: "live" })).toEqual([]);
+    expect(learning.listExperiences({ participantId: "default", ...scope, datasetKind: "eval" })).toHaveLength(3);
+    expect(learning.listExperiences({ participantId: "default", ...scope, datasetKind: "live" })).toEqual([]);
     // With three failures on record the posterior demotes that strategy instead of keeping
     // the fixed default order an order-independent eval would have used.
-    const selection = learning.selectStrategy({ ...scope, datasetKind: "eval" });
+    const selection = learning.selectStrategy({ participantId: "default", ...scope, datasetKind: "eval" });
     expect(selection.reason).toBe("evidence");
     expect(selection.strategy).not.toBe("socratic_question");
     database.close();
@@ -918,6 +936,7 @@ describe("LearningStore", () => {
     const first = incident(learning, session.id);
     complete(learning, first.id, "socratic_question", "resolved");
     const selection = learning.selectStrategy({
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception",
@@ -926,6 +945,7 @@ describe("LearningStore", () => {
     expect(selection).toMatchObject({ reason: "default", historyCount: 0 });
     expect(
       learning.maybeCreatePendingPolicyRevision({
+        participantId: "default",
         profileId: "local-operator",
         topicKey: "programming",
         difficultyType: "conceptual_misconception",
@@ -1165,12 +1185,14 @@ describe("LearningStore", () => {
   it("invents variants with dedupe, a single pending per scope, and rejection memory", () => {
     const { database, learning } = fixture();
     const base = {
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception" as const,
       baseStrategy: "socratic_question" as const
     };
     const created = learning.createVariant({
+      participantId: "default",
       ...base,
       title: "栈帧追踪法",
       instruction: "让学生画出每次调用的独立栈帧再比较循环变量"
@@ -1179,6 +1201,7 @@ describe("LearningStore", () => {
     // Similar wording (any status) blocks re-proposal.
     expect(
       learning.createVariant({
+        participantId: "default",
         ...base,
         title: "栈帧追踪法",
         instruction: "让学生画出每次调用的独立栈帧再比较循环变量。"
@@ -1186,12 +1209,18 @@ describe("LearningStore", () => {
     ).toBeNull();
     // A scope+base pair holds one pending candidate at a time.
     expect(
-      learning.createVariant({ ...base, title: "另一种问法", instruction: "从最小输入开始问学生每一步谁在调用谁" })
+      learning.createVariant({
+        participantId: "default",
+        ...base,
+        title: "另一种问法",
+        instruction: "从最小输入开始问学生每一步谁在调用谁"
+      })
     ).toBeNull();
     learning.reviewVariant(created!.id, "reject");
     // Rejection memory: similar wording stays blocked even after rejection.
     expect(
       learning.createVariant({
+        participantId: "default",
         ...base,
         title: "栈帧追踪法",
         instruction: "让学生画出每次调用的独立栈帧再比较循环变量"
@@ -1201,6 +1230,7 @@ describe("LearningStore", () => {
     // length-normalized): a distinct approach for the same base strategy still lands.
     expect(
       learning.createVariant({
+        participantId: "default",
         ...base,
         title: "反例对照法",
         instruction: "给出一个没有出口条件的递归反例，让学生预测运行结果并解释为什么栈会溢出，再回到正确版本对照差异"
@@ -1210,6 +1240,7 @@ describe("LearningStore", () => {
     // different strategy is a different candidate, not a blocked duplicate.
     expect(
       learning.createVariant({
+        participantId: "default",
         ...base,
         baseStrategy: "worked_example",
         title: "栈帧追踪法",
@@ -1222,24 +1253,28 @@ describe("LearningStore", () => {
   it("runs variant review transitions with the two-trial cap", () => {
     const { database, learning } = fixture();
     const base = {
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception" as const,
       baseStrategy: "socratic_question" as const
     };
     const first = learning.createVariant({
+      participantId: "default",
       ...base,
       title: "第一讲法",
       instruction: "先画栈帧图再对比循环快照理解调用链"
     })!;
     expect(learning.reviewVariant(first.id, "trial").status).toBe("trial");
     const second = learning.createVariant({
+      participantId: "default",
       ...base,
       title: "第二讲法",
       instruction: "用套娃比喻走一遍嵌套调用的进入与返回过程"
     })!;
     expect(learning.reviewVariant(second.id, "trial").status).toBe("trial");
     const third = learning.createVariant({
+      participantId: "default",
       ...base,
       title: "第三讲法",
       instruction: "让学生亲手展开三层调用并标注每层的返回值来源"
@@ -1260,12 +1295,14 @@ describe("LearningStore", () => {
   it("offers deterministically and only to live on-call scopes", () => {
     const { database, learning } = fixture();
     const base = {
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception" as const,
       baseStrategy: "socratic_question" as const
     };
     const first = learning.createVariant({
+      participantId: "default",
       ...base,
       title: "第一讲法",
       instruction: "先画栈帧图再对比循环快照理解调用链"
@@ -1273,11 +1310,12 @@ describe("LearningStore", () => {
     learning.reviewVariant(first.id, "trial");
     const offerScope = { ...base, datasetKind: "live" as const, condition: "on-call" as const };
     expect(learning.offerVariant(offerScope)?.id).toBe(first.id);
-    expect(learning.offerVariant({ ...offerScope, datasetKind: "eval" })).toBeNull();
-    expect(learning.offerVariant({ ...offerScope, datasetKind: "demo" })).toBeNull();
-    expect(learning.offerVariant({ ...offerScope, datasetKind: "replay" })).toBeNull();
-    expect(learning.offerVariant({ ...offerScope, condition: "one-shot" })).toBeNull();
+    expect(learning.offerVariant({ participantId: "default", ...offerScope, datasetKind: "eval" })).toBeNull();
+    expect(learning.offerVariant({ participantId: "default", ...offerScope, datasetKind: "demo" })).toBeNull();
+    expect(learning.offerVariant({ participantId: "default", ...offerScope, datasetKind: "replay" })).toBeNull();
+    expect(learning.offerVariant({ participantId: "default", ...offerScope, condition: "one-shot" })).toBeNull();
     const second = learning.createVariant({
+      participantId: "default",
       ...base,
       title: "第二讲法",
       instruction: "用套娃比喻走一遍嵌套调用的进入与返回过程"
@@ -1301,6 +1339,7 @@ describe("LearningStore", () => {
 
     const attributed = fixture();
     const variant = attributed.learning.createVariant({
+      participantId: "default",
       ...scope,
       title: "栈帧追踪法",
       instruction: "先画栈帧图再对比循环快照理解调用链"
@@ -1309,9 +1348,14 @@ describe("LearningStore", () => {
     const current = incident(attributed.learning, attributed.session.id);
     // The prompt render wrote the delivery ledger for round one, and the tutor recorded the
     // delivered strategy → the round is attributed.
-    expect(attributed.learning.offerVariantForPrompt({ ...renderScope, incidentId: current.id, round: 1 })?.id).toBe(
-      variant.id
-    );
+    expect(
+      attributed.learning.offerVariantForPrompt({
+        participantId: "default",
+        ...renderScope,
+        incidentId: current.id,
+        round: 1
+      })?.id
+    ).toBe(variant.id);
     complete(attributed.learning, current.id, "socratic_question", "resolved");
     const rounds = attributed.learning.listInterventions(current.id);
     expect(rounds[0]?.strategyVariantId).toBe(variant.id);
@@ -1324,13 +1368,19 @@ describe("LearningStore", () => {
 
     const deviated = fixture();
     const other = deviated.learning.createVariant({
+      participantId: "default",
       ...scope,
       title: "栈帧追踪法",
       instruction: "先画栈帧图再对比循环快照理解调用链"
     })!;
     deviated.learning.reviewVariant(other.id, "trial");
     const deviatedIncident = incident(deviated.learning, deviated.session.id);
-    deviated.learning.offerVariantForPrompt({ ...renderScope, incidentId: deviatedIncident.id, round: 1 });
+    deviated.learning.offerVariantForPrompt({
+      participantId: "default",
+      ...renderScope,
+      incidentId: deviatedIncident.id,
+      round: 1
+    });
     // The tutor deviated from the delivered strategy: no attribution, honest ITT semantics.
     complete(deviated.learning, deviatedIncident.id, "direct_explanation", "resolved");
     expect(deviated.learning.listInterventions(deviatedIncident.id)[0]?.strategyVariantId).toBeNull();
@@ -1338,6 +1388,7 @@ describe("LearningStore", () => {
 
     const undelivered = fixture();
     const ghost = undelivered.learning.createVariant({
+      participantId: "default",
       ...scope,
       title: "栈帧追踪法",
       instruction: "先画栈帧图再对比循环快照理解调用链"
@@ -1355,6 +1406,7 @@ describe("LearningStore", () => {
   it("recommends promotion after five attributed outcomes, needs a real control, and respects the keep memory", () => {
     const { database, learning, session } = fixture();
     const variant = learning.createVariant({
+      participantId: "default",
       profileId: "local-operator",
       topicKey: "programming",
       difficultyType: "conceptual_misconception",
@@ -1365,6 +1417,7 @@ describe("LearningStore", () => {
     learning.reviewVariant(variant.id, "trial");
     const scope = {
       profileId: "local-operator",
+      participantId: "default",
       topicKey: "programming",
       difficultyType: "conceptual_misconception" as const
     };
@@ -1376,7 +1429,7 @@ describe("LearningStore", () => {
     };
     const attributedRound = (verdict: "resolved" | "partial" | "unresolved" = "resolved") => {
       const current = incident(learning, session.id);
-      learning.offerVariantForPrompt({ ...renderScope, incidentId: current.id, round: 1 });
+      learning.offerVariantForPrompt({ participantId: "default", ...renderScope, incidentId: current.id, round: 1 });
       complete(learning, current.id, "socratic_question", verdict);
     };
     for (let index = 0; index < 4; index += 1) {
@@ -1562,6 +1615,146 @@ describe("learning condition assignment", () => {
     database.prepare("UPDATE learning_sessions SET condition_assignment = '0' WHERE id = ?").run(session.id);
     expect(learning.getSession(session.id)?.conditionAssignment).toBeNull();
     database.close();
+  });
+});
+
+describe("participant isolation", () => {
+  function secondParticipantSession(fx: ReturnType<typeof fixture>, name = "同学B") {
+    const participant = fx.agents.createParticipant(name);
+    fx.agents.setCurrentParticipant(participant.id);
+    const conversation = fx.agents.createConversation("web", "B 的学习", { profileId: "local-operator" });
+    const session = fx.learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "理解递归",
+      topicKey: "programming"
+    });
+    const run = fx.agents.createRun(conversation.id, "我也不理解", "normal");
+    evidenceMessages.set(session.id, run.userMessageId);
+    return { participant, conversation, session };
+  }
+
+  it("keeps one participant's experiences out of another's strategy statistics", () => {
+    const fx = fixture();
+    const other = secondParticipantSession(fx);
+    expect(fx.session.participantId).toBe("default");
+    expect(other.session.participantId).toBe(other.participant.id);
+    // Three confirmed outcomes for the DEFAULT participant...
+    for (let index = 0; index < 3; index += 1)
+      complete(fx.learning, incident(fx.learning, fx.session.id).id, "worked_example");
+    const scope = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception" as const,
+      datasetKind: "live" as const
+    };
+    // ...drive the default participant's ordering with evidence,
+    expect(fx.learning.selectStrategy({ ...scope, participantId: "default" }).reason).toBe("evidence");
+    // while the other participant still starts from the default order: A's experiences
+    // must never tune B's teaching.
+    expect(fx.learning.selectStrategy({ ...scope, participantId: other.participant.id }).reason).toBe("default");
+    expect(fx.learning.listExperiences({ ...scope, participantId: other.participant.id })).toEqual([]);
+    fx.database.close();
+  });
+
+  it("stamps review tasks and scopes the research export per participant", () => {
+    const fx = fixture();
+    const other = secondParticipantSession(fx);
+    complete(fx.learning, incident(fx.learning, other.session.id).id, "worked_example");
+    const task = fx.learning.listReviewTasks(other.session.id)[0];
+    expect(task?.participantId).toBe(other.participant.id);
+    const scoped = fx.learning.exportResearch(other.participant.id);
+    expect(scoped.sessions.map((session) => session.id)).toEqual([other.session.id]);
+    expect(scoped.experiences.every((experience) => experience.participantId === other.participant.id)).toBe(true);
+    expect(scoped.reviewTasks.every((item) => item.participantId === other.participant.id)).toBe(true);
+    const defaults = fx.learning.exportResearch("default");
+    expect(defaults.sessions.map((session) => session.id)).toEqual([fx.session.id]);
+    expect(defaults.reviewTasks).toEqual([]);
+    // The unfiltered export remains the whole study.
+    expect(fx.learning.exportResearch().sessions).toHaveLength(2);
+    fx.database.close();
+  });
+
+  it("keeps variant promotion and pending policies inside their participant", () => {
+    const fx = fixture();
+    const other = secondParticipantSession(fx);
+    const variantScope = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception" as const,
+      baseStrategy: "socratic_question" as const
+    };
+    const ownerVariant = fx.learning.createVariant({
+      ...variantScope,
+      participantId: "default",
+      title: "栈帧追踪法",
+      instruction: "先画栈帧图再对比循环快照理解调用链"
+    })!;
+    fx.learning.reviewVariant(ownerVariant.id, "trial");
+    fx.learning.reviewVariant(ownerVariant.id, "enable");
+    const otherVariant = fx.learning.createVariant({
+      ...variantScope,
+      participantId: other.participant.id,
+      title: "逐步展开法",
+      instruction: "把每次递归调用写成一行逐步展开"
+    })!;
+    fx.learning.reviewVariant(otherVariant.id, "trial");
+    // Promoting B's variant must retire B's siblings only — never the owner's enabled 讲法.
+    fx.learning.reviewVariant(otherVariant.id, "enable");
+    expect(fx.learning.getVariant(ownerVariant.id)?.status).toBe("enabled");
+    // The offer stays per person as well.
+    const offerScope = { ...variantScope, datasetKind: "live" as const, condition: "on-call" as const };
+    expect(fx.learning.offerVariant({ ...offerScope, participantId: "default" })?.id).toBe(ownerVariant.id);
+    expect(fx.learning.offerVariant({ ...offerScope, participantId: other.participant.id })?.id).toBe(otherVariant.id);
+    // Pending policy revisions are invisible across the boundary.
+    for (let index = 0; index < 5; index += 1)
+      complete(fx.learning, incident(fx.learning, other.session.id).id, "worked_example");
+    const policyScope = {
+      profileId: "local-operator",
+      topicKey: "programming",
+      difficultyType: "conceptual_misconception" as const,
+      datasetKind: "live" as const
+    };
+    const pending = fx.learning.maybeCreatePendingPolicyRevision({
+      ...policyScope,
+      participantId: other.participant.id
+    });
+    expect(pending?.participantId).toBe(other.participant.id);
+    const ids = (list: Array<{ id: string }>) => list.map((item) => item.id);
+    expect(
+      ids(fx.learning.listPolicies({ ...policyScope, participantId: other.participant.id, includeDisabled: true }))
+    ).toContain(pending!.id);
+    expect(
+      ids(fx.learning.listPolicies({ ...policyScope, participantId: "default", includeDisabled: true }))
+    ).not.toContain(pending!.id);
+    fx.database.close();
+  });
+
+  it("forks a conversation under its own participant, not the current one", () => {
+    const fx = fixture();
+    const other = secondParticipantSession(fx); // current participant is now B
+    const fork = fx.agents.createBranchFromMessage(fx.run.userMessageId, { asNewConversation: true });
+    expect(fork.participantId).toBe("default");
+    expect(other.participant.id).not.toBe("default");
+    fx.database.close();
+  });
+
+  it("scopes the conversation list and the memory-eligibility gate", () => {
+    const fx = fixture();
+    const other = secondParticipantSession(fx);
+    const defaultList = fx.agents.listConversations("active", "", "default").map((item) => item.id);
+    expect(defaultList).toContain(fx.conversation.id);
+    expect(defaultList).not.toContain(other.conversation.id);
+    // Default argument follows the current-participant setting (B right now).
+    const currentList = fx.agents.listConversations("active").map((item) => item.id);
+    expect(currentList).toContain(other.conversation.id);
+    expect(currentList).not.toContain(fx.conversation.id);
+    // Zero memory crosstalk: a study participant's conversation is never extracted.
+    expect(isEvolutionEligibleConversation(other.conversation.id, { learning: fx.learning, store: fx.agents })).toBe(
+      false
+    );
+    expect(isEvolutionEligibleConversation(fx.conversation.id, { learning: fx.learning, store: fx.agents })).toBe(true);
+    fx.database.close();
   });
 });
 

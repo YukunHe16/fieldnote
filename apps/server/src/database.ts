@@ -5,11 +5,21 @@ import Database from "better-sqlite3";
 const schema = `
 PRAGMA foreign_keys = ON;
 
+-- Participants are the PEOPLE axis (who is learning), orthogonal to profile_id — the
+-- agent-configuration axis validated against a code registry. The two must never mix:
+-- a participant id is data, a profile id is configuration.
+CREATE TABLE IF NOT EXISTS participants (
+  id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   channel TEXT NOT NULL CHECK (channel IN ('web', 'feishu')),
   profile_id TEXT NOT NULL DEFAULT 'local-operator',
+  participant_id TEXT NOT NULL DEFAULT 'default',
   active_branch_id TEXT,
   pinned INTEGER NOT NULL DEFAULT 0,
   temporary INTEGER NOT NULL DEFAULT 0,
@@ -341,6 +351,14 @@ export function openDatabase(databasePath: string): SqliteDatabase {
   if (!conversationColumns.some((column) => column.name === "profile_id")) {
     database.exec("ALTER TABLE conversations ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'local-operator'");
   }
+  if (!conversationColumns.some((column) => column.name === "participant_id")) {
+    // Existing rows read the default, so every pre-participant conversation belongs to
+    // the default participant and single-user behavior is byte-identical.
+    database.exec("ALTER TABLE conversations ADD COLUMN participant_id TEXT NOT NULL DEFAULT 'default'");
+  }
+  database
+    .prepare("INSERT OR IGNORE INTO participants (id, display_name, created_at) VALUES ('default', 'Default', ?)")
+    .run(Date.now());
   const runColumns = database.pragma("table_info(runs)") as Array<{ name: string }>;
   if (!runColumns.some((column) => column.name === "profile_revision")) {
     database.exec("ALTER TABLE runs ADD COLUMN profile_revision INTEGER NOT NULL DEFAULT 1");

@@ -332,6 +332,47 @@ describe("casual analyze skip", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
+  it("analyzes a study participant's turn without touching the owner's memories", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-participant-"));
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const memories = new MemoryStore(database);
+    const learning = new LearningStore(database);
+    const runtime = new CountingAnalysisRuntime();
+    const participant = store.createParticipant("同学B");
+    store.setCurrentParticipant(participant.id);
+    const conversation = store.createConversation("web", "B 的提问", { profileId: "local-operator" });
+    expect(conversation.participantId).toBe(participant.id);
+    const run = store.createRun(conversation.id, "我一直不理解递归的出口条件，能一步步教我吗？再多讲讲。", "normal");
+    store.replaceMessageText(
+      run.assistantMessageId,
+      "这是足够长的教学回复，用来确认参与者的回合仍会被分析（标题与学习建议照常），但绝不写入机主的记忆或能力自进化。"
+    );
+    store.setMessageStatus(run.assistantMessageId, "completed");
+    store.setRunStatus(run.id, "completed");
+    const coordinator = new MemoryCoordinator(
+      config(root),
+      store,
+      memories,
+      new EventStore(database),
+      runtime,
+      undefined,
+      undefined,
+      undefined,
+      learning
+    );
+
+    coordinator.enqueue(run);
+    // Surgical gating: the turn is PROCESSED (title/suggestion machinery runs)...
+    await waitFor(() => memories.getExtraction(run.id)?.status === "completed");
+    expect(runtime.calls).toBe(1);
+    // ...but nothing lands in the owner's memory store.
+    expect(memories.list({ profileId: "local-operator" })).toHaveLength(0);
+    await coordinator.stop();
+    database.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
   it("keeps eval learning sessions out of memory and evolution extraction", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-synthetic-eval-"));
     const database = openDatabase(":memory:");

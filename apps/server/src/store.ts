@@ -5,6 +5,7 @@ import type {
   ConversationDetailDto,
   ConversationSummaryDto,
   MessageDto,
+  ParticipantDto,
   RunMode,
   RunStatus,
   ToolEventDto
@@ -13,11 +14,18 @@ import type { SqliteDatabase } from "./database.js";
 import { getAgentProfile, getAgentProfileSummary, isAgentProfileId, LEGACY_PROFILE_ID } from "./agent-profiles.js";
 import { AssistantBlockStore } from "./assistant-block-store.js";
 
+type ParticipantRow = {
+  id: string;
+  display_name: string;
+  created_at: number;
+};
+
 type ConversationRow = {
   id: string;
   title: string;
   channel: "web" | "feishu";
   profile_id: string;
+  participant_id: string;
   active_branch_id: string;
   pinned: number;
   temporary: number;
@@ -95,6 +103,13 @@ export class InputAttachmentOverwriteError extends Error {
   readonly statusCode = 409;
 }
 
+/**
+ * The machine owner's participant id — also where all pre-participant history lives.
+ * Single constant on purpose: the eligibility rule exists both as TS comparisons and as
+ * an interpolated SQL mirror, and a drifted literal would create a phantom participant.
+ */
+export const DEFAULT_PARTICIPANT_ID = "default";
+
 const toIso = (value: number): string => new Date(value).toISOString();
 const cleanPreview = (value: string | null): string => (value ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
 
@@ -126,26 +141,76 @@ export class AgentStore {
       .run(key, JSON.stringify(value), Date.now());
   }
 
+  // ── Participants ──────────────────────────────────────────────────────────
+  // The people axis, orthogonal to agent profiles. "Current participant" is a
+  // local UI setting (like research.enabled), not an auth concept: this is a
+  // single-machine workbench where participants take turns at the keyboard.
+
+  listParticipants(): ParticipantDto[] {
+    const rows = this.database.prepare("SELECT * FROM participants ORDER BY created_at ASC").all() as ParticipantRow[];
+    return rows.map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      createdAt: toIso(row.created_at)
+    }));
+  }
+
+  getParticipant(id: string): ParticipantDto | null {
+    const row = this.database.prepare("SELECT * FROM participants WHERE id = ?").get(id) as ParticipantRow | undefined;
+    return row ? { id: row.id, displayName: row.display_name, createdAt: toIso(row.created_at) } : null;
+  }
+
+  createParticipant(displayName: string): ParticipantDto {
+    const name = displayName.trim().slice(0, 100);
+    if (!name) throw new Error("Participant name is required");
+    const id = randomUUID();
+    this.database
+      .prepare("INSERT INTO participants (id, display_name, created_at) VALUES (?, ?, ?)")
+      .run(id, name, Date.now());
+    const participant = this.getParticipant(id);
+    if (!participant) throw new Error("Failed to create participant");
+    return participant;
+  }
+
+  /** Falls back to the default participant when the stored id no longer resolves. */
+  currentParticipantId(): string {
+    const stored = this.getSetting<string>("participants.current");
+    if (stored && this.getParticipant(stored)) return stored;
+    return DEFAULT_PARTICIPANT_ID;
+  }
+
+  setCurrentParticipant(id: string): ParticipantDto {
+    const participant = this.getParticipant(id);
+    if (!participant) throw new Error("Participant not found");
+    this.setSetting("participants.current", id);
+    return participant;
+  }
+
   createConversation(
     channel: "web" | "feishu" = "web",
     title = "新对话",
-    options: { temporary?: boolean; expiresAt?: number; profileId?: string } = {}
+    options: { temporary?: boolean; expiresAt?: number; profileId?: string; participantId?: string } = {}
   ): ConversationDetailDto {
     const conversationId = randomUUID();
     const branchId = randomUUID();
     const timestamp = Date.now();
+    // Web-origin conversations belong to whoever is currently at the keyboard; channel
+    // and fork call sites pass an explicit participant instead (Feishu is outside the
+    // participant pilot and always writes to the default participant).
+    const participantId = options.participantId ?? this.currentParticipantId();
     this.database.transaction(() => {
       this.database
         .prepare(
           `INSERT INTO conversations
-             (id, title, channel, profile_id, active_branch_id, temporary, expires_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             (id, title, channel, profile_id, participant_id, active_branch_id, temporary, expires_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           conversationId,
           title,
           channel,
           options.profileId ?? "local-operator",
+          participantId,
           branchId,
           options.temporary ? 1 : 0,
           options.expiresAt ?? null,
@@ -164,10 +229,14 @@ export class AgentStore {
     return conversation;
   }
 
-  listConversations(state: "active" | "archived", query = ""): ConversationSummaryDto[] {
+  listConversations(state: "active" | "archived", query = "", participantId?: string): ConversationSummaryDto[] {
     const archived = state === "archived" ? 1 : 0;
     const term = query.trim();
     const like = `%${term.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+    // The sidebar shows only the current participant's conversations — the most
+    // important isolation query: without it every participant scrolls through every
+    // other participant's threads. Deep links (getConversation) stay unscoped.
+    const participant = participantId ?? this.currentParticipantId();
     const rows = this.database
       .prepare(
         `SELECT c.*,
@@ -180,6 +249,7 @@ export class AgentStore {
            ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_message_preview
          FROM conversations c
          WHERE c.temporary = 0 AND (c.archived_at IS NOT NULL) = ?
+           AND c.participant_id = ?
            AND EXISTS (
              SELECT 1 FROM messages lm
              WHERE lm.conversation_id = c.id AND lm.role = 'user'
@@ -192,7 +262,7 @@ export class AgentStore {
          ORDER BY c.pinned DESC, c.updated_at DESC
          LIMIT 200`
       )
-      .all(archived, term, like, like) as ConversationRow[];
+      .all(archived, participant, term, like, like) as ConversationRow[];
     return rows.map((row) => this.toConversationSummary(row));
   }
 
@@ -956,7 +1026,10 @@ export class AgentStore {
 
     const targetConversation = options.asNewConversation
       ? this.createConversation(sourceConversation.channel, options.title ?? `${sourceConversation.title} · 分支`, {
-          profileId: sourceConversation.profileId
+          profileId: sourceConversation.profileId,
+          // A fork continues the same person's thread regardless of who is currently
+          // selected in the sidebar.
+          participantId: sourceConversation.participantId
         })
       : sourceConversation;
     const targetBranchId = options.asNewConversation ? targetConversation.activeBranchId : randomUUID();
@@ -1091,6 +1164,7 @@ export class AgentStore {
       channel: row.channel,
       profileId,
       profileName: profile.name,
+      participantId: row.participant_id ?? DEFAULT_PARTICIPANT_ID,
       archived: row.archived_at !== null,
       pinned: row.pinned === 1,
       temporary: row.temporary === 1,

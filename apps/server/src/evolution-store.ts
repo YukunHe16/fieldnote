@@ -18,6 +18,7 @@ import type {
 } from "@fieldnote/contracts";
 import { isAgentProfileId, LEGACY_PROFILE_ID } from "./agent-profiles.js";
 import type { SqliteDatabase } from "./database.js";
+import { DEFAULT_PARTICIPANT_ID } from "./store.js";
 import { scoreOverlayText, skillLabelsFromBlocks } from "./overlay-context.js";
 
 const toIso = (value: number): string => new Date(value).toISOString();
@@ -608,7 +609,8 @@ export class EvolutionStore {
       hasTable("learning_sessions")
         ? "AND r.conversation_id NOT IN (SELECT conversation_id FROM learning_sessions WHERE dataset_kind != 'live')"
         : "",
-      hasTable("replay_marks") ? "AND r.conversation_id NOT IN (SELECT conversation_id FROM replay_marks)" : ""
+      hasTable("replay_marks") ? "AND r.conversation_id NOT IN (SELECT conversation_id FROM replay_marks)" : "",
+      `AND r.conversation_id NOT IN (SELECT id FROM conversations WHERE participant_id != '${DEFAULT_PARTICIPANT_ID}')`
     ].join("\n         ");
     const rows = this.database
       .prepare(

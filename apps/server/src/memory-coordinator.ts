@@ -6,7 +6,7 @@ import type { EventStore } from "./event-store.js";
 import { containsSensitiveContent, type MemoryStore } from "./memory-store.js";
 import type { AgentRuntime, TurnAnalysis } from "./runtime.js";
 import { emptyTurnAnalysis } from "./runtime.js";
-import type { AgentStore, RunRecord } from "./store.js";
+import { DEFAULT_PARTICIPANT_ID, type AgentStore, type RunRecord } from "./store.js";
 import type { EvolutionCoordinator } from "./evolution-coordinator.js";
 import { countMatchedPlaybooks, skillLabelsFromBlocks, subagentLabelsFromBlocks } from "./overlay-context.js";
 import type { LiveDomainCard } from "./domain-card-live.js";
@@ -172,8 +172,18 @@ export class MemoryCoordinator {
       return "skipped";
     }
     if (conversation.temporary) return "skipped";
-    if (!isEvolutionEligibleConversation(conversation.id, { learning: this.learning, replay: this.replay }))
+    // Synthetic conversations (demo/eval/replay) skip everything, as before. Non-default
+    // participants are gated SURGICALLY below instead: their turns still earn a title and
+    // a learning suggestion — the entry paths the participant axis exists for — while the
+    // owner's memory store and capability evolution stay untouched in both directions.
+    if (
+      !isEvolutionEligibleConversation(conversation.id, {
+        learning: this.learning,
+        replay: this.replay
+      })
+    )
       return "skipped";
+    const ownerConversation = conversation.participantId === DEFAULT_PARTICIPANT_ID;
     const prompt = userMessages
       .map((message) => message.content)
       .filter(Boolean)
@@ -202,15 +212,18 @@ export class MemoryCoordinator {
           prompt,
           response: assistant.content,
           workspacePath,
-          existingMemories: this.memories.list({ profileId: conversation.profileId }).map((memory) => ({
-            id: memory.id,
-            category: memory.category,
-            title: memory.title,
-            content: memory.content,
-            sourceKind: memory.sourceKind,
-            scope: memory.scope,
-            profileId: memory.profileId
-          })),
+          // A participant's text must not be analyzed against the owner's memory list.
+          existingMemories: (ownerConversation ? this.memories.list({ profileId: conversation.profileId }) : []).map(
+            (memory) => ({
+              id: memory.id,
+              category: memory.category,
+              title: memory.title,
+              content: memory.content,
+              sourceKind: memory.sourceKind,
+              scope: memory.scope,
+              profileId: memory.profileId
+            })
+          ),
           injectedPlaybooks,
           usedSkills,
           usedSubagents,
@@ -222,30 +235,32 @@ export class MemoryCoordinator {
     if (!activeRun) return "skipped";
     this.applyTitle(activeRun, conversation.title, analysis);
     const settings = this.memories.getSettings();
-    if (settings.enabled && settings.autoSave) {
+    if (ownerConversation && settings.enabled && settings.autoSave) {
       this.applyMemories(activeRun, conversation.title, assistant.id, prompt, analysis, conversation.profileId);
     }
-    try {
-      await this.evolution?.applyTurnEvolution({
-        profileId: conversation.profileId,
-        runId,
-        conversationId: conversation.id,
-        retried,
-        usedSkills,
-        usedSubagents,
-        injectedPlaybooks,
-        analysis
-      });
-      if (!this.activeCompletedRun(runId)) return "skipped";
-      await this.evolution?.proposeFromPrompt({
-        profileId: conversation.profileId,
-        prompt,
-        runId
-      });
-      if (!this.activeCompletedRun(runId)) return "skipped";
-      this.evolution?.scheduleReview();
-    } catch {
-      // Evolution is opportunistic and must not fail memory extraction.
+    if (ownerConversation) {
+      try {
+        await this.evolution?.applyTurnEvolution({
+          profileId: conversation.profileId,
+          runId,
+          conversationId: conversation.id,
+          retried,
+          usedSkills,
+          usedSubagents,
+          injectedPlaybooks,
+          analysis
+        });
+        if (!this.activeCompletedRun(runId)) return "skipped";
+        await this.evolution?.proposeFromPrompt({
+          profileId: conversation.profileId,
+          prompt,
+          runId
+        });
+        if (!this.activeCompletedRun(runId)) return "skipped";
+        this.evolution?.scheduleReview();
+      } catch {
+        // Evolution is opportunistic and must not fail memory extraction.
+      }
     }
     if (!this.activeCompletedRun(runId)) return "skipped";
     if (this.learning && conversation.channel === "web" && !this.learning.getSessionForConversation(conversation.id)) {

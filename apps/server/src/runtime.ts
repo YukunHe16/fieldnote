@@ -246,6 +246,8 @@ export interface RuntimeInput {
   assistantMessageId?: string;
   conversationTitle?: string;
   memoryEnabled?: boolean;
+  /** False for non-default participants: no owner playbooks, domain card, or artifacts. */
+  evolutionEnabled?: boolean;
   profileId: AgentProfileId;
   prompt: string;
   workspacePath: string;
@@ -1304,20 +1306,25 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       this.memoryStore && input.memoryEnabled !== false && this.memoryStore.getSettings().enabled
     );
     const pinned = input.pinnedOverlay;
+    // The owner's evolved capability layer must not leak into a study participant's
+    // prompt; replayed (pinned) overlays are frozen history and stay untouched.
+    const evolutionEnabled = input.evolutionEnabled !== false;
     const liveMemories = memoryEnabled ? this.memoryStore!.stableContext(input.profileId) : [];
     const memories = pinned?.memories !== undefined ? pinned.memories : liveMemories;
-    const livePlaybooks = this.evolutionStore?.listPlaybooks(input.profileId) ?? [];
+    const livePlaybooks = evolutionEnabled ? (this.evolutionStore?.listPlaybooks(input.profileId) ?? []) : [];
     const playbooks = pinnedPlaybooks(pinned, livePlaybooks) ?? selectRelevantPlaybooks(livePlaybooks, input.prompt, 4);
     const card = pinned
       ? pinned.card
         ? { profileId: input.profileId, title: pinned.card.title, lines: pinned.card.lines }
         : null
-      : this.evolutionStore
+      : this.evolutionStore && evolutionEnabled
         ? buildDomainCard(input.profileId, liveMemories, this.admissionsStore)
         : null;
     const artifactIds = pinned
       ? pinned.artifactIds
-      : (this.evolutionStore?.enabledArtifacts(input.profileId).map((item) => item.id) ?? []);
+      : evolutionEnabled
+        ? (this.evolutionStore?.enabledArtifacts(input.profileId).map((item) => item.id) ?? [])
+        : [];
     if (this.evolutionStore && input.runId) {
       this.evolutionStore.createOverlayRevision({
         runId: input.runId,
@@ -1351,6 +1358,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       current && session.condition !== "multi-turn"
         ? store.selectStrategy({
             profileId: session.profileId,
+            participantId: session.participantId,
             topicKey: session.topicKey,
             difficultyType: current.difficultyType,
             datasetKind: session.datasetKind,
@@ -1367,6 +1375,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
             incidentId: current.id,
             round: interventions.length + 1,
             profileId: session.profileId,
+            participantId: session.participantId,
             topicKey: session.topicKey,
             difficultyType: current.difficultyType,
             baseStrategy: selection.strategy,
@@ -1513,6 +1522,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
             pushIncident(incident);
             const selection = store.selectStrategy({
               profileId: session.profileId,
+              participantId: session.participantId,
               topicKey: session.topicKey,
               difficultyType: incident.difficultyType,
               datasetKind: session.datasetKind

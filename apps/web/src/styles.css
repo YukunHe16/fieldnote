@@ -208,6 +208,9 @@
   .sidebar-close-button { width: 2.7rem; height: 2.7rem; flex: 0 0 auto; }
   .search-trigger { min-height: 2.7rem; padding: .2rem .5rem; border: 0; border-radius: .55rem; color: var(--ink-soft); background: transparent; display: flex; align-items: center; gap: .48rem; cursor: pointer; text-align: left; }
   .search-trigger:hover { color: var(--ink); background: var(--hover-surface); }
+  .participant-switcher { display: flex; align-items: center; gap: .5rem; margin-top: .35rem; padding: .3rem .5rem; border: 1px dashed var(--line, rgba(127,127,127,.35)); border-radius: .55rem; font-size: .78rem; color: var(--ink-soft); }
+  .participant-switcher-label { flex: none; letter-spacing: .02em; }
+  .participant-switcher select { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
   .search-trigger span { flex: 1; font-size: .8125rem; line-height: 1.2; letter-spacing: -.004em; }
   .search-trigger .search-trigger-icon { width: 1.8rem; height: 1.8rem; flex: 0 0 auto; display: grid; place-items: center; }
   .sidebar-nav { margin: 0 .72rem .18rem; display: flex; gap: .9rem; padding: 0 .08rem; border-bottom: 1px solid var(--line); background: transparent; }

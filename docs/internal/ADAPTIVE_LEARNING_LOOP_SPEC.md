@@ -18,6 +18,7 @@ V1 不接入 PrairieLearn，不建设题库、课程管理或正式答题系统�
 - 每个 incident 最多自动尝试三轮干预，仍未解决时进入 escalated。
 - 服务端看门狗（60 秒 tick，无状态、按数据库重算）：live+agent 会话的 incident 该由 tutor 行动却连续两个完成回合无动作时，发一条方括号标注的相位匹配提醒；提醒后仍无进展记 `gave_up` 并沉默。等待学习者的状态与 harness 自己发起的回合都不算停摆；台账 `learning_watchdog_events` 进研究导出。
 - 回路内出题（on-call 条件的 agent 会话挂载 `draft_practice_task`，replay 除外——回放工具集须与原始运行一致）：tutor 请求验证前先提交结构化题稿，同回合过三级质检——程序硬门（上限/答案泄漏，双脚本按字符权重同等）→ 新颖性硬门（对 session **已通过/已使用**题记 + 验证题面 + 目标的 Jaccard 查重，>0.6 拒；被拒草稿不入语料，否则修订重试会撞自己的废稿）→ LLM Evaluator（提示词附学习者已见文本；拒绝有效、基础设施错误 fail-open；返回后对最新语料同步复检新颖性，落库前重验回路状态）。live/eval 由店面强制 `request_learning_verification` 携带通过题记，宿主把题面与 method 原样落库、同事务消费；通过未用项随该轮验证落地/轮次推进/incident 关闭作废；同 (incident, 轮次) 2 次**实质**被拒（novelty/evaluator，程序门不计）后解锁 prose 回退。全部尝试入 `learning_practice_items`（复习回访生成的标 `source='review'`）进研究导出；基线条件不挂载。
+- 参与者轴：`participants` 表 + 会话/学习六表的反规范化 `participant_id`（默认 `'default'`，升级库由列默认值完成回填）。会话创建时从 conversation 继承参与者；策略统计、讲法、策略修订、复习任务、练习题记、指标与导出全部按参与者过滤；非默认参与者与机主记忆双向隔离：抽取侧由 memory-coordinator 外科式跳过写入（标题与学习建议保留），注入侧由 orchestrator 对非默认参与者关闭 memoryEnabled/evolutionEnabled（记忆、手册、领域卡、能力工件全不进提示词，memory 工具不挂载）；evolution-store 的 SQL 镜像同步排除。面板路由（variants/policies/metrics/export 链接）按对话本人解析参与者；回放继承原对话参与者；HTTP 建 feishu 会话强制 default。复习 runner 保持全局——任务只会发进它自己的原对话，天然按人隔离。`DEFAULT_PARTICIPANT_ID` 是唯一常量来源。
 - 系统依据验证证据提出 outcome，用户确认“理解了 / 部分理解 / 仍未解决”；用户结论覆盖系统结论，但两者都保存。
 - verification 记录请求它的 Run / assistant message；系统 outcome 必须来自学习者回答后的后续 Run，并绑定提出 outcome 的新 assistant message。
 - 学习面板包含“当前回路 / 历史 / 教学策略”三个页签。

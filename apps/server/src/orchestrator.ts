@@ -7,6 +7,7 @@ import type { EventStore } from "./event-store.js";
 import type { MemoryCoordinator } from "./memory-coordinator.js";
 import { RuntimeInputQueue, type AgentRuntime, type RuntimeEvent } from "./runtime.js";
 import type { AgentStore, RunRecord, StoredAttachment } from "./store.js";
+import { DEFAULT_PARTICIPANT_ID } from "./store.js";
 import { isAgentProfileId, LEGACY_PROFILE_ID } from "./agent-profiles.js";
 import { readUiLocale } from "./locale.js";
 import type { DeliveryShelf } from "./delivery-shelf.js";
@@ -475,7 +476,12 @@ export class RunOrchestrator {
         userMessageId: run.userMessageId,
         assistantMessageId: run.assistantMessageId,
         conversationTitle: conversation.title,
-        memoryEnabled: !conversation.temporary,
+        // Zero crosstalk in BOTH directions: a study participant's run must neither read
+        // nor write the owner's memories (memoryEnabled also mounts the memory MCP with
+        // remember/forget/search), and must not receive the owner's evolved playbooks,
+        // domain card, or capability artifacts (evolutionEnabled).
+        memoryEnabled: !conversation.temporary && conversation.participantId === DEFAULT_PARTICIPANT_ID,
+        evolutionEnabled: conversation.participantId === DEFAULT_PARTICIPANT_ID,
         profileId: isAgentProfileId(conversation.profileId) ? conversation.profileId : LEGACY_PROFILE_ID,
         prompt,
         workspacePath,
@@ -952,6 +958,7 @@ export class RunOrchestrator {
                   []
                 : (this.services?.learning?.listPolicies({
                     profileId: session.profileId,
+                    participantId: session.participantId,
                     topicKey: session.topicKey,
                     datasetKind: session.datasetKind,
                     includeDisabled: true

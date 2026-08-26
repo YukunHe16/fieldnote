@@ -7,6 +7,7 @@ import type { RunOrchestrator } from "./orchestrator.js";
 import fs from "node:fs";
 import path from "node:path";
 import type { AgentStore, RunRecord, StoredAttachment } from "./store.js";
+import { DEFAULT_PARTICIPANT_ID } from "./store.js";
 import { DEFAULT_PROFILE_ID, getAgentProfile, isAgentProfileId, type AgentProfileId } from "./agent-profiles.js";
 import type { EvolutionCoordinator } from "./evolution-coordinator.js";
 import type { EvolvedArtifactDto, EvolutionReviewVerdict, FeishuSenderCandidateDto } from "@fieldnote/contracts";
@@ -619,7 +620,8 @@ export class FeishuChannel implements ChannelAdapter {
       const { externalKey, ...nextMetadata } = metadata;
       if (!externalKey) return;
       const created = this.store.createConversation("feishu", metadata.group === true ? "飞书群聊" : "飞书单聊", {
-        profileId: conversation.profileId
+        profileId: conversation.profileId,
+        participantId: DEFAULT_PARTICIPANT_ID
       });
       this.store.setChannelBinding("feishu", externalKey, created.id, nextMetadata);
       await this.channel.send(
@@ -653,7 +655,8 @@ export class FeishuChannel implements ChannelAdapter {
       if (!externalKey) return;
       const profile = getAgentProfile(profileId);
       const created = this.store.createConversation("feishu", metadata.group === true ? "飞书群聊" : "飞书单聊", {
-        profileId
+        profileId,
+        participantId: DEFAULT_PARTICIPANT_ID
       });
       this.store.setChannelBinding("feishu", externalKey, created.id, nextMetadata);
       await this.channel.send(
@@ -800,7 +803,8 @@ export class FeishuChannel implements ChannelAdapter {
         const placeholder =
           conversationId ??
           this.store.createConversation("feishu", message.chatType === "group" ? "飞书群聊" : "飞书单聊", {
-            profileId: DEFAULT_PROFILE_ID
+            profileId: DEFAULT_PROFILE_ID,
+            participantId: DEFAULT_PARTICIPANT_ID
           }).id;
         if (!conversationId)
           this.store.setChannelBinding("feishu", externalKey, placeholder, this.bindingMetadata(message));
@@ -814,7 +818,8 @@ export class FeishuChannel implements ChannelAdapter {
       await this.orchestrator.interruptConversationAndWait(conversationId);
       const profile = getAgentProfile(requestedProfile);
       const created = this.store.createConversation("feishu", message.chatType === "group" ? "飞书群聊" : "飞书单聊", {
-        profileId: requestedProfile
+        profileId: requestedProfile,
+        participantId: DEFAULT_PARTICIPANT_ID
       });
       conversationId = created.id;
       this.store.setChannelBinding("feishu", externalKey, conversationId, this.bindingMetadata(message));
@@ -831,7 +836,8 @@ export class FeishuChannel implements ChannelAdapter {
         : DEFAULT_PROFILE_ID;
       if (conversationId) await this.orchestrator.interruptConversationAndWait(conversationId);
       const created = this.store.createConversation("feishu", message.chatType === "group" ? "飞书群聊" : "飞书单聊", {
-        profileId: currentProfileId
+        profileId: currentProfileId,
+        participantId: DEFAULT_PARTICIPANT_ID
       });
       conversationId = created.id;
       this.store.setChannelBinding("feishu", externalKey, conversationId, this.bindingMetadata(message));
@@ -840,7 +846,8 @@ export class FeishuChannel implements ChannelAdapter {
     }
     if (!conversationId) {
       const created = this.store.createConversation("feishu", message.chatType === "group" ? "飞书群聊" : "飞书单聊", {
-        profileId: DEFAULT_PROFILE_ID
+        profileId: DEFAULT_PROFILE_ID,
+        participantId: DEFAULT_PARTICIPANT_ID
       });
       conversationId = created.id;
       this.store.setChannelBinding("feishu", externalKey, conversationId, this.bindingMetadata(message));

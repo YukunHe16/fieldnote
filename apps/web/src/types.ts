@@ -630,6 +630,12 @@ export interface ChatMessage {
   [key: string]: unknown;
 }
 
+export interface Participant {
+  id: string;
+  displayName: string;
+  createdAt: string;
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;
@@ -644,6 +650,7 @@ export interface ConversationSummary {
   expiresAt?: string;
   profileId?: AgentProfileId;
   profileName?: string;
+  participantId?: string;
   [key: string]: unknown;
 }
 

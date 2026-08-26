@@ -855,10 +855,10 @@ describe("Feishu commands", () => {
     // pending 讲法 candidate exactly like the web confirm route.
     await vi.waitFor(() => {
       expect(distillCalls).toHaveLength(1);
-      expect(learning.listVariants({ profileId: "local-operator" })).toHaveLength(1);
+      expect(learning.listVariants({ participantId: "default", profileId: "local-operator" })).toHaveLength(1);
     });
     // The host decides the base strategy from the winning round, not the model's claim.
-    expect(learning.listVariants({ profileId: "local-operator" })[0]).toMatchObject({
+    expect(learning.listVariants({ participantId: "default", profileId: "local-operator" })[0]).toMatchObject({
       status: "pending",
       baseStrategy: "conceptual_hint"
     });
