@@ -35,6 +35,7 @@ import { InputFileManifestService } from "./input-file-manifest.js";
 import { CollaborationStore } from "./collaboration-store.js";
 import { LearningStore } from "./learning-store.js";
 import { LearningCoordinator } from "./learning-coordinator.js";
+import { readUiLocale } from "./locale.js";
 
 /**
  * Pick the `.env` file to load. A repository checkout keeps the legacy behavior
@@ -216,8 +217,13 @@ const memoryMaintenanceTimer = setInterval(() => {
 memoryMaintenanceTimer.unref();
 
 runner.tick();
-const learningReviews = new LearningReviewRunner(learning, store, orchestrator, Date.now, (conversationId) =>
-  feishu.canReachConversation(conversationId)
+const learningReviews = new LearningReviewRunner(
+  learning,
+  store,
+  orchestrator,
+  Date.now,
+  (conversationId) => feishu.canReachConversation(conversationId),
+  () => readUiLocale(store)
 );
 learningReviews.tick();
 const learningWatchdog = new LearningWatchdog(learning, store, orchestrator, Date.now, (conversationId) =>

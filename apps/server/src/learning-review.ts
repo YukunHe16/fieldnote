@@ -31,7 +31,9 @@ export class LearningReviewRunner {
      * Channel deliverability check (e.g. a Feishu conversation whose binding rotated away
      * after /new cannot show the learner anything). Undefined means always deliverable.
      */
-    private readonly reachable?: (conversationId: string) => boolean
+    private readonly reachable?: (conversationId: string) => boolean,
+    /** UI locale for the learner-voiced revisit message; the stored setting, read at fire time. */
+    private readonly locale: () => "zh" | "en" = () => "zh"
   ) {}
 
   tick(): void {
@@ -71,7 +73,7 @@ export class LearningReviewRunner {
       const focus = (incident?.hypothesis || session.goal || "").replace(/\s+/g, " ").trim().slice(0, 120);
       // Fired before submit: losing one revisit beats double-posting it into the chat.
       this.learning.markReviewTask(task.id, "fired");
-      const run = this.orchestrator.submit(task.conversationId, reviewPrompt(task.round, focus));
+      const run = this.orchestrator.submit(task.conversationId, reviewPrompt(task.round, focus, this.locale()));
       // The run id is the linkage confirmVerification uses to tell the revisit's own
       // confirmation apart from unrelated confirmations in the same session.
       const runId = (run as { id?: unknown } | null | undefined)?.id;
@@ -82,7 +84,15 @@ export class LearningReviewRunner {
   }
 }
 
-function reviewPrompt(round: 1 | 2, focus: string): string {
+function reviewPrompt(round: 1 | 2, focus: string, locale: "zh" | "en" = "zh"): string {
+  if (locale === "en") {
+    const opener =
+      round === 1
+        ? "It has been two days since we worked through this difficulty"
+        : "A few more days have passed since the last review";
+    const anchor = focus ? ` (${focus})` : "";
+    return `[Spaced review] ${opener}. Please give me a brand-new transfer task on my earlier difficulty${anchor} — a different situation, not the original problem — and record this revisit through the learning loop as usual.`;
+  }
   const opener = round === 1 ? "距离我们解决这个困难已经过了两天" : "距离上次复习又过了几天";
   const anchor = focus ? `（${focus}）` : "";
   return `【间隔复习回访】${opener}。请针对我此前的困难${anchor}出一道全新的迁移小任务考考我——换一个情境，不要重复原题——并照常走学习回路记录这次回访。`;

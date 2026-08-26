@@ -109,6 +109,17 @@ describe("LearningReviewRunner", () => {
     database.close();
   });
 
+  it("voices the revisit prompt in English when the stored UI locale is English", () => {
+    const { database, agents, learning, submitted, orchestrator, setNow, now } = fixture();
+    const runner = new LearningReviewRunner(learning, agents, orchestrator, now, undefined, () => "en");
+    setNow(now() + 2 * DAY + 1_000);
+    runner.tick();
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]!.content).toContain("[Spaced review]");
+    expect(submitted[0]!.content).not.toContain("间隔复习回访");
+    database.close();
+  });
+
   it("cancels the task when the session ended and defers it while the session is paused", () => {
     const paused = fixture();
     paused.learning.transitionSession(paused.session.id, "paused");
