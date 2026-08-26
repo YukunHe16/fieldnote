@@ -1461,6 +1461,16 @@ function LearningMetricsView({
               >
                 {t("learningMetricsExport")}
               </a>
+              <a
+                className="learning-metrics-export"
+                href={`/api/learning/export/html${
+                  exportParticipantId ? `?participantId=${encodeURIComponent(exportParticipantId)}` : ""
+                }`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("learningMetricsExportHtml")}
+              </a>
               <small>{t("learningMetricsExportDetail")}</small>
             </section>
           )}

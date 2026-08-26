@@ -9,6 +9,7 @@ Fieldnote 的学习模式把一次性 LLM 反馈改造成可测量的连续干�
   `apps/server/src/redact.ts`），命中敏感模式的整段文本会被整体替换。**分享前请自行复查一遍文件。**
 - `includeMessages=true` 时附带学习会话所属对话的全部消息正文（同样脱敏），用于对话层面的分析。
 - `?participantId=<id>` 只导出该参与者的切片（各表按自身 `participantId` 列或 incident/session 血缘过滤，切片内部关联自洽）；缺省仍导出全库。
+- **浏览版**：`GET /api/learning/export/html`（同样支持 `?participantId=`）把同一份脱敏数据渲染成人类可读的 HTML 页面（指标页有入口链接）；机器分析仍以 JSON 为准。
 
 ## 参与者（participantId）
 

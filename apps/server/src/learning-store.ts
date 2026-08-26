@@ -587,10 +587,20 @@ const DEFAULT_STRATEGIES: readonly LearningInterventionStrategy[] = [
 ];
 const TERMINAL_INCIDENTS = new Set<LearningIncidentStatus>(["resolved", "unresolved", "escalated", "abandoned"]);
 const DAY_MS = 24 * 60 * 60 * 1_000;
-/** Spaced review: first revisit two days after a live on-call resolution... */
-const REVIEW_ROUND1_DELAY_MS = 2 * DAY_MS;
-/** ...second revisit five days after the first one is confirmed (≈ a week after the original fix). */
-const REVIEW_ROUND2_DELAY_MS = 5 * DAY_MS;
+/**
+ * Spaced-review delays. The research design is +2d / +5d; the env overrides exist ONLY so a
+ * local operator can watch the revisit flow without waiting days (e.g. 300000 = 5 minutes).
+ * Any real study run must leave them unset — the delayed-retention metric is defined by the
+ * defaults, and a shortened revisit is a different (and much weaker) measurement.
+ */
+const reviewDelayFromEnv = (name: string, fallback: number): number => {
+  const raw = Number(process.env[name]);
+  return Number.isInteger(raw) && raw >= 60_000 ? raw : fallback;
+};
+/** First revisit after a live on-call resolution (default two days). */
+const REVIEW_ROUND1_DELAY_MS = reviewDelayFromEnv("LEARNING_REVIEW_ROUND1_DELAY_MS", 2 * DAY_MS);
+/** Second revisit after the first one is confirmed (default five days, ≈ a week after the fix). */
+const REVIEW_ROUND2_DELAY_MS = reviewDelayFromEnv("LEARNING_REVIEW_ROUND2_DELAY_MS", 5 * DAY_MS);
 export const has = <T extends readonly string[]>(values: T, value: string): value is T[number] =>
   values.includes(value as T[number]);
 const iso = (value: number | null): string | null => (value === null ? null : new Date(value).toISOString());

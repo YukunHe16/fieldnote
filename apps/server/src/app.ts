@@ -32,6 +32,7 @@ import type { ScheduledJobRunner } from "./scheduler.js";
 import { registerSchedulerRoutes } from "./scheduler-routes.js";
 import { EvolutionStore } from "./evolution-store.js";
 import { isEvolutionEligibleConversation } from "./evolution-eligibility.js";
+import { renderResearchExportHtml } from "./export-html.js";
 import { confirmLearningVerification } from "./learning-confirm.js";
 import { handbookDocument, parseHandbook } from "./handbook.js";
 import { buildDomainCard } from "./domain-card.js";
@@ -946,6 +947,20 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     return reply
       .header("content-disposition", 'attachment; filename="fieldnote-learning-export.json"')
       .send(deepRedact(payload));
+  });
+
+  // Same payload as the JSON export, rendered for reading in a browser tab. Redaction runs
+  // BEFORE rendering so the page can never show more than the JSON does; the renderer
+  // escapes every string so learner-authored text cannot execute in the researcher's browser.
+  app.get("/api/learning/export/html", async (request, reply) => {
+    const query = request.query as { participantId?: string };
+    const participantId = query.participantId || undefined;
+    const data = deepRedact(learning.exportResearch(participantId));
+    return reply
+      .header("content-type", "text/html; charset=utf-8")
+      .send(
+        renderResearchExportHtml(data, { exportedAt: new Date().toISOString(), participantId: participantId ?? null })
+      );
   });
 
   app.get("/api/learning/demo-scenarios", async (request) => {

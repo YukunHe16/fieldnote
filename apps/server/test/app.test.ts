@@ -1306,6 +1306,29 @@ describe("learning condition assignment over HTTP", () => {
     });
   });
 
+  it("renders the research export as escaped, scoped HTML", async () => {
+    const { app, store, learning } = await learningApp();
+    const conversation = store.createConversation("web", "HTML 导出", { profileId: "local-operator" });
+    learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      // Learner-authored text must render inert in the researcher's browser.
+      goal: "理解 <script>alert(1)</script> 的转义",
+      topicKey: "programming"
+    });
+    const page = await app.inject({ method: "GET", url: "/api/learning/export/html" });
+    expect(page.statusCode).toBe(200);
+    expect(page.headers["content-type"]).toContain("text/html");
+    expect(page.body).toContain("研究数据");
+    expect(page.body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(page.body).not.toContain("<script>alert(1)</script>");
+    // Participant scoping mirrors the JSON endpoint.
+    const other = store.createParticipant("同学B");
+    const scoped = await app.inject({ method: "GET", url: `/api/learning/export/html?participantId=${other.id}` });
+    expect(scoped.statusCode).toBe(200);
+    expect(scoped.body).not.toContain("&lt;script&gt;");
+  });
+
   it("manages participants and scopes the workspace to the current one", async () => {
     const { app, store } = await learningApp();
     const initial = await app.inject({ method: "GET", url: "/api/participants" });
