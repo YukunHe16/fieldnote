@@ -107,8 +107,3 @@ The corpus page renders **the same anonymized data as the JSON export** (`GET /a
 ## 5. Trying it
 
 Open Fieldnote → **New chat** → **Learning mode**. The setup sheet's two fixed cases each offer a **Stable demo** (deterministic, no model calls) and a **Real Agent** entry (a live tutor agent; results vary). Demo runs live in a separate namespace and never mix with live research data.
-
-## Video walkthroughs
-
-- [ ] Complete-loop demo (this walkthrough, silent capture) — *to be added*
-- [ ] Calibration protocol walkthrough — *to be added*
