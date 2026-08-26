@@ -28,6 +28,23 @@ interface SpeechRecognitionLike {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
+// A scroll container only reads as scrollable if its content visibly runs past
+// the edge, so fade whichever end still has something behind it.
+function useEdgeFade() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ above: false, below: false });
+  const sync = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    setEdges({
+      above: el.scrollTop > 2,
+      below: el.scrollTop + el.clientHeight < el.scrollHeight - 2
+    });
+  }, []);
+  const className = `${edges.above ? " edge-fade-above" : ""}${edges.below ? " edge-fade-below" : ""}`;
+  return { ref, sync, className };
+}
+
 function sizeLabel(bytes?: number) {
   if (!bytes) return "";
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
@@ -77,8 +94,8 @@ export function Composer({
   const [learningBusy, setLearningBusy] = useState(false);
   const [learningDemos, setLearningDemos] = useState<LearningDemoScenarioDto[]>([]);
   const [openDemo, setOpenDemo] = useState<string | null>(null);
-  const [sheetOverflow, setSheetOverflow] = useState({ above: false, below: false });
-  const sheetBodyRef = useRef<HTMLDivElement>(null);
+  const sheetBody = useEdgeFade();
+  const demoList = useEdgeFade();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -162,24 +179,16 @@ export function Composer({
     };
   }, [menuOpen]);
 
-  const syncSheetOverflow = useCallback(() => {
-    const el = sheetBodyRef.current;
-    if (!el) return;
-    setSheetOverflow({
-      above: el.scrollTop > 2,
-      below: el.scrollTop + el.clientHeight < el.scrollHeight - 2
-    });
-  }, []);
-
   useEffect(() => {
     if (!learningSetupOpen) return;
-    const el = sheetBodyRef.current;
-    if (el) el.scrollTop = 0;
-  }, [learningSetupOpen]);
+    if (sheetBody.ref.current) sheetBody.ref.current.scrollTop = 0;
+    if (demoList.ref.current) demoList.ref.current.scrollTop = 0;
+  }, [learningSetupOpen, sheetBody.ref, demoList.ref]);
 
   useEffect(() => {
-    syncSheetOverflow();
-  }, [syncSheetOverflow, learningSetupOpen, learningDemos.length, openDemo, workspace.researchEnabled]);
+    sheetBody.sync();
+    demoList.sync();
+  }, [sheetBody.sync, demoList.sync, learningSetupOpen, learningDemos.length, openDemo, workspace.researchEnabled]);
 
   useEffect(() => {
     if (!learningSetupOpen || learningSession || learningDemos.length) return;
@@ -613,7 +622,7 @@ export function Composer({
         <AnimatePresence>
           {learningSetupOpen && (
             <motion.form
-              className={`learning-setup${sheetOverflow.above ? " has-more-above" : ""}${sheetOverflow.below ? " has-more-below" : ""}`}
+              className="learning-setup"
               onSubmit={(event) => {
                 event.preventDefault();
                 void startLearning();
@@ -631,7 +640,11 @@ export function Composer({
                   <Icon name="close" size={14} />
                 </button>
               </header>
-              <div className="learning-setup-body" ref={sheetBodyRef} onScroll={syncSheetOverflow}>
+              <div
+                className={`learning-setup-body${sheetBody.className}`}
+                ref={sheetBody.ref}
+                onScroll={sheetBody.sync}
+              >
                 <label>
                   {t("learningGoal")}
                   <input
@@ -695,59 +708,69 @@ export function Composer({
                 {!learningSession && (
                   <div className="learning-demo-cards">
                     <p>{t("learningDemoPick")}</p>
-                    {learningDemos.map((scenario) => (
-                      <article key={scenario.id} className={openDemo === scenario.id ? "is-open" : ""}>
-                        <div className="learning-demo-head">
-                          <span className="learning-demo-copy">
-                            <h3>{scenario.title}</h3>
-                            <p>{scenario.description}</p>
-                          </span>
-                          <button
-                            type="button"
-                            className="learning-demo-toggle"
-                            aria-expanded={openDemo === scenario.id}
-                            aria-label={`${t("learningDemoPreview")} · ${scenario.title}`}
-                            onClick={() => setOpenDemo((value) => (value === scenario.id ? null : scenario.id))}
-                          >
-                            <Icon name="chevronRight" size={13} className={openDemo === scenario.id ? "is-open" : ""} />
-                          </button>
-                        </div>
-                        {openDemo === scenario.id && (
-                          <div className="learning-demo-detail">
-                            <pre>{scenario.preview}</pre>
-                            <div className="learning-demo-loop">
-                              <span>{t("learningDemoLoop")}</span>
-                              {scenario.loop}
-                            </div>
-                            <small>
-                              {scenario.agentAvailable
-                                ? t("learningDemoAgentDetail")
-                                : t("learningDemoAgentUnavailable")}
-                            </small>
+                    <div
+                      className={`learning-demo-list${demoList.className}`}
+                      ref={demoList.ref}
+                      onScroll={demoList.sync}
+                    >
+                      {learningDemos.map((scenario) => (
+                        <article key={scenario.id} className={openDemo === scenario.id ? "is-open" : ""}>
+                          <div className="learning-demo-head">
+                            <span className="learning-demo-copy">
+                              <h3>{scenario.title}</h3>
+                              <p>{scenario.description}</p>
+                            </span>
+                            <button
+                              type="button"
+                              className="learning-demo-toggle"
+                              aria-expanded={openDemo === scenario.id}
+                              aria-label={`${t("learningDemoPreview")} · ${scenario.title}`}
+                              onClick={() => setOpenDemo((value) => (value === scenario.id ? null : scenario.id))}
+                            >
+                              <Icon
+                                name="chevronRight"
+                                size={13}
+                                className={openDemo === scenario.id ? "is-open" : ""}
+                              />
+                            </button>
                           </div>
-                        )}
-                        <div className="learning-demo-actions">
-                          <button
-                            type="button"
-                            className="learning-demo-agent"
-                            aria-label={`${t("learningDemoAgent")} · ${scenario.title}`}
-                            disabled={learningBusy || !scenario.agentAvailable}
-                            onClick={() => void startLearningDemo(scenario, "agent")}
-                          >
-                            {t("learningDemoAgent")}
-                          </button>
-                          <button
-                            type="button"
-                            className="learning-demo-stable"
-                            aria-label={`${t("learningDemoStable")} · ${scenario.title}`}
-                            disabled={learningBusy}
-                            onClick={() => void startLearningDemo(scenario, "deterministic")}
-                          >
-                            {t("learningDemoStable")}
-                          </button>
-                        </div>
-                      </article>
-                    ))}
+                          {openDemo === scenario.id && (
+                            <div className="learning-demo-detail">
+                              <pre>{scenario.preview}</pre>
+                              <div className="learning-demo-loop">
+                                <span>{t("learningDemoLoop")}</span>
+                                {scenario.loop}
+                              </div>
+                              <small>
+                                {scenario.agentAvailable
+                                  ? t("learningDemoAgentDetail")
+                                  : t("learningDemoAgentUnavailable")}
+                              </small>
+                            </div>
+                          )}
+                          <div className="learning-demo-actions">
+                            <button
+                              type="button"
+                              className="learning-demo-agent"
+                              aria-label={`${t("learningDemoAgent")} · ${scenario.title}`}
+                              disabled={learningBusy || !scenario.agentAvailable}
+                              onClick={() => void startLearningDemo(scenario, "agent")}
+                            >
+                              {t("learningDemoAgent")}
+                            </button>
+                            <button
+                              type="button"
+                              className="learning-demo-stable"
+                              aria-label={`${t("learningDemoStable")} · ${scenario.title}`}
+                              disabled={learningBusy}
+                              onClick={() => void startLearningDemo(scenario, "deterministic")}
+                            >
+                              {t("learningDemoStable")}
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

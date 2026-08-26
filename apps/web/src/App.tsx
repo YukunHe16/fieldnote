@@ -509,56 +509,16 @@ function ChatHeader({
                   </div>
                 </section>
                 <section className="channel-status">
-                  <p>{t("workspaceSection")}</p>
                   <button
                     onClick={() => {
                       setMenu(false);
                       onWorkspace("memory");
                     }}
                   >
-                    <Icon name="memory" size={17} />
+                    <Icon name="workspace" size={17} />
                     <span>
-                      <b>{t("memory")}</b>
-                      <small>{t("memoryHint")}</small>
-                    </span>
-                    <Icon name="chevronRight" size={15} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenu(false);
-                      onWorkspace("handbook");
-                    }}
-                  >
-                    <Icon name="book" size={17} />
-                    <span>
-                      <b>{t("handbook")}</b>
-                      <small>{t("handbookHint")}</small>
-                    </span>
-                    <Icon name="chevronRight" size={15} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenu(false);
-                      onWorkspace("capabilities");
-                    }}
-                  >
-                    <Icon name="spark" size={17} />
-                    <span>
-                      <b>{t("capabilities")}</b>
-                      <small>{t("capabilitiesHint")}</small>
-                    </span>
-                    <Icon name="chevronRight" size={15} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenu(false);
-                      onWorkspace("shelf");
-                    }}
-                  >
-                    <Icon name="file" size={17} />
-                    <span>
-                      <b>{t("deliveryShelf")}</b>
-                      <small>{t("deliveryShelfHint")}</small>
+                      <b>{t("workspaceSection")}</b>
+                      <small>{t("workspaceSectionHint")}</small>
                     </span>
                     <Icon name="chevronRight" size={15} />
                   </button>
