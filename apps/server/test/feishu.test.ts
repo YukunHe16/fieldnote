@@ -760,6 +760,94 @@ describe("Feishu commands", () => {
     database.close();
   });
 
+  it("starts the next round after a partial confirmation, not just an unresolved one", async () => {
+    const database = openDatabase(":memory:");
+    const store = new AgentStore(database);
+    const learning = new LearningStore(database);
+    const events = new EventStore(database);
+    const conversation = store.createConversation("feishu", "飞书学习", { profileId: "local-operator" });
+    store.setChannelBinding("feishu", "p2p:ou_me", conversation.id, { chatId: "oc_chat", group: false });
+    const session = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "理解递归",
+      datasetKind: "live",
+      status: "active"
+    });
+    const run = store.createRun(conversation.id, "我不懂递归出口", "normal");
+    const incident = learning.openIncident({
+      sessionId: session.id,
+      difficultyType: "conceptual_misconception",
+      hypothesis: "把递归当循环",
+      confidence: 0.8,
+      severity: 3,
+      evidenceMessageIds: [run.userMessageId]
+    });
+    const intervention = learning.recordIntervention({
+      incidentId: incident.id,
+      strategy: "evidence_check",
+      rationale: "回去核对原始材料",
+      expectedSignal: "能指出证据在哪"
+    });
+    const draft = draftApproved(learning, incident.id, "请解释递归何时停止");
+    const verification = learning.requestVerification({
+      incidentId: incident.id,
+      interventionId: intervention.id,
+      method: "transfer_example",
+      prompt: "请解释递归何时停止",
+      rubric: "说明出口条件",
+      practiceItemId: draft.id
+    });
+    learning.proposeSystemOutcome(verification.id, "partial", 0.78);
+
+    const submissions: any[] = [];
+    const orchestrator = {
+      isConversationBusy: () => false,
+      submit(...args: any[]) {
+        submissions.push(args);
+        return {
+          id: "next-run",
+          conversationId: conversation.id,
+          branchId: "branch",
+          userMessageId: "user",
+          assistantMessageId: "assistant",
+          mode: "normal",
+          status: "queued"
+        };
+      }
+    };
+    const feishu = new FeishuChannel(
+      undefined,
+      store,
+      events,
+      orchestrator as never,
+      undefined,
+      "",
+      undefined,
+      undefined,
+      learning
+    );
+    (feishu as any).channel = { async send() {}, async updateCard() {} };
+    (feishu as any).streamReply = async () => {};
+
+    await (feishu as any).handleCardAction(
+      { messageId: "om_card", chatId: "oc_chat", operator: { openId: "ou_me" }, action: { value: {} } },
+      {
+        action: "learning_confirm",
+        conversationId: conversation.id,
+        verificationId: verification.id,
+        verdict: "partial"
+      }
+    );
+
+    // "partial" parks the incident at `diagnosed` — another round is owed, so the follow-up
+    // must go out. Gating it on `verdict === "unresolved"` stranded these loops forever.
+    expect(learning.getIncident(incident.id)?.status).toBe("diagnosed");
+    expect(submissions).toHaveLength(1);
+    expect(String(submissions[0]?.[1])).toContain("只理解了一部分");
+    database.close();
+  });
+
   it("distills on card-confirmed resolutions, dedupes outcome cards, and reports real errors", async () => {
     const database = openDatabase(":memory:");
     const store = new AgentStore(database);

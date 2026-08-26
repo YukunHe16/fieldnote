@@ -9,11 +9,25 @@ type LearningStoreSession = NonNullable<ReturnType<LearningStore["getSessionForI
 type LearningStorePolicy = ReturnType<LearningStore["maybeCreatePendingPolicyRevision"]>;
 
 /**
- * The learner-voiced follow-up the web client auto-sends after an unresolved on-call
- * confirmation (i18n `learningTryAnotherPrompt`). The Feishu confirm card sends the same
- * message server-side so the next intervention round starts on every channel.
+ * The learner-voiced follow-ups the web client auto-sends when a confirmation leaves the
+ * incident `diagnosed` — i.e. the loop wants another round (i18n `learningTryAnotherPrompt`
+ * / `learningPartialPrompt`). The Feishu confirm card sends the same message server-side so
+ * the next intervention round starts on every channel.
  */
 export const LEARNING_TRY_ANOTHER_PROMPT = "我仍未解决。请使用下一种教学策略换种讲法，并在新情境中再次验证我的理解。";
+export const LEARNING_PARTIAL_PROMPT =
+  "我只理解了一部分。请针对我还没弄懂的地方换种讲法，并在新情境中再次验证我的理解。";
+
+/**
+ * `diagnosed` after a confirmation means the loop is owed another round, and that is true of
+ * `partial` as much as of `unresolved` — gate the follow-up on the incident status, never on
+ * the verdict alone, or a partial confirmation parks the incident forever.
+ */
+export function learningFollowUpPrompt(verdict: "resolved" | "partial" | "unresolved"): string | null {
+  if (verdict === "partial") return LEARNING_PARTIAL_PROMPT;
+  if (verdict === "unresolved") return LEARNING_TRY_ANOTHER_PROMPT;
+  return null;
+}
 
 type LearningConfirmStore = Pick<
   LearningStore,

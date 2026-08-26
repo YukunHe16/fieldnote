@@ -1033,11 +1033,16 @@ export function useWorkspace() {
         // Mirror the Feishu card guard: only a still-diagnosed incident gets the follow-up.
         // The third unresolved round escalates the incident to a human — auto-sending the
         // try-another prompt then would burn a run and reopen teaching mid-handoff.
+        // `diagnosed` is the store's way of saying another round is owed, and a "partial"
+        // confirmation lands there too: gating on the verdict instead used to park those
+        // incidents forever, with no round two and no closed outcome.
         const incident = learningSession?.incidents.find((item) =>
           item.verifications.some((entry) => entry.id === verificationId)
         );
-        if (incident && incident.status !== "diagnosed") return true;
-        return verdict !== "unresolved" || (await sendMessage(t("learningTryAnotherPrompt"), "normal", []));
+        if (!incident || incident.status !== "diagnosed") return true;
+        if (verdict === "resolved") return true;
+        const prompt = verdict === "partial" ? t("learningPartialPrompt") : t("learningTryAnotherPrompt");
+        return await sendMessage(prompt, "normal", []);
       } catch {
         toast(t("syncFailed"), "danger");
         return false;

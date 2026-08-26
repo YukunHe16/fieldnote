@@ -14,7 +14,7 @@ import type { EvolvedArtifactDto, EvolutionReviewVerdict, FeishuSenderCandidateD
 import { readUiLocale, type UiLocale } from "./locale.js";
 import type { CollaborationStore } from "./collaboration-store.js";
 import { LearningConflictError, type LearningStore, type LearningSessionDto } from "./learning-store.js";
-import { LEARNING_TRY_ANOTHER_PROMPT, confirmLearningVerification } from "./learning-confirm.js";
+import { confirmLearningVerification, learningFollowUpPrompt } from "./learning-confirm.js";
 import type { AgentRuntime } from "./runtime.js";
 import { chineseStrategy } from "./learning-coordinator.js";
 import type { LearningHandoffReportDto } from "@fieldnote/contracts";
@@ -727,15 +727,12 @@ export class FeishuChannel implements ChannelAdapter {
       if (this.channel.updateCard) {
         await this.channel.updateCard(event.messageId, buildFeishuLearningConfirmedCard(value.verdict));
       }
-      // The web client auto-sends the try-another follow-up after an unresolved on-call
-      // confirmation; the card does the same server-side so the next round starts here too.
-      if (
-        value.verdict === "unresolved" &&
-        result.session.condition !== "one-shot" &&
-        result.incident.status === "diagnosed"
-      ) {
+      // The web client auto-sends the same follow-up whenever a confirmation leaves the
+      // incident `diagnosed`; the card does it server-side so the next round starts here too.
+      const followUp = learningFollowUpPrompt(value.verdict);
+      if (followUp && result.session.condition !== "one-shot" && result.incident.status === "diagnosed") {
         const mode = this.orchestrator.isConversationBusy(value.conversationId) ? "queue" : "normal";
-        const run = this.orchestrator.submit(value.conversationId, LEARNING_TRY_ANOTHER_PROMPT, mode);
+        const run = this.orchestrator.submit(value.conversationId, followUp, mode);
         this.streamingRuns.add(run.id);
         void this.streamReply(
           {
@@ -743,7 +740,7 @@ export class FeishuChannel implements ChannelAdapter {
             chatId: event.chatId,
             chatType: metadata.group === true ? "group" : "p2p",
             senderId: event.operator.openId,
-            content: LEARNING_TRY_ANOTHER_PROMPT
+            content: followUp
           },
           run
         ).finally(() => this.streamingRuns.delete(run.id));

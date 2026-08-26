@@ -213,6 +213,7 @@ const zh = {
   learningStillStuck: "仍未解决，换种讲法",
   learningStillStuckFinal: "仍未解决",
   learningTryAnotherPrompt: "我仍未解决。请使用下一种教学策略换种讲法，并在新情境中再次验证我的理解。",
+  learningPartialPrompt: "我只理解了一部分。请针对我还没弄懂的地方换种讲法，并在新情境中再次验证我的理解。",
   researchMode: "研究模式",
   researchModeHint: "关闭时只有「你想学会什么」这一件事。开启后才出现：谁在学、学习主题、对照条件、以及研究数据导出。",
   researchModeOn: "开",
@@ -1148,6 +1149,8 @@ const en = {
   learningMetricsExportDetail: "Field reference: docs/RESEARCH_EXPORT.md. Review the file before sharing.",
   learningTryAnotherPrompt:
     "I am still unresolved. Please use the next teaching strategy, explain it another way, and verify my understanding in a new context.",
+  learningPartialPrompt:
+    "I only understood part of it. Please re-explain the part I still miss another way, then verify my understanding in a new context.",
   learningEvidenceCount: "{count} evidence items",
   learningConfidence: "{value}% diagnostic confidence",
   learningInterventions: "Teaching interventions",
