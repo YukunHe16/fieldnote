@@ -251,9 +251,10 @@ const zh = {
   learningMetricsByCondition: "按研究条件对比",
   learningMetricsConditionColumn: "条件",
   learningMetricsStrategyTitle: "策略 × 结局",
+  learningMetricsStrategyDetail: "只数已经收尾的回路，所以这里的条数可能比下面那张图少。",
   learningMetricsCalibration: "系统有多确定 vs 你怎么判",
   learningMetricsCalibrationDetail:
-    "横轴按系统当时的置信度分桶，柱高是「系统判定 = 你最终确认」的比例，n 是该桶的样本数。空心柱表示样本不足 5 条——只作记录，别当结论读。",
+    "一个样本 = 一次你确认过的判定，还没收尾的回路也算在内。横轴按系统当时的置信度分桶，柱高是「系统判定 = 你最终确认」的比例，n 是该桶的样本数。空心柱表示样本不足 5 条——只作记录，别当结论读。",
   learningMetricsExport: "导出研究数据（匿名化 JSON）",
   learningMetricsExportDetail: "字段说明见 docs/RESEARCH_EXPORT.md；导出前请自行复查。",
   learningEvidenceCount: "证据 {count} 条",
@@ -1139,9 +1140,10 @@ const en = {
   learningMetricsByCondition: "By research condition",
   learningMetricsConditionColumn: "Condition",
   learningMetricsStrategyTitle: "Strategy × outcome",
+  learningMetricsStrategyDetail: "Counts only loops that have closed, so it can be smaller than the chart below.",
   learningMetricsCalibration: "How sure the system was vs how you called it",
   learningMetricsCalibrationDetail:
-    "Bars show how often the system's verdict matched your final confirmation, bucketed by how confident it was; n is the sample count. A hollow bar means fewer than 5 samples \u2014 a record, not a result.",
+    "One sample is one verdict you confirmed, loops that have not closed yet included. Bars show how often the system's verdict matched your confirmation, bucketed by how confident it was; n is the sample count. A hollow bar means fewer than 5 samples \u2014 a record, not a result.",
   learningMetricsExport: "Export research data (anonymized JSON)",
   learningMetricsExportDetail: "Field reference: docs/RESEARCH_EXPORT.md. Review the file before sharing.",
   learningTryAnotherPrompt:

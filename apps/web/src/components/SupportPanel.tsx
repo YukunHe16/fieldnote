@@ -1411,6 +1411,7 @@ function LearningMetricsView({
                   ))}
                 </tbody>
               </table>
+              <small>{t("learningMetricsStrategyDetail")}</small>
             </section>
           )}
           {hasCalibration && (
