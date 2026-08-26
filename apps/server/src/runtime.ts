@@ -1065,6 +1065,11 @@ export class ClaudeAgentRuntime implements AgentRuntime {
   }): Promise<unknown> {
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), input.timeoutMs);
+    // Budget calibration (2026-08-26, DeepSeek provider): a real evaluator-sized prompt
+    // takes ~53s with structured output on the thinking background model, ~34s plain.
+    // Budgets below 60s are not "slow"; they are a permanent no-op — every call dies at
+    // the abort and the SDK reports it as "process aborted by user", which reads like a
+    // human cancelled it. Callers pass ~120s and the abort is renamed to a timeout below.
     try {
       const attempt = async (structuredOutput: boolean): Promise<unknown> => {
         let structured: unknown;
@@ -1101,9 +1106,17 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       try {
         return await attempt(true);
       } catch (error) {
-        if (abortController.signal.aborted) throw error;
+        // Only this function's own timer aborts the controller, so aborted ⇒ timed out.
+        // The SDK's wording ("process aborted by user") must not reach ledgers and
+        // fail-open records as if a person cancelled the call.
+        if (abortController.signal.aborted)
+          throw new Error(`background model call timed out after ${Math.round(input.timeoutMs / 1000)}s`);
         return await attempt(false);
       }
+    } catch (error) {
+      if (abortController.signal.aborted && !String((error as Error)?.message ?? "").includes("timed out"))
+        throw new Error(`background model call timed out after ${Math.round(input.timeoutMs / 1000)}s`);
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -1145,11 +1158,11 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     try {
       const raw = (await this.backgroundJson({
         workspacePath: input.workspacePath,
-        // The first live run showed 15s losing the race against SDK cold start alone —
-        // every verdict came back as a timeout error and the fail-open made the evaluator
-        // tier a no-op. 30s stays bounded (≤2 drafts per round inside a turn that already
-        // runs minutes) while letting the judge actually judge.
-        timeoutMs: 30_000,
+        // Measured 2026-08-26: a real evaluator verdict takes ~53s on the thinking
+        // background model (30s was still a permanent no-op — see backgroundJson). This
+        // await blocks the tutor's draft tool, but a turn already runs minutes and an
+        // evaluator that never runs guts the treatment arm's quality gate.
+        timeoutMs: 120_000,
         schema,
         systemPrompt:
           "You review a drafted practice task before it reaches a learner. Judge only what is in front of you. Reject when: the task's premise or expected answer is wrong (correctness); the task would not discriminate the stated misconception — a learner still holding it could answer correctly (fitToHypothesis); the difficulty is clearly mismatched to the stated level (difficulty); or the task is a trivial re-skin of one of the alreadySeenByLearner texts (novelty). Approve otherwise. Give short, actionable reasons when rejecting.",
@@ -1189,7 +1202,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
   async analyzeTurn(input: TurnAnalysisInput): Promise<TurnAnalysis> {
     const result = await this.backgroundJson({
       workspacePath: input.workspacePath,
-      timeoutMs: 20_000,
+      timeoutMs: 120_000,
       schema: turnAnalysisJsonSchema,
       prompt: JSON.stringify({
         user: input.prompt.slice(0, 8_000),
@@ -1235,14 +1248,14 @@ export class ClaudeAgentRuntime implements AgentRuntime {
 
   /**
    * One-turn distillation of the teaching move that resolved a learning incident after an
-   * earlier strategy failed. Mirrors analyzeTurn: no tools, 20s budget, structured output
+   * earlier strategy failed. Mirrors analyzeTurn: no tools, shared background budget, structured output
    * with a plain-JSON fallback. The instruction must be a learner-facing move — never
    * framework vocabulary, never a quote of the learner.
    */
   async distillTeachingApproach(input: TeachingDistillInput): Promise<TeachingDistillResult | null> {
     const result = await this.backgroundJson({
       workspacePath: input.workspacePath,
-      timeoutMs: 20_000,
+      timeoutMs: 120_000,
       schema: teachingDistillJsonSchema,
       prompt: JSON.stringify({
         goal: input.goal.slice(0, 500),
@@ -1275,7 +1288,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
   async refineMemories(input: MemoryRefinementInput): Promise<MemoryRefinement> {
     const result = await this.backgroundJson({
       workspacePath: input.workspacePath,
-      timeoutMs: 40_000,
+      timeoutMs: 120_000,
       schema: memoryRefinementJsonSchema,
       prompt: JSON.stringify({ memories: input.memories.slice(0, 50) }),
       systemPrompt:

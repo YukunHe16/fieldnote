@@ -276,6 +276,10 @@ export function composeClaudeChildEnvironment(
   }
   childEnvironment.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
   childEnvironment.CLAUDE_AGENT_SDK_CLIENT_APP = "fieldnote";
+  // The learning MCP's draft tool holds its response while the host runs the practice
+  // evaluator (up to ~2 minutes). The child's MCP tool timeout has to outlast that, or
+  // the tutor sees a dead tool instead of a verdict. An explicit override wins.
+  if (!childEnvironment.MCP_TOOL_TIMEOUT) childEnvironment.MCP_TOOL_TIMEOUT = "300000";
   return childEnvironment;
 }
 
