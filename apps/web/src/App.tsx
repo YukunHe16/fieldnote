@@ -559,7 +559,7 @@ function ChatHeader({
                       onDiagnostics();
                     }}
                   >
-                    <Icon name="activity" size={17} />
+                    <span className={`status-dot ${runtimeReady ? "online" : ""}`} />
                     <span>
                       <b>{t("diagnostics")}</b>
                       <small>{t("diagnosticsHint")}</small>
