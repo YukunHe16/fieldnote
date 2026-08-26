@@ -33,6 +33,7 @@ import { registerSchedulerRoutes } from "./scheduler-routes.js";
 import { EvolutionStore } from "./evolution-store.js";
 import { isEvolutionEligibleConversation } from "./evolution-eligibility.js";
 import { renderResearchExportHtml } from "./export-html.js";
+import { renderLoopReportHtml } from "./loop-report-html.js";
 import { confirmLearningVerification } from "./learning-confirm.js";
 import { handbookDocument, parseHandbook } from "./handbook.js";
 import { buildDomainCard } from "./domain-card.js";
@@ -695,6 +696,30 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       input.verdict
     );
     return { verification, incident, policy };
+  });
+
+  // One loop as its own page, available the moment the learner has confirmed an outcome:
+  // what was diagnosed, what was tried, every practice draft it burned (the rejected ones
+  // included) and the learner's own verdict. Redacted exactly like the research export, so a
+  // report the learner shares can never carry more than the corpus does.
+  app.get("/api/learning/incidents/:id/report.html", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as { download?: string };
+    const report = learning.loopReport(id);
+    if (!report) {
+      return reply.code(404).send({ error: "本次学习报告要等学习者确认结果之后才有" });
+    }
+    if (query.download === "true") {
+      // Named from the stored id, never the raw path parameter, so nothing user-supplied
+      // can reach a response header.
+      reply.header(
+        "content-disposition",
+        `attachment; filename="fieldnote-loop-${report.incident.id.slice(0, 8)}.html"`
+      );
+    }
+    return reply
+      .header("content-type", "text/html; charset=utf-8")
+      .send(renderLoopReportHtml(deepRedact(report), { generatedAt: new Date().toISOString() }));
   });
 
   app.get("/api/learning/incidents/:id/handoff", async (request, reply) => {

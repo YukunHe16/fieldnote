@@ -345,6 +345,19 @@ export interface LearningReviewTask {
   firedRunId: string | null;
 }
 
+/** Everything one learning loop produced, assembled for that loop's own report page. */
+export interface LearningLoopReportDto {
+  incident: LearningIncidentDto;
+  session: LearningSessionDto;
+  interventions: LearningInterventionDto[];
+  verifications: LearningVerificationDto[];
+  practiceItems: LearningPracticeItemDto[];
+  reviewTasks: LearningReviewTask[];
+  experiences: LearningExperienceDto[];
+  /** Invented moves credited by this loop's experiences, so the report can name what was used. */
+  variants: LearningStrategyVariantDto[];
+}
+
 interface ReviewTaskRow {
   id: string;
   incident_id: string;
@@ -2186,6 +2199,55 @@ export class LearningStore {
         .prepare("SELECT * FROM learning_verifications WHERE incident_id = ? ORDER BY created_at ASC")
         .all(incidentId) as VerificationRow[]
     ).map((row) => this.toVerification(row));
+  }
+
+  listPracticeItems(incidentId: string): LearningPracticeItemDto[] {
+    return (
+      this.database
+        .prepare("SELECT * FROM learning_practice_items WHERE incident_id = ? ORDER BY round ASC, created_at ASC")
+        .all(incidentId) as Record<string, unknown>[]
+    ).map((row) => this.toPracticeItem(row));
+  }
+
+  /**
+   * One loop, whole: the diagnosis, every round spent on it, every practice draft it burned
+   * (the rejected ones included — those are the evidence the gates did their job), the
+   * learner's own verdict, and any revisit booked afterwards.
+   *
+   * Null until the learner has confirmed at least one verification: before that the loop has
+   * no outcome, and a report claiming one would be the system grading itself.
+   */
+  loopReport(incidentId: string): LearningLoopReportDto | null {
+    const incident = this.getIncident(incidentId);
+    if (!incident) return null;
+    const session = this.getSessionForIncident(incidentId);
+    if (!session) return null;
+    const verifications = this.listVerifications(incidentId);
+    if (!verifications.some((entry) => entry.finalVerdict)) return null;
+    const experiences = (
+      this.database
+        .prepare("SELECT * FROM learning_experiences WHERE incident_id = ? ORDER BY created_at ASC")
+        .all(incidentId) as ExperienceRow[]
+    ).map((row) => this.toExperience(row));
+    const variantIds = [
+      ...new Set(experiences.map((entry) => entry.strategyVariantId).filter((id): id is string => Boolean(id)))
+    ];
+    return {
+      incident,
+      session,
+      interventions: this.listInterventions(incidentId),
+      verifications,
+      practiceItems: this.listPracticeItems(incidentId),
+      reviewTasks: (
+        this.database
+          .prepare("SELECT * FROM learning_review_tasks WHERE incident_id = ? ORDER BY round ASC")
+          .all(incidentId) as ReviewTaskRow[]
+      ).map((row) => toReviewTask(row)),
+      experiences,
+      variants: variantIds
+        .map((id) => this.getVariant(id))
+        .filter((variant): variant is LearningStrategyVariantDto => variant !== null)
+    };
   }
 
   getVerification(id: string): LearningVerificationDto | null {

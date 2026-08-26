@@ -343,6 +343,8 @@ The learner-facing chat contains only subject matter, step-by-step teaching, exa
 - **历史**：当前回路之外、已保留的互动 incidents 及其结果；被 supersede 的分支记录不在默认学习详情中返回，Demo 预置 synthetic records 单独聚合展示。
 - **教学策略**：当前启用顺序、候选 revision、证据摘要、预览、启用、拒绝和回滚。
 - 面板中的“合成经验”会明确标记，仅用于演示策略选择，不冒充当前用户的真实学习历史。
+- **本次学习报告**：一次回路只要学习者确认过结果，面板上就出现入口，打开 `GET /api/learning/incidents/<id>/report.html` —— 这一次学习自己的一页：卡在哪 → 试了哪些讲法 → 为你出的题（含被三道门拦下、你没见过的草稿）→ 检查题 → **系统的提议 vs 你的决定** → 之后的间隔回访。中英双语（两份都在 DOM 里、靠 CSS 切换，打印与禁用脚本时都正常），脱敏口径与研究导出一致，加 `?download=true` 可直接存成单个 HTML 文件。
+- **研究数据浏览版**：指标页的「浏览版（HTML）」打开 `GET /api/learning/export/html`，把同一份脱敏数据渲染成一页可读、可筛、可看图的页面：默认按回路看（一条“脊线”画出轮次与每一份草稿的查重分，空心＝被门拦下），六张图随筛选实时重算，支持参与者/数据集/条件/困难类型/结果筛选与全文搜索，也能切回十张原始表；每条回路可直接跳到它自己的学习报告。详见 `docs/RESEARCH_EXPORT.md`。
 
 **English**
 
@@ -350,6 +352,8 @@ The learner-facing chat contains only subject matter, step-by-step teaching, exa
 - **History** shows retained interactive incidents outside the current loop and their outcomes. Superseded branch records are excluded from the default learning detail, while demo seed records are summarized separately.
 - **Teaching strategies** presents the enabled ordering, candidate revisions, evidence summaries, preview, enable, reject, and rollback actions.
 - “Synthetic experience” is explicitly labeled in the panel. It demonstrates strategy selection and is not presented as the current learner’s real history.
+- **This loop's report**: once the learner has confirmed an outcome, the panel offers a link to `GET /api/learning/incidents/<id>/report.html` — one page for that single loop: where it stuck, the teaching moves tried, every practice task drafted for the learner (including the ones a gate stopped, which they never saw), the check itself, **the system's proposal next to the learner's decision**, and the spaced revisit that follows. Bilingual (both languages sit in the DOM and CSS switches them, so printing and script-free viewing both work), redacted exactly like the research export, and `?download=true` saves it as a single HTML file.
+- **Research corpus browser**: “Browse (HTML)” on the metrics tab opens `GET /api/learning/export/html`, which renders the same redacted data as one readable, filterable page: loops by default (a “spine” draws the rounds and every draft's novelty score, hollow where a gate stopped it), six charts that recompute with the filters, filtering by participant/dataset/condition/difficulty/outcome plus full-text search, and a toggle back to the ten raw tables. Each loop links straight to its own report. See `docs/RESEARCH_EXPORT.md`.
 
 ### 6.5 受控教学策略演进 / Governed teaching-strategy evolution
 

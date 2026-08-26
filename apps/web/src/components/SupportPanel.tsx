@@ -1741,6 +1741,16 @@ function LearningPanel({
         </section>
       )}
       {incident.status === "escalated" && <LearningHandoffSection incidentId={incident.id} />}
+      {incident.verifications.some((item) => item.finalVerdict) && (
+        <a
+          className="learning-report-link"
+          href={`/api/learning/incidents/${encodeURIComponent(incident.id)}/report.html`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t("learningLoopReport")}
+        </a>
+      )}
     </article>
   );
   return (

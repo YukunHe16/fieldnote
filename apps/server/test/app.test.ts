@@ -35,6 +35,17 @@ function draftApproved(learning: LearningStore, incidentId: string, taskText: st
   });
 }
 
+/** Pull one JSON island back out of a rendered page, the way the browser's reader does. */
+// biome-ignore lint/suspicious/noExplicitAny: test-side view of the export payload
+function readIsland(html: string, id: string): any {
+  const marker = `<script type="application/json" id="${id}">`;
+  const start = html.indexOf(marker);
+  if (start === -1) throw new Error(`Missing data island: ${id}`);
+  const from = start + marker.length;
+  const end = html.indexOf("</script>", from);
+  return JSON.parse(html.slice(from, end));
+}
+
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   await Promise.allSettled(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -1306,27 +1317,117 @@ describe("learning condition assignment over HTTP", () => {
     });
   });
 
-  it("renders the research export as escaped, scoped HTML", async () => {
+  it("renders the research corpus as a bilingual page whose data island cannot execute", async () => {
     const { app, store, learning } = await learningApp();
     const conversation = store.createConversation("web", "HTML 导出", { profileId: "local-operator" });
+    const goal = "理解 <script>alert(1)</script> 的转义";
     learning.createSession({
       conversationId: conversation.id,
       profileId: "local-operator",
-      // Learner-authored text must render inert in the researcher's browser.
-      goal: "理解 <script>alert(1)</script> 的转义",
+      // Learner-authored text must reach the browser as data, never as markup.
+      goal,
       topicKey: "programming"
     });
     const page = await app.inject({ method: "GET", url: "/api/learning/export/html" });
     expect(page.statusCode).toBe(200);
     expect(page.headers["content-type"]).toContain("text/html");
+    // Both languages ship in the page; the switch never refetches.
     expect(page.body).toContain("研究数据");
-    expect(page.body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(page.body).toContain("Research corpus");
+    // The payload cannot close the script element, and nothing became live markup.
+    expect(page.body).toContain("\\u003cscript\\u003e");
     expect(page.body).not.toContain("<script>alert(1)</script>");
+    // Escaping is lossless: the reader parses the learner's text back exactly as written.
+    expect(readIsland(page.body, "fieldnote-data").sessions[0].goal).toBe(goal);
     // Participant scoping mirrors the JSON endpoint.
     const other = store.createParticipant("同学B");
     const scoped = await app.inject({ method: "GET", url: `/api/learning/export/html?participantId=${other.id}` });
     expect(scoped.statusCode).toBe(200);
-    expect(scoped.body).not.toContain("&lt;script&gt;");
+    expect(readIsland(scoped.body, "fieldnote-data").sessions).toHaveLength(0);
+  });
+
+  it("publishes a loop report once the learner has confirmed, rejected drafts included", async () => {
+    const { app, store, learning } = await learningApp();
+    const conversation = store.createConversation("web", "回路报告", { profileId: "local-operator" });
+    const session = learning.createSession({
+      conversationId: conversation.id,
+      profileId: "local-operator",
+      goal: "分清冲突未命中与容量未命中",
+      topicKey: "computer-architecture"
+    });
+    const run = store.createRun(conversation.id, "为什么这次是容量未命中？", "normal");
+    const incident = learning.openIncident({
+      sessionId: session.id,
+      difficultyType: "conceptual_misconception",
+      hypothesis: "把发生替换等同于容量不够 <script>alert(2)</script>",
+      confidence: 0.8,
+      severity: 3,
+      evidenceMessageIds: [run.userMessageId]
+    });
+    const intervention = learning.recordIntervention({
+      incidentId: incident.id,
+      strategy: "contrastive_example",
+      rationale: "同一串访问在两种缓存下对比",
+      expectedSignal: "能说出工作集与总容量的区别"
+    });
+    const { round } = learning.practiceDraftContext(incident.id);
+    // A draft the novelty gate stopped: it never reached the learner, and the report keeps it.
+    learning.recordPracticeItem({
+      incidentId: incident.id,
+      round,
+      status: "rejected",
+      taskText: "跟你刚做过的那题几乎一样的题面",
+      targetHypothesis: "替换即容量不足",
+      expectedAnswerSketch: "冲突未命中",
+      difficulty: 3,
+      method: "transfer_example",
+      gate: "novelty",
+      noveltyScore: 0.81
+    });
+    const approved = draftApproved(learning, incident.id, "换成直接映射缓存，判断每一步的结果");
+    const verification = learning.requestVerification({
+      incidentId: incident.id,
+      interventionId: intervention.id,
+      method: "transfer_example",
+      prompt: "换成直接映射缓存，判断每一步的结果",
+      rubric: "区分工作集与总容量",
+      practiceItemId: approved.id
+    });
+
+    // No report before the learner has spoken: the loop has no outcome to report yet.
+    const early = await app.inject({ method: "GET", url: `/api/learning/incidents/${incident.id}/report.html` });
+    expect(early.statusCode).toBe(404);
+
+    learning.proposeSystemOutcome(verification.id, "resolved", 0.9);
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/learning/verifications/${verification.id}/confirm`,
+      payload: { verdict: "resolved" }
+    });
+    expect(confirmed.statusCode).toBe(200);
+
+    const report = await app.inject({ method: "GET", url: `/api/learning/incidents/${incident.id}/report.html` });
+    expect(report.statusCode).toBe(200);
+    expect(report.headers["content-type"]).toContain("text/html");
+    // The learner's own verdict is the headline, in both languages.
+    expect(report.body).toContain("你说你学会了");
+    expect(report.body).toContain("You said you had it");
+    // The rejected draft is part of the record, labelled by the gate that stopped it.
+    expect(report.body).toContain("跟你刚做过的那题几乎一样的题面");
+    expect(report.body).toContain("0.810");
+    expect(report.body).toContain("查重门");
+    // Learner-authored text is escaped, never executed.
+    expect(report.body).toContain("&lt;script&gt;alert(2)&lt;/script&gt;");
+    expect(report.body).not.toContain("<script>alert(2)</script>");
+
+    const downloaded = await app.inject({
+      method: "GET",
+      url: `/api/learning/incidents/${incident.id}/report.html?download=true`
+    });
+    expect(downloaded.headers["content-disposition"]).toContain("attachment");
+    expect(await app.inject({ method: "GET", url: "/api/learning/incidents/nope/report.html" })).toMatchObject({
+      statusCode: 404
+    });
   });
 
   it("manages participants and scopes the workspace to the current one", async () => {
