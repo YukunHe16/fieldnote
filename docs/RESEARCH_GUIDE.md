@@ -2,7 +2,7 @@
 
 *[中文版 / Chinese version](RESEARCH_GUIDE.zh-CN.md)*
 
-This document introduces the research side of Fieldnote to a reader seeing it for the first time — a CS-education researcher, instructor, or TA. It states the research problem, then walks through **one complete, unedited session** recorded in the product, using screenshots from that session to show how each piece of the system maps onto the research agenda. Everything runs locally on one machine; no student data leaves it.
+This document introduces the research side of Fieldnote to a reader seeing it for the first time — a CS-education researcher, instructor, or TA. It states the research problem, then walks through **one complete, unedited session** recorded in the product, using screenshots from that session to show how each piece of the system maps onto the research agenda. Everything runs locally on one machine; no student data leaves it. The system is open source: [github.com/YukunHe16/fieldnote](https://github.com/YukunHe16/fieldnote).
 
 ## 1. The research problem
 
