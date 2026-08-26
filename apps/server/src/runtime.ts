@@ -1619,7 +1619,6 @@ export class ClaudeAgentRuntime implements AgentRuntime {
                     incidentId,
                     round: context.round,
                     expectedSessionId: session.id,
-                    source: input.runId && store.isReviewRun(input.runId) ? "review" : "tutor",
                     status: result.status,
                     taskText,
                     targetHypothesis,

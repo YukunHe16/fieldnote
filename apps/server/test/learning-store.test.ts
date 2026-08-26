@@ -2152,6 +2152,18 @@ describe("learning practice items", () => {
 
     expect(revisit.reviewOf).toEqual({ incidentId: first.id, round: 1 });
     expect(learning.getIncident(first.id)?.reviewOf).toBeNull();
+
+    // Every draft of the revisit incident is review-sourced — including later rounds,
+    // which run outside the fired run. The first loop's draft stays tutor-sourced.
+    expect(draft.source).toBe("tutor");
+    learning.recordIntervention({
+      incidentId: revisit.id,
+      strategy: "evidence_check",
+      rationale: "核对证据",
+      expectedSignal: "能指出关键差别"
+    });
+    const revisitDraft = draftApproved(learning, revisit.id, "换一个访问序列再判断一次。");
+    expect(revisitDraft.source).toBe("review");
     database.close();
   });
 });

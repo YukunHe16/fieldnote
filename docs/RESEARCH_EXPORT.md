@@ -117,7 +117,7 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 | 字段 | 说明 |
 | --- | --- |
 | `incidentId` / `round` | 归属 incident 与干预轮次（题记按轮绑定，验证时轮次必须仍匹配） |
-| `source` | `tutor`（正常回路）/ `review`（复习回访 run 生成） |
+| `source` | `tutor`（正常回路）/ `review`（复习回访 incident 的题记——按 incident 归类，回访第 2、3 轮在后续 run 里起草的草稿同样计入） |
 | `status` | `approved` 通过待用 · `rejected` 被拒 · `consumed` 已用于验证 · `expired` 作废（该轮已有验证落地、轮次推进或 incident 关闭；学习者被新话题打断的回路可能遗留 approved） |
 | `taskText` / `targetHypothesis` / `expectedAnswerSketch` / `difficulty` / `method` | 草稿本体：题面、要区分的误解假设、预期答案要点、难度 1–5、验证方法 |
 | `gate` | 拦下它的门：`programmatic` / `novelty` / `evaluator`；通过为 `none`。**回退口径**：解锁 prose 回退的两次拒绝只计 `novelty`/`evaluator`（实质分歧），`programmatic`（形式错误）不计 |
@@ -127,7 +127,8 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 消费的题面与 method 由宿主原样落库进 `verifications`，因此 `practiceItemId` 连接两表时 `taskText`=`prompt`、两侧 `method` 恒等。
 
 **校准协议**：`scripts/practice-item-calibration.mjs export` 从本导出生成标注表（CSV，空白人工列，
-`--sample N --seed S` 可复现抽样）；人工填完后 `report --labels <csv> --labeler <who>` 输出
+`--sample N --seed S` 可复现抽样，`--dataset live,eval` 按数据集过滤——正式协议只标 live/eval，demo 是夹具噪声；
+表内附 `datasetKind`/`condition` 两列供标注者辨认样本归属）；人工填完后 `report --labels <csv> --labeler <who>` 输出
 evaluator-与-人工一致率报告（按 checks 维度的 fail-精确率/召回率 + 分歧分型）到
 `data/eval-runs/practice-calibration.md`。报告只讲质量审查一致率，不是学习效果证据；
 自标注版仅为协议烟测，标注者身份写在报告头。

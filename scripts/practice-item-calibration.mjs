@@ -12,6 +12,10 @@
  *   node scripts/practice-item-calibration.mjs export
  *     [--base http://127.0.0.1:8787 | --input export.json]
  *     [--out data/eval-runs/practice-calibration-sample.csv] [--sample N] [--seed S]
+ *     [--dataset live,eval]   # keep only items from these datasetKinds (default: all;
+ *                             # the real protocol labels live/eval items — demo items are
+ *                             # fixture noise). Sampling reproduces from (seed, filtered
+ *                             # item order), so the same filter must be repeated.
  *
  *   node scripts/practice-item-calibration.mjs report --labels <filled.csv>
  *     [--labeler self] [--out data/eval-runs/practice-calibration.md]
@@ -46,6 +50,7 @@ function parseArgs(argv) {
     else if (key === "--labeler") args.labeler = next();
     else if (key === "--sample") args.sample = Number(next());
     else if (key === "--seed") args.seed = Number(next());
+    else if (key === "--dataset") args.dataset = next();
     else positional.push(key);
   }
   args.command = positional[0];
@@ -65,15 +70,27 @@ function mulberry32(seed) {
   };
 }
 
-async function loadPracticeItems(args) {
-  if (args.input) {
-    const parsed = JSON.parse(await fs.readFile(args.input, "utf8"));
-    return parsed.practiceItems ?? [];
-  }
+async function loadExport(args) {
+  if (args.input) return JSON.parse(await fs.readFile(args.input, "utf8"));
   const response = await fetch(`${args.base}/api/learning/export`);
   if (!response.ok) throw new Error(`export endpoint returned ${response.status} — is the server running?`);
-  const parsed = await response.json();
-  return parsed.practiceItems ?? [];
+  return response.json();
+}
+
+/**
+ * itemId-independent labeling context: which arm and dataset each item's session ran
+ * under. Demo items are fixture noise for the real protocol, and a labeler cannot judge
+ * "fit to the study" without seeing the arm — so both ride along as sheet columns.
+ */
+function sessionLookup(parsed) {
+  const sessions = new Map((parsed.sessions ?? []).map((session) => [session.id, session]));
+  const byIncident = new Map();
+  for (const incident of parsed.incidents ?? []) {
+    const session = sessions.get(incident.sessionId);
+    if (session)
+      byIncident.set(incident.id, { datasetKind: session.datasetKind ?? "", condition: session.condition ?? "" });
+  }
+  return byIncident;
 }
 
 function csvCell(value) {
@@ -136,6 +153,8 @@ const SHEET_COLUMNS = [
   "incidentId",
   "round",
   "source",
+  "datasetKind",
+  "condition",
   "pipelineStatus",
   "gate",
   "noveltyScore",
@@ -159,8 +178,24 @@ async function runExport(args) {
     throw new Error(`--sample must be a positive integer, got "${args.sample}"`);
   if (!Number.isInteger(args.seed) || args.seed < 0 || args.seed > 0xffffffff)
     throw new Error(`--seed must be an integer in [0, 4294967295], got "${args.seed}"`);
-  let items = await loadPracticeItems(args);
+  const parsed = await loadExport(args);
+  const lookup = sessionLookup(parsed);
+  let items = parsed.practiceItems ?? [];
   const total = items.length;
+  if (args.dataset) {
+    const wanted = new Set(
+      args.dataset
+        .split(",")
+        .map((kind) => kind.trim())
+        .filter(Boolean)
+    );
+    if (wanted.size === 0) throw new Error('--dataset needs at least one kind, e.g. "live" or "live,eval"');
+    // A payload without session context cannot honor the filter; silence here would label
+    // the wrong corpus, so it errors instead of exporting everything.
+    if (lookup.size === 0 && items.length > 0)
+      throw new Error("the export payload carries no sessions/incidents context — cannot filter by dataset");
+    items = items.filter((item) => wanted.has(lookup.get(item.incidentId)?.datasetKind ?? ""));
+  }
   if (args.sample && args.sample < items.length) {
     const rng = mulberry32(args.seed);
     const shuffled = [...items];
@@ -174,12 +209,15 @@ async function runExport(args) {
   for (const item of items) {
     const verdict = item.evaluatorVerdict ?? null;
     const checks = verdict && typeof verdict === "object" ? (verdict.checks ?? {}) : {};
+    const context = lookup.get(item.incidentId) ?? { datasetKind: "", condition: "" };
     lines.push(
       [
         item.id,
         item.incidentId,
         item.round,
         item.source,
+        context.datasetKind,
+        context.condition,
         item.status,
         item.gate,
         item.noveltyScore,
@@ -202,7 +240,9 @@ async function runExport(args) {
   await fs.mkdir(path.dirname(out), { recursive: true });
   await fs.writeFile(out, `${lines.join("\n")}\n`, "utf8");
   console.log(
-    `wrote ${items.length}/${total} practice items to ${out} (seed ${args.seed}); fill the human_* columns with pass|fail|unsure and human_overall with approve|reject, then run the report command.`
+    `wrote ${items.length}/${total} practice items to ${out} (seed ${args.seed}${
+      args.dataset ? `, dataset ${args.dataset}` : ""
+    }); fill the human_* columns with pass|fail|unsure and human_overall with approve|reject, then run the report command.`
   );
 }
 
@@ -338,6 +378,9 @@ async function runReport(args) {
     const status = normalizedLabel(cell(row, "evaluator_status"));
     return status === "approved" || status === "rejected";
   });
+  // Fail-opens are the evaluator tier silently not running (the first live run lost every
+  // verdict to a timeout and nobody could see it); the report must carry the count.
+  const failOpenRows = rows.slice(1).filter((row) => normalizedLabel(cell(row, "evaluator_status")) === "error");
   const evaluatorOverall = binaryAgreement(
     evaluatorRows.map((row) => [
       normalizedLabel(cell(row, "evaluator_status")) === "rejected" ? "fail" : "pass",
@@ -416,6 +459,9 @@ wholesale agrees 100% with any evaluator), so read it against the base rates and
 
 - Rows in sheet: ${rows.length - 1}; labeled: ${labeled.length}; skipped (blank human_overall): ${unlabeled}
 - Rows with an LLM-evaluator verdict: ${evaluatorRows.length} (hard-gate rejections and evaluator errors are excluded from evaluator-level metrics, so evaluator-level recall is conditional on having survived the deterministic gates)
+- Evaluator fail-opens in sheet (status "error" — the tier did not run and the item passed on the deterministic gates alone): ${failOpenRows.length}${
+    failOpenRows.length > 0 ? " ⚠" : ""
+  }
 
 ## Pipeline level (all tiers, ${pipeline.n} labeled items)
 

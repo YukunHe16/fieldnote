@@ -837,6 +837,18 @@ export class LearningStore {
         "ALTER TABLE learning_review_tasks ADD COLUMN fired_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL"
       );
     }
+    // Heal for the old run-based source rule: a revisit incident's round-two-and-later
+    // drafts happened in runs after the fired one, so they landed as 'tutor'. Source is
+    // now derived from the incident at write time; this idempotent pass relabels rows
+    // written under the old rule (no-op once clean).
+    this.database.exec(`
+      UPDATE learning_practice_items SET source = 'review'
+      WHERE source != 'review'
+        AND incident_id IN (
+          SELECT incident.id FROM learning_incidents incident
+            JOIN learning_review_tasks task ON task.fired_run_id = incident.opened_run_id
+        );
+    `);
     // Participant axis: upgraded databases gain the denormalized column with DEFAULT
     // 'default', which is exactly the backfill — every pre-participant row belongs to the
     // default participant, so single-user behavior is unchanged.
@@ -2351,7 +2363,6 @@ export class LearningStore {
   recordPracticeItem(input: {
     incidentId: string;
     round: number;
-    source?: "tutor" | "review";
     status: "approved" | "rejected";
     taskText: string;
     targetHypothesis: string;
@@ -2373,6 +2384,11 @@ export class LearningStore {
       throw learningConflict(
         "The learning state moved while the draft was under review; draft a fresh task for the current round"
       );
+    // A revisit incident's checks are review-sourced for ALL its rounds. Round two of a
+    // revisit is drafted in a later run than the one the review runner fired, so run
+    // identity would split one revisit's items across both source values; the incident is
+    // the category boundary.
+    const source = context.incident.reviewOf ? "review" : "tutor";
     const id = randomUUID();
     this.database
       .prepare(
@@ -2386,7 +2402,7 @@ export class LearningStore {
         input.incidentId,
         participantId,
         input.round,
-        input.source ?? "tutor",
+        source,
         input.status,
         clean(input.taskText, 2_000),
         clean(input.targetHypothesis, 1_000),
@@ -2406,14 +2422,6 @@ export class LearningStore {
       | Record<string, unknown>
       | undefined;
     return row ? this.toPracticeItem(row) : null;
-  }
-
-  /** True when the run was fired by the spaced-review runner — items drafted in it are review-sourced. */
-  isReviewRun(runId: string): boolean {
-    const row = this.database
-      .prepare("SELECT 1 AS hit FROM learning_review_tasks WHERE fired_run_id = ? LIMIT 1")
-      .get(runId) as { hit: number } | undefined;
-    return Boolean(row);
   }
 
   /**

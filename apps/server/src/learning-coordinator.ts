@@ -71,9 +71,6 @@ export class LearningCoordinator {
   getPracticeItem(...args: Parameters<LearningStore["getPracticeItem"]>) {
     return this.store.getPracticeItem(...args);
   }
-  isReviewRun(...args: Parameters<LearningStore["isReviewRun"]>) {
-    return this.store.isReviewRun(...args);
-  }
   proposeSystemOutcome(...args: Parameters<LearningStore["proposeSystemOutcome"]>) {
     return this.store.proposeSystemOutcome(...args);
   }
