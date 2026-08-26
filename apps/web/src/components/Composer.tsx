@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../icons";
 import { api } from "../api";
 import { localeTag, useLocale } from "../i18n";
@@ -76,6 +76,9 @@ export function Composer({
   const [learningCondition, setLearningCondition] = useState<LearningCondition | "random">("on-call");
   const [learningBusy, setLearningBusy] = useState(false);
   const [learningDemos, setLearningDemos] = useState<LearningDemoScenarioDto[]>([]);
+  const [openDemo, setOpenDemo] = useState<string | null>(null);
+  const [sheetOverflow, setSheetOverflow] = useState({ above: false, below: false });
+  const sheetBodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -158,6 +161,25 @@ export function Composer({
       document.removeEventListener("keydown", escape);
     };
   }, [menuOpen]);
+
+  const syncSheetOverflow = useCallback(() => {
+    const el = sheetBodyRef.current;
+    if (!el) return;
+    setSheetOverflow({
+      above: el.scrollTop > 2,
+      below: el.scrollTop + el.clientHeight < el.scrollHeight - 2
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!learningSetupOpen) return;
+    const el = sheetBodyRef.current;
+    if (el) el.scrollTop = 0;
+  }, [learningSetupOpen]);
+
+  useEffect(() => {
+    syncSheetOverflow();
+  }, [syncSheetOverflow, learningSetupOpen, learningDemos.length, openDemo, workspace.researchEnabled]);
 
   useEffect(() => {
     if (!learningSetupOpen || learningSession || learningDemos.length) return;
@@ -591,7 +613,7 @@ export function Composer({
         <AnimatePresence>
           {learningSetupOpen && (
             <motion.form
-              className="learning-setup"
+              className={`learning-setup${sheetOverflow.above ? " has-more-above" : ""}${sheetOverflow.below ? " has-more-below" : ""}`}
               onSubmit={(event) => {
                 event.preventDefault();
                 void startLearning();
@@ -609,89 +631,102 @@ export function Composer({
                   <Icon name="close" size={14} />
                 </button>
               </header>
-              <label>
-                {t("learningGoal")}
-                <input
-                  value={learningGoal}
-                  onChange={(event) => setLearningGoal(event.target.value)}
-                  placeholder={t("learningGoalPlaceholder")}
-                  maxLength={500}
-                  autoFocus
-                  required
-                />
-              </label>
-              {workspace.researchEnabled && (
+              <div className="learning-setup-body" ref={sheetBodyRef} onScroll={syncSheetOverflow}>
                 <label>
-                  {t("learningTopic")}
+                  {t("learningGoal")}
                   <input
-                    value={learningTopic}
-                    onChange={(event) => setLearningTopic(event.target.value)}
-                    placeholder={t("learningTopicPlaceholder")}
-                    list="learning-topic-suggestions"
-                    maxLength={100}
+                    value={learningGoal}
+                    onChange={(event) => setLearningGoal(event.target.value)}
+                    placeholder={t("learningGoalPlaceholder")}
+                    maxLength={500}
+                    autoFocus
+                    required
                   />
-                  <datalist id="learning-topic-suggestions">
-                    {topicSuggestions.map((topic) => (
-                      <option key={topic} value={topic} />
-                    ))}
-                  </datalist>
-                  <small className="field-hint">{t("learningTopicHint")}</small>
                 </label>
-              )}
-              {workspace.researchEnabled && (
-                <div className="learning-condition-picker">
-                  <span>{t("learningCondition")}</span>
-                  <div role="radiogroup" aria-label={t("learningCondition")}>
-                    {(["on-call", "one-shot", "multi-turn", "random"] as const).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        role="radio"
-                        aria-checked={learningCondition === option}
-                        className={learningCondition === option ? "is-selected" : ""}
-                        onClick={() => setLearningCondition(option)}
-                      >
-                        {option === "on-call"
-                          ? t("learningConditionOnCall")
-                          : option === "one-shot"
-                            ? t("learningConditionOneShot")
-                            : option === "multi-turn"
-                              ? t("learningConditionMultiTurn")
-                              : t("learningConditionRandom")}
-                      </button>
-                    ))}
+                {workspace.researchEnabled && (
+                  <label>
+                    {t("learningTopic")}
+                    <input
+                      value={learningTopic}
+                      onChange={(event) => setLearningTopic(event.target.value)}
+                      placeholder={t("learningTopicPlaceholder")}
+                      list="learning-topic-suggestions"
+                      maxLength={100}
+                    />
+                    <datalist id="learning-topic-suggestions">
+                      {topicSuggestions.map((topic) => (
+                        <option key={topic} value={topic} />
+                      ))}
+                    </datalist>
+                    <small className="field-hint">{t("learningTopicHint")}</small>
+                  </label>
+                )}
+                {workspace.researchEnabled && (
+                  <div className="learning-condition-picker">
+                    <span>{t("learningCondition")}</span>
+                    <div role="radiogroup" aria-label={t("learningCondition")}>
+                      {(["on-call", "one-shot", "multi-turn", "random"] as const).map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          role="radio"
+                          aria-checked={learningCondition === option}
+                          className={learningCondition === option ? "is-selected" : ""}
+                          onClick={() => setLearningCondition(option)}
+                        >
+                          {option === "on-call"
+                            ? t("learningConditionOnCall")
+                            : option === "one-shot"
+                              ? t("learningConditionOneShot")
+                              : option === "multi-turn"
+                                ? t("learningConditionMultiTurn")
+                                : t("learningConditionRandom")}
+                        </button>
+                      ))}
+                    </div>
+                    <small>
+                      {t("learningConditionHint")}
+                      {learningCondition === "random" && workspace.researchStudy
+                        ? ` (${workspace.researchStudy.conditions.join(" / ")} · seed ${workspace.researchStudy.seed})`
+                        : ""}
+                    </small>
                   </div>
-                  <small>
-                    {t("learningConditionHint")}
-                    {learningCondition === "random" && workspace.researchStudy
-                      ? ` (${workspace.researchStudy.conditions.join(" / ")} · seed ${workspace.researchStudy.seed})`
-                      : ""}
-                  </small>
-                </div>
-              )}
-              <footer>
-                <button type="button" onClick={() => setLearningSetupOpen(false)}>
-                  {t("cancel")}
-                </button>
-                <button type="submit" disabled={!learningGoal.trim() || learningBusy}>
-                  {t("learningStart")}
-                </button>
-              </footer>
-              {!learningSession && (
-                <div className="learning-demo-cards">
-                  <p>{t("learningDemoPick")}</p>
-                  {learningDemos.map((scenario) => (
-                    <article key={scenario.id}>
-                      <header>
-                        <em>{t("learningDemoCase")}</em>
-                        <small>{t("learningDemoLoop")}</small>
-                      </header>
-                      <h3>{scenario.title}</h3>
-                      <p>{scenario.description}</p>
-                      <pre>{scenario.preview}</pre>
-                      <div className="learning-demo-loop">{scenario.loop}</div>
-                      <div className="learning-demo-actions">
-                        <div>
+                )}
+                {!learningSession && (
+                  <div className="learning-demo-cards">
+                    <p>{t("learningDemoPick")}</p>
+                    {learningDemos.map((scenario) => (
+                      <article key={scenario.id} className={openDemo === scenario.id ? "is-open" : ""}>
+                        <div className="learning-demo-head">
+                          <span className="learning-demo-copy">
+                            <h3>{scenario.title}</h3>
+                            <p>{scenario.description}</p>
+                          </span>
+                          <button
+                            type="button"
+                            className="learning-demo-toggle"
+                            aria-expanded={openDemo === scenario.id}
+                            aria-label={`${t("learningDemoPreview")} · ${scenario.title}`}
+                            onClick={() => setOpenDemo((value) => (value === scenario.id ? null : scenario.id))}
+                          >
+                            <Icon name="chevronRight" size={13} className={openDemo === scenario.id ? "is-open" : ""} />
+                          </button>
+                        </div>
+                        {openDemo === scenario.id && (
+                          <div className="learning-demo-detail">
+                            <pre>{scenario.preview}</pre>
+                            <div className="learning-demo-loop">
+                              <span>{t("learningDemoLoop")}</span>
+                              {scenario.loop}
+                            </div>
+                            <small>
+                              {scenario.agentAvailable
+                                ? t("learningDemoAgentDetail")
+                                : t("learningDemoAgentUnavailable")}
+                            </small>
+                          </div>
+                        )}
+                        <div className="learning-demo-actions">
                           <button
                             type="button"
                             className="learning-demo-agent"
@@ -701,24 +736,29 @@ export function Composer({
                           >
                             {t("learningDemoAgent")}
                           </button>
-                          <small>
-                            {scenario.agentAvailable ? t("learningDemoAgentDetail") : t("learningDemoAgentUnavailable")}
-                          </small>
+                          <button
+                            type="button"
+                            className="learning-demo-stable"
+                            aria-label={`${t("learningDemoStable")} · ${scenario.title}`}
+                            disabled={learningBusy}
+                            onClick={() => void startLearningDemo(scenario, "deterministic")}
+                          >
+                            {t("learningDemoStable")}
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          className="learning-demo-stable"
-                          aria-label={`${t("learningDemoStable")} · ${scenario.title}`}
-                          disabled={learningBusy}
-                          onClick={() => void startLearningDemo(scenario, "deterministic")}
-                        >
-                          {t("learningDemoStable")}
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <footer>
+                <button type="button" onClick={() => setLearningSetupOpen(false)}>
+                  {t("cancel")}
+                </button>
+                <button type="submit" disabled={!learningGoal.trim() || learningBusy}>
+                  {t("learningStart")}
+                </button>
+              </footer>
             </motion.form>
           )}
         </AnimatePresence>
