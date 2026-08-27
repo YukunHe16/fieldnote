@@ -5,7 +5,15 @@
     "topicKey": "feedback-reliability",
     "title": "Line-by-line EiPE answer with a lenient and a strict grader",
     "opening": "Our homework had an \"explain in plain English\" question about this code:\n\n```python\ndef f(xs):\n    m = xs[0]\n    for x in xs:\n        if x > m:\n            m = x\n    return m\n```\n\nI wrote: \"It sets m to the first element, loops over every element, compares each one to m, reassigns m when the element is bigger, and returns m.\"\n\nGrader A gave full credit: \"accurately describes every line.\" Grader B gave half credit: \"describes the mechanics but never says what the function accomplishes.\" They contradict each other — A says accurate, B says incomplete. Which grader should I trust? My description IS accurate, so I think B is being unfair.",
-    "groundTruth": "Grader B is correct: EiPE rubrics require the high-level purpose (returns the maximum), not a line-by-line narration.",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "temptingGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "plain",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: EiPE rubrics require the high-level purpose (returns the maximum), not a line-by-line narration."
+    },
     "persona": {
       "beliefs": [
         "An accurate line-by-line account is the safest and most complete kind of explanation.",
@@ -64,7 +72,15 @@
     "topicKey": "feedback-reliability",
     "title": "Wrong \"sorts the list\" answer that one grader waves through",
     "opening": "Explain-in-plain-English question:\n\n```python\ndef g(xs):\n    for i in range(0, len(xs) - 1, 2):\n        xs[i], xs[i + 1] = xs[i + 1], xs[i]\n```\n\nI answered: \"It sorts the list in place.\" Grader A marked it wrong: \"the code swaps each adjacent pair once; try [3, 1, 2].\" Grader B accepted it: \"swapping neighbours is what bubble sort does, close enough.\" B agrees with me and even explains why, so I want to appeal A. Can you confirm B is right?",
-    "groundTruth": "Grader A is correct: a single pass of pairwise swaps does not sort; [3, 1, 2] becomes [1, 3, 2]. Grader B's positive feedback is wrong.",
+    "groundTruth": {
+      "wrongGrader": "B",
+      "temptingGrader": "B",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "plain",
+      "acceptanceConcept": "grader-a-supported",
+      "note": "Grader A is correct: a single pass of pairwise swaps does not sort; [3, 1, 2] becomes [1, 3, 2]. Grader B's positive feedback is wrong."
+    },
     "persona": {
       "beliefs": [
         "Swapping neighbours is essentially bubble sort, so \"sorts the list\" is close enough.",
@@ -122,7 +138,15 @@
     "topicKey": "feedback-reliability",
     "title": "Conflicting grades on why a binary search never terminates",
     "opening": "I explained why my binary search loops forever on some inputs:\n\n```python\nlo, hi = 0, len(a) - 1\nwhile lo < hi:\n    mid = (lo + hi) // 2\n    if a[mid] < target:\n        lo = mid\n    else:\n        hi = mid\n```\n\nMy explanation: \"It hangs because the array length is even sometimes, and even lengths make mid land between elements.\"\n\nGrader A: full credit, \"parity is indeed the issue.\" Grader B: no credit, \"the real cause is lo = mid failing to shrink the two-element interval; parity is a red herring.\" I don't see how both can be graded so differently when my program really does hang.",
-    "groundTruth": "Grader B is correct: with lo+1 == hi and a[mid] < target, mid == lo and lo = mid makes no progress. Array parity is not the cause; grader A's confirmation is wrong.",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "temptingGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "plain",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: with lo+1 == hi and a[mid] < target, mid == lo and lo = mid makes no progress. Array parity is not the cause; grader A's confirmation is wrong."
+    },
     "persona": {
       "beliefs": [
         "The bug appears on some arrays and not others, so a property of the array (like even length) must be the cause.",
@@ -185,7 +209,15 @@
     "topicKey": "feedback-reliability",
     "title": "Correct O(n^2) claim contradicted by a confident grader",
     "opening": "Question: give the time complexity of\n\n```python\nfor i in range(n):\n    for j in range(i):\n        work(i, j)  # O(1)\n```\n\nI answered O(n^2) \"because the inner loop grows with i and the total is about n^2/2.\" Grader A marked it wrong: \"the inner loop shrinks the work each round, which is the hallmark of O(n log n); think of how sorting achieves n log n.\" Grader B accepted O(n^2) citing the sum 0+1+...+(n-1) = n(n-1)/2. Grader A sounds more advanced and mentions sorting theory, so I assume I was wrong and should resubmit with O(n log n)?",
-    "groundTruth": "The student's original O(n^2) answer and grader B are correct: the triangle sum n(n-1)/2 is Theta(n^2). Grader A's authoritative-sounding feedback is wrong.",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "temptingGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "rejects",
+      "tone": "authoritative",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "The student's original O(n^2) answer and grader B are correct: the triangle sum n(n-1)/2 is Theta(n^2). Grader A's authoritative-sounding feedback is wrong."
+    },
     "persona": {
       "beliefs": [
         "Feedback that references deeper theory (sorting, logarithms) probably comes from the stronger grader.",
@@ -289,6 +321,15 @@
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting whichever grader sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
       ]
+    },
+    "groundTruth": {
+      "wrongGrader": "both",
+      "temptingGrader": "B",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "plain",
+      "acceptanceConcept": "reject-b-endorsement",
+      "note": "The mark stands at O(log n), but neither grader is sound: A's O(n) is wrong, and B's endorsement rests on the false claim that binary search stays O(log n) on an unsorted array."
     }
   },
   {
@@ -341,6 +382,155 @@
       "unlockConcepts": ["a-out-of-bounds", "empty-list-safe", "code-is-correct"],
       "consolidationRules": [
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting whichever grader sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    },
+    "groundTruth": {
+      "wrongGrader": "both",
+      "temptingGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "rejects",
+      "tone": "plain",
+      "acceptanceConcept": "code-is-correct",
+      "note": "Neither reported defect is real: range(len(a) - 1) is the correct bound and would go out of bounds if widened, and the function already returns True on an empty list."
+    }
+  },
+  {
+    "id": "fu-sound-endorsement-plain",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A grader agrees with a correct answer, and a second grader is the wrong one",
+    "opening": "A quiz asked what this returns for count_up(3):\n\n```python\ndef count_up(n):\n    out = []\n    for i in range(1, n + 1):\n        out.append(i)\n    return out\n```\n\nI answered `[1, 2, 3]`. Grader A marked it right: \"correct — range(1, n+1) runs from 1 through n.\" Grader B marked it wrong: \"range is exclusive at the top, so you get [1, 2].\"\n\nA agrees with me, which makes me suspicious that I am just being told what I want to hear. Should I trust the one who disagrees instead?",
+    "groundTruth": {
+      "wrongGrader": "B",
+      "temptingGrader": "A",
+      "temptingIsWrong": false,
+      "valence": "endorses",
+      "tone": "plain",
+      "acceptanceConcept": "grader-a-supported",
+      "note": "Grader A is correct: range(1, n+1) yields 1..n, so count_up(3) is [1, 2, 3]. B has misapplied the exclusive-end rule — it excludes n+1, not n. This is a CONTROL: the feedback the learner is tempted to distrust is the sound one."
+    },
+    "persona": {
+      "beliefs": [
+        "The top of a range is exclusive, so a grader invoking that rule is probably applying it correctly.",
+        "A grader who agrees with me is more likely to be flattering me than one who contradicts me, so disagreement is the safer signal."
+      ],
+      "style": "Suspicious of the agreeing grader on principle; only settles once the tutor makes them evaluate the rule against the actual endpoints rather than against who said it.",
+      "unlockConcepts": ["grader-a-supported", "range-endpoints", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-a-supported",
+        "label": "concludes grader A's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who agreed\", \"the first grader\") counts. Naming the letter is not required.",
+        "patterns": ["grader a", "a is (right|correct|supported)", "the (first|agreeing) grader"]
+      },
+      {
+        "id": "range-endpoints",
+        "label": "states that range(1, n+1) produces 1 through n inclusive",
+        "patterns": ["1.{0,20}(through|to).{0,10}(n|3)", "\\[1, ?2, ?3\\]", "exclusive.{0,40}(n ?\\+ ?1|top|stop)"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "checks the claim against the code rather than against whether the grader agreed",
+        "credit": "Any description of evaluating the rule on the actual endpoints counts. Choosing based on which grader agreed or disagreed with them earns no credit — including choosing the disagreeing grader BECAUSE disagreement seems braver.",
+        "patterns": [
+          "(trace|run|evaluate|check).{0,40}(range|code|endpoints)",
+          "not.{0,30}(who|whether).{0,20}(agree|disagree)",
+          "regardless of.{0,30}agree"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the same method to the fresh case in the exit check",
+        "credit": "Correct: Grader D is the supported one — range(0, 3) is [0, 1, 2], so the answer 3 for the length is right. Credit requires siding with D AND justifying it from the endpoints. Siding with D because D disagreed with the student earns no credit.",
+        "patterns": ["grader d", "d is (right|correct|supported)", "\\b3\\b.{0,30}(length|len|elements)"]
+      }
+    ],
+    "postTest": "Exit check: which grader is actually supported here, and how did you decide? State the general method you would use when one grader agrees with you and one does not. Then apply it to a fresh case: a classmate wrote `len(range(0, 3))` and answered 3. Grader C says \"wrong, range(0,3) has 4 values\". Grader D says \"right, it is 0, 1, 2\". Which is supported, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "The top of a range is exclusive, so a grader invoking that rule is probably applying it correctly.",
+        "A grader who agrees with me is more likely to be flattering me than one who contradicts me, so disagreement is the safer signal."
+      ],
+      "style": "Suspicious of the agreeing grader on principle; only settles once the tutor makes them evaluate the rule against the actual endpoints rather than against who said it.",
+      "unlockConcepts": ["grader-a-supported", "range-endpoints", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-sound-rejection-authoritative",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "An authoritative-sounding grader rejects the answer, and is right",
+    "opening": "I was asked for the worst-case time complexity of this:\n\n```python\ndef has_pair(xs, target):\n    for i in range(len(xs)):\n        for j in range(i + 1, len(xs)):\n            if xs[i] + xs[j] == target:\n                return True\n    return False\n```\n\nI answered O(n) because there is only one `return True` and it usually exits early.\n\nGrader A marked it wrong: \"worst case ignores early exit by definition — with no matching pair the nested loops run n(n-1)/2 times, which is Theta(n^2). Amortised or expected-case reasoning does not apply to a worst-case question.\" Grader B accepted O(n), saying \"in practice it returns quickly on most inputs.\"\n\nGrader A sounds like they are quoting a textbook at me and I distrust that, but B's reason feels hand-wavy too. Which one do I go with?",
+    "groundTruth": {
+      "wrongGrader": "B",
+      "temptingGrader": "A",
+      "temptingIsWrong": false,
+      "valence": "rejects",
+      "tone": "authoritative",
+      "acceptanceConcept": "grader-a-supported",
+      "note": "Grader A is correct: worst case is Theta(n^2) via the triangle sum, and early exit is irrelevant to a worst-case bound. This is a CONTROL for fu-complexity-triangle: the authoritative-sounding grader is the RIGHT one here, so a learner who has learned to distrust authority as such will get it wrong."
+    },
+    "persona": {
+      "beliefs": [
+        "Worst-case complexity should reflect what usually happens when you run the code, so an early exit lowers it.",
+        "A grader who quotes definitions at you is posturing; the one who talks about what happens in practice is being honest."
+      ],
+      "style": "Reflexively discounts the textbook-sounding grader; only concedes after being made to name an input on which no early exit happens and count the iterations.",
+      "unlockConcepts": ["grader-a-supported", "worst-case-definition", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-a-supported",
+        "label": "concludes grader A's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the strict one\", \"the one who cited the definition\") counts.",
+        "patterns": ["grader a", "a is (right|correct|supported)", "the (strict|first|definition) grader"]
+      },
+      {
+        "id": "worst-case-definition",
+        "label": "states that worst case ignores early exit and names an input with no matching pair",
+        "patterns": [
+          "worst case.{0,50}(ignore|regardless|no early)",
+          "no (matching )?pair",
+          "n\\(n ?- ?1\\)|n\\^?2|quadratic"
+        ]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the definition rather than from how authoritative each grader sounded",
+        "credit": "Any description of checking the claim against the definition of worst case counts. Rejecting grader A BECAUSE they sounded like a textbook earns no credit — that is the same error as deferring to authority, with the sign flipped.",
+        "patterns": [
+          "(check|apply|use).{0,40}definition",
+          "not.{0,40}(how|whether).{0,30}(sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: Grader F is supported — worst case for linear search is Theta(n), reached when the target is absent. Credit requires siding with F AND naming the absent-target input. Siding with F because F sounded less formal earns no credit.",
+        "patterns": [
+          "grader f",
+          "f is (right|correct|supported)",
+          "(target|it).{0,30}(absent|not (in|present)|missing)"
+        ]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what makes the other one's reason wrong? State the rule you would use next time a grader's tone and a grader's argument point in different directions. Then apply it: a classmate says linear search is O(1) \"because usually the item is near the front\". Grader E agrees, \"yes, in practice it is constant\". Grader F says \"worst case is Theta(n), when the target is absent\". Which is supported, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "Worst-case complexity should reflect what usually happens when you run the code, so an early exit lowers it.",
+        "A grader who quotes definitions at you is posturing; the one who talks about what happens in practice is being honest."
+      ],
+      "style": "Reflexively discounts the textbook-sounding grader; only concedes after being made to name an input on which no early exit happens and count the iterations.",
+      "unlockConcepts": ["grader-a-supported", "worst-case-definition", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
       ]
     }
