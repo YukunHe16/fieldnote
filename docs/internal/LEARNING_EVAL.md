@@ -97,7 +97,7 @@ Hennessy & Patterson 标准教材框架）中 conflict miss 的成因最难理�
 题目：空 cache 被叫"满"（cm-conflict-not-capacity）、冷启动一切皆 compulsory
 （cm-compulsory-inflation）、关联度万能论的 LRU 循环反例（cm-associativity-limits）、
 write-back 每次写都到内存（cm-write-policy）。每题的访问序列都可由宿主确定性模拟出
-标准答案——这也是后续"可验证出题器"对位件（Mariana 方向）的种子。
+标准答案——这也是后续"可验证出题器"对位件的种子。
 
 ## 题目 schema
 

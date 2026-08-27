@@ -21,8 +21,6 @@ Fieldnote itself is released under the MIT License (see [LICENSE](LICENSE)). The
 - 完整文本 / Full text: [`apps/server/plugins/humanizer-zh/LICENSE`](apps/server/plugins/humanizer-zh/LICENSE)
 - 上游 / Upstream: [op7418/Humanizer-zh](https://github.com/op7418/Humanizer-zh)，其核心文件翻译自 [blader/humanizer](https://github.com/blader/humanizer)，实用工具部分参考 [hardikpandya/stop-slop](https://github.com/hardikpandya/stop-slop)
 
-`apps/server/plugins/graduate-admissions` 是本项目自有的受控 skills，适用仓库根目录的 MIT 许可。
-
 ## 按需安装，不随仓库分发 / Installed on demand, not bundled
 
 ### Anthropic Office skills（pdf / docx / xlsx）

@@ -31,7 +31,7 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
-  "description": "Fieldnote — local-first Claude Agent workbench for education: graduate admissions assistant and adaptive learning loop / 本地优先的 Claude Agent 教育工作台",
+  "description": "Fieldnote — local-first Claude Agent workbench for education: an adaptive learning loop that diagnoses, teaches, and verifies / 本地优先的 Claude Agent 教育工作台",
   "license": "MIT",
   "repository": {
     "type": "git",

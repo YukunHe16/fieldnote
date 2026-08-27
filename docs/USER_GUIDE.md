@@ -1,12 +1,12 @@
 # 使用指南
 
-本文承接 [README](../README.md) 的快速开始，覆盖 Fieldnote 日常使用的完整语义：对话管理、Agent 控制、对话式学习模式、内置申学助手、跨对话记忆、临时对话、文件与工作区，以及本地 Claude 配置复用和飞书接入。
+本文承接 [README](../README.md) 的快速开始，覆盖 Fieldnote 日常使用的完整语义：对话管理、Agent 控制、对话式学习模式、专家协作、跨对话记忆、临时对话、文件与工作区，以及本地 Claude 配置复用和飞书接入。
 
 功能的完整中英对照、产品边界与非目标见 [项目完整功能总览 / Complete Feature Guide](FEATURES.md)。
 
 ## 对话管理
 
-- 右上角“选择助手”可以在申学助手与本地助手之间切换；切换会创建一段新对话，旧对话仍保留原 Profile；
+- 当前只有“本地助手”一个 Profile；右上角“选择助手”仍保留，用于查看当前助手，将来新增 Profile 时切换会创建一段新对话，旧对话仍保留原 Profile；
 - 左侧“创建对话”会沿用当前助手快速新建，旁边的小菜单用于临时对话；
 - `⌘/Ctrl + N` 新建对话；
 - `⌘/Ctrl + K` 搜索标题和完整消息内容；
@@ -38,25 +38,15 @@
 
 这是一条可迁移到多个 computing-education topic 的对话式学习回路，不接入 PrairieLearn，不建设正式答题系统，也不把合成演示声称为真实学习效果；间隔复习是一次真实对话回合，不是记忆保持率测量。
 
-## 内置申学助手
+## 专家协作
 
-- 项目与院校调研、选校策略、导师/实验室匹配；
-- CV、Resume、SOP、PS、Research Statement、套磁和面试准备；
-- 申请周期、目标项目、材料、任务、证据来源和截止日期看板；
-- 每日申请计划与每周申请回顾；
-- Markdown 源文件可由受管 Artifact 工具导出为真实 DOCX/PDF。
+助手不是固定工作流。主 Agent 会根据任务自行决定直接回答、读取 Skill、调用 MCP，或把一段有界的活委派给你在能力页启用过的子代理；简单问题不会为了形式强行派 worker。
 
-申学助手不是固定工作流。主 Agent 会根据任务自行决定直接回答、读取 Skill、调用 MCP 或委派项目研究员、资料核验员、文书写作、文书审校。复杂文书通常由 Writer 与 Evaluator 协作，短润色不会为了形式强行派 worker。
-
-主 Agent 文本按 token 流式；内置专家使用应用托管的独立 Agent SDK Query，因此专家卡片也是实际 delta，而不是前端逐字播放。运行中的专家卡默认展开，完成后收起；Skill、MCP、Cron 和子 Agent 显示友好业务名称，展开可查看技术名称、耗时和脱敏参数。
+主 Agent 文本按 token 流式；受委派的专家使用应用托管的独立 Agent SDK Query，因此专家卡片也是实际 delta，而不是前端逐字播放。运行中的专家卡默认展开，完成后收起；Skill、MCP 和子 Agent 显示友好业务名称，展开可查看技术名称、耗时和脱敏参数。
 
 专家协作以真实执行为准：每个任务绑定当前 Run 和 assistant message，保存 `queued → running → completed / failed / interrupted` 生命周期。专家通过受控工具提交摘要、已确认/冲突/待确认 findings、HTTP(S) 来源和后续问题；没有可追溯来源的“已确认”项会降级为待确认。需要复核时，`sourceTaskId` 会启动第二次真实 Child Query，并把源任务、结构化结果（若有，否则为脱敏摘要）、未解决问题和已校验附件传给目标角色。
 
-Web 会在对应回复下显示可折叠的“协作与核验”，飞书只显示人数和已确认/冲突/待确认摘要。旧版伪 Mailbox 已停止读写和展示；写一封内部信不会被当成专家执行。详细边界见 [专家协作功能说明与改造计划](internal/专家协作改造计划.md)。
-
-“申学看板”和“计划任务与报告”位于对话右上角的辅助资料入口，作为浮层出现，不会把产品变成独立 dashboard。详细资料源、隐私和能力边界见 [申学助手说明](ADMISSIONS_ASSISTANT.md)。
-
-首次打开申学看板时，先填写目标学位、入学季、专业方向和目标地区；系统会创建申请周期与申请档案。之后可以在看板中直接更新项目、任务和材料状态，打开逐条官方来源，或在带有调研证据的回答下点击“加入看板”。候选链接由 Claude Agent SDK 内置 WebSearch 发现；官方页面正文由应用托管的安全读取器获取，前端渲染页面会尽量抽出元数据、嵌入 JSON 和同站候选链接。内置搜索不可用时才会回退到应用托管搜索。
+Web 会在对应回复下显示可折叠的“协作与核验”，飞书只显示人数和已确认/冲突/待确认摘要。旧版伪 Mailbox 已停止读写和展示；写一封内部信不会被当成专家执行。详细边界见 [项目完整功能总览](FEATURES.md#6-可信专家协作--trusted-specialist-collaboration)。
 
 ## 跨对话记忆
 
@@ -92,7 +82,6 @@ Web 会在对应回复下显示可折叠的“协作与核验”，飞书只显�
 - 用户输入附件在 Agent 沙箱中只读，生成文件不能复用或覆盖输入路径；
 - 补充消息、历史发现、专家交接、新对话分支和 Replay 使用同一份 Manifest 语义；跨 conversation 附件 ID 会被拒绝，不会静默变成空消息；
 - SQLite 数据默认保存在 `data/agent.db`。
-- 申学 Artifact 保存在 `data/workspaces/.admissions-artifacts`，只允许由当前会话工作区内的文件注册或导出。
 
 ## 沿用本地 Claude 配置
 
@@ -104,7 +93,7 @@ CLAUDE_SETTINGS_MODE=auto
 AGENT_MODEL=sonnet
 ```
 
-`auto` 会依次检查进程认证和 `~/.claude/settings.json`。通用本地助手可以继续继承可信本机的 user settings；申学助手固定使用受控本地 Plugin、显式 Skills 白名单和宿主提供的 MCP，不会加载未知的用户 Skill/MCP。没有认证时自动进入 demo runtime。
+`auto` 会依次检查进程认证和 `~/.claude/settings.json`。本地助手可以继承可信本机的 user settings；随仓库分发的受控 Plugin 与显式 Skills 白名单始终生效。没有认证时自动进入 demo runtime。
 
 如果 Claude CLI 使用 `ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL` 和自定义模型映射，只要 CLI 已验证可用，本项目会让 Agent SDK 子进程走同一套配置。
 
@@ -132,7 +121,7 @@ WEB_APP_URL=http://127.0.0.1:5173
 
 机器人会先用表情确认已收到请求，再通过带动态 `Thinking`、停止按钮和完成操作区的卡片回复。要启用卡片按钮，需在飞书后台添加 `card.action.trigger` 回调。
 
-飞书命令：`/new` 或 `/clear` 用当前助手新建对话，`/agent` 选择申学助手或本地助手，`/learn 学习目标` 开启学习模式（`/learn off` 结束），另支持 `/stop`、`/continue`、`/guide 文本`、`/help`。完成卡片也可直接点击“新对话”或“切换助手”。
+飞书命令：`/new` 或 `/clear` 用当前助手新建对话，`/agent` 查看并选择助手，`/learn 学习目标` 开启学习模式（`/learn off` 结束），另支持 `/stop`、`/continue`、`/guide 文本`、`/help`。完成卡片也可直接点击“新对话”或“切换助手”。
 
 学习模式在飞书里可以走完整回路：系统给出判断后会推一张确认卡（听懂了 / 部分懂了 / 仍未解决），点击等价于网页上的确认按钮；选“仍未解决”且这个困难还没升级时，服务端会自动替你追一句“换种讲法”。到期的间隔复习会发进这段学习对话本身，升级交接报告则和能力审核卡一样推到最近一次私聊。学习面板、验证回答框和策略/讲法审阅仍然只在网页端。
 
@@ -160,18 +149,17 @@ Channel Adapter ──► Run Orchestrator ──► Profile-aware Claude / Demo
       └──────────── SQLite Event Log / SessionStore ◄┘
                            │              │
                            │              ├──► Streaming specialist queries
-                           │              ├──► Admissions / Academic MCP
+                           │              ├──► Learning MCP
                            │              └──► Memory RAG tools
                            ├──► Structured Memory / FTS5
-                           ├──► Admissions Tracker / Artifacts
-                           ├──► Durable Cron / Reports
+                           ├──► Learning Store / Practice Items
+                           ├──► Durable Review Scheduler
                            └──► SSE Replay / Feishu Card Stream
 ```
 
 ## 相关文档
 
 - [项目完整功能总览 / Complete Feature Guide](FEATURES.md)
-- [申学助手：资料源、隐私与能力边界](ADMISSIONS_ASSISTANT.md)
 - [飞书机器人本地接入](FEISHU_SETUP.md)
 - [飞书、自进化、记忆](飞书-自进化-记忆.md)
 - [安全模型与漏洞报告](../SECURITY.md)

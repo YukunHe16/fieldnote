@@ -128,7 +128,7 @@ API：
 
 ## 验收
 
-- 学习模式关闭时现有申学、文件、记忆和自进化行为无变化。
+- 学习模式关闭时现有文件、记忆和自进化行为无变化。
 - 三个 Demo 均能完成 diagnosis → intervention → verification → confirmation。
 - unresolved 后不会重复已失败策略。
 - Demo/live/replay 数据严格隔离。

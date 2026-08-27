@@ -1,6 +1,6 @@
 # Fieldnote
 
-本地优先的 Claude Agent 教育工作台：一个能陪你做完整个研究生申请季、并在你卡住时真正把知识讲清楚的助手。
+本地优先的 Claude Agent 教育工作台：一个会从证据里诊断你卡在哪一层误解、用明确的策略讲清楚、再用为这次诊断现出的题检验的助手——最终结论由你、而不是模型给出。
 
 [![CI](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml/badge.svg)](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -9,12 +9,9 @@
 
 [English](README.md) · **简体中文**
 
-![Fieldnote](docs/media/hero.png#gh-dark-mode-only)
-![Fieldnote](docs/media/hero-light.png#gh-light-mode-only)
+![Fieldnote](docs/assets/demo-planning-gap.png)
 
 ## 功能
-
-**申学助手** — 面向美国、加拿大、香港和新加坡硕士/MPhil/PhD 申请。项目与院校调研、选校策略、导师匹配、CV/SOP/PS/Research Statement 与套磁面试准备；申学看板管理申请周期、目标项目、材料、任务与截止日期，每条结论都可以打开官方来源。复杂文书由受控专家（项目研究员、资料核验员、写作、审校）真实协作完成，不是固定工作流。
 
 **对话式学习模式** — 一条 educational on-call 闭环：设定目标 → 定位具体困难 → 诊断原因 → 选一种讲法或练习 → 收集验证证据 → 由你确认结果。6 类困难、8 种教学策略、5 种验证方式，每个 incident 最多三轮干预。系统只能提出 outcome，"理解了 / 部分理解 / 仍未解决"必须由你确认。学生看到的对话只有讲解和练习，诊断与策略信息都在学习面板里。学习面板附带指标页签（解决率、干预轮数、系统判定校准）；开启研究模式后还可选择对照条件（自适应回路 vs 同轮数的持续对话基线，或一次性反馈基线）并导出匿名化研究数据（[字段说明](docs/RESEARCH_EXPORT.md)），配套一套可复跑的离线评测集（[设计与文献依据](docs/internal/LEARNING_EVAL.md)）。回路还会主动值守：解决后按 +2 天 / +7 天回访出新迁移练习；三轮未解决时生成结构化交接报告（并可推送飞书）；成功的讲法会被蒸馏成候选教学方式，人审试用、按归因数据考核后转正。学习确认与 `/learn` 指令同样可在飞书使用。
 
@@ -22,7 +19,7 @@
 
 **受控自进化与跨对话记忆** — 教学策略按 Beta posterior 从你确认过的经验里演进，达到阈值才生成待审修订，并先在冻结的历史快照上做确定性预览，由你启用、拒绝或回滚。通用能力自进化产出新的 Skill 或子代理候选，同样需人工审核且不能绕过硬性安全检查。跨对话记忆分个人资料、偏好、目标和项目，由本项目的 SQLite 记忆层管理，会定期精炼，绝不修改你手动置顶的条目。
 
-**飞书渠道与定时报告** — 同一套能力接入飞书机器人，本地长连接，不需要公网 IP 或内网穿透；CardKit 卡片流式展示 Thinking、当前 Skill 和专家活动，支持 `/new`、`/agent`、`/stop`、`/continue`、`/guide`。定时任务提供每周一 08:00 申学周报与每日 08:00 当日计划，默认关闭，可投递到 Web 或飞书，报告只读。
+**飞书渠道** — 同一套能力接入飞书机器人，本地长连接，不需要公网 IP 或内网穿透；CardKit 卡片流式展示 Thinking、当前 Skill 和专家活动，支持 `/new`、`/agent`、`/stop`、`/continue`、`/guide`。
 
 次级能力：**Run Replay**（在冻结的本地输入边界上重放一次运行，用于审计与能力启用前后对比）、**工作区沙箱**（每段对话独立目录，Agent 写入被限制在其中，输入附件只读）、**文档技能**（Markdown 源文件导出为真实 DOCX/PDF，另可按需安装 Office 技能）、**临时对话**（不读写跨对话记忆，结束即清理）。
 
@@ -89,16 +86,16 @@ pnpm dev
 TypeScript · React 19 + Vite · Fastify · SQLite（better-sqlite3）· [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) · MCP · 飞书 CardKit · Vitest · Biome。
 
 ```text
-apps/web                 React + Vite 对话工作台（SSE 流式、学习面板、申学看板）
+apps/web                 React + Vite 对话工作台（SSE 流式、学习面板）
 apps/server              Fastify API、SQLite、Agent Runtime、专家协作、飞书渠道
-apps/server/plugins      随仓库分发的受控 Skills plugin（申学、文档、humanizer-zh）
+apps/server/plugins      随仓库分发的受控 Skills plugin（文档、humanizer-zh）
 packages/contracts       Web / Server / Channel 共用类型
 packages/fieldnote       发布到 npm 的 `fieldnote` CLI（npx 入口）
 scripts/workbench.mjs    本地 setup、doctor 与按需技能安装
 data/                    本机数据：SQLite、会话工作区、自进化产物（不进 git）
 ```
 
-质量门为 `pnpm lint && pnpm typecheck && pnpm test && pnpm build`，共约 307 个测试，全部密闭运行——不联网、不消耗模型额度。
+质量门为 `pnpm lint && pnpm typecheck && pnpm test && pnpm build`，共约 365 个测试，全部密闭运行——不联网、不消耗模型额度。
 
 ## 配置参考
 
@@ -122,7 +119,7 @@ data/                    本机数据：SQLite、会话工作区、自进化产�
 | `AGENT_MAX_CONCURRENCY` | `2` | 同时运行的 Agent 数量 |
 | `AGENT_MAX_TURNS` | `30` | 单轮最大 Agent turns |
 | `AGENT_RUN_TIMEOUT_MINUTES` | `20` | 应用层超时 |
-| `AGENT_MAX_BUDGET_USD` | `2` | 主 Agent 单轮预算上限；托管申学专家不设置美元预算上限 |
+| `AGENT_MAX_BUDGET_USD` | `2` | 主 Agent 单轮预算上限；托管专家（受委派的子代理）不设置美元预算上限 |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 空 | 同时设置后启用飞书 |
 | `FEISHU_ALLOWED_OPEN_IDS` | 空 | 允许使用机器人的用户 open_id |
 | `WEB_APP_URL` | `http://127.0.0.1:5173` | 飞书卡片“打开对话”按钮使用的本地 Web 地址 |
@@ -141,7 +138,7 @@ data/                    本机数据：SQLite、会话工作区、自进化产�
 
 当前是 `0.x` 的**单用户本机产品**：没有登录与鉴权，接口与数据结构仍可能出现破坏性变更，升级前请留意 [更新日志](CHANGELOG.md)。
 
-有意不做的事情：不接入 PrairieLearn，也不建设题库、考试、评分或课程管理系统；学习模式不声称已证明真实学习效果，不使用强化学习，也不会自动启用教学策略；不是多租户 SaaS；不会自动提交申请、付款、发邮件或替你做任何不可逆的决定。完整边界见 [功能总览的「明确的非目标与限制」](docs/FEATURES.md#17-明确的非目标与限制--explicit-non-goals-and-limitations)。
+有意不做的事情：不接入 PrairieLearn，也不建设题库、考试、评分或课程管理系统；学习模式不声称已证明真实学习效果，不使用强化学习，也不会自动启用教学策略；不是多租户 SaaS；不会自动付款、发邮件或替你做任何不可逆的决定。完整边界见 [功能总览的「明确的非目标与限制」](docs/FEATURES.md#15-明确的非目标与限制--explicit-non-goals-and-limitations)。
 
 ## 安全模型
 
@@ -166,9 +163,8 @@ data/                    本机数据：SQLite、会话工作区、自进化产�
 
 ## 文档
 
-- [使用指南](docs/USER_GUIDE.md) — 对话管理、Agent 控制、学习模式、申学助手、记忆、工作区与飞书接入的完整语义
+- [使用指南](docs/USER_GUIDE.md) — 对话管理、Agent 控制、学习模式、记忆、工作区与飞书接入的完整语义
 - [项目完整功能总览 / Complete Feature Guide](docs/FEATURES.md) — 中英对照的功能、边界与非目标
-- [申学助手：资料源、隐私与能力边界](docs/ADMISSIONS_ASSISTANT.md)
 - [飞书机器人本地接入](docs/FEISHU_SETUP.md)
 - [飞书、自进化、记忆](docs/飞书-自进化-记忆.md)
 - [贡献指南](CONTRIBUTING.md) · [安全模型与漏洞报告](SECURITY.md) · [更新日志](CHANGELOG.md) · [第三方声明](THIRD_PARTY_NOTICES.md)

@@ -7,7 +7,6 @@
 - 完成度：`13 / 13` milestones
 - 专题规范：
   - [Adaptive Learning Conversation Loop](./ADAPTIVE_LEARNING_LOOP_SPEC.md)
-  - [专家协作功能说明与改造计划](./专家协作改造计划.md)
 
 状态只由主代理根据已复核的代码、测试和提交更新。Subagent 可以执行已确定的有界任务并报告证据，但不能自行修改架构决策或宣布阶段完成。
 

@@ -39,7 +39,7 @@ CI 会在 Ubuntu（Node 20 与 24）和 macOS（Node 24）上跑同样的命令�
 - **不要**引入需要网络请求、真实 Anthropic API key、真实飞书应用或任何外部服务的测试用例；
 - 需要模型行为时，请对 runtime 边界打桩，而不是真的发起 query；
 - 需要时间或随机性时，请注入可控实现，保证结果确定；
-- 不要把真实个人数据、申请材料或 token 写进 fixture。
+- 不要把真实个人数据、敏感私人材料或 token 写进 fixture。
 
 任何一条做不到的用例都不应进入 `pnpm test`。
 

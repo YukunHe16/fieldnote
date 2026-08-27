@@ -1,6 +1,6 @@
 # fieldnote
 
-A local-first [Claude Agent](https://docs.claude.com/en/api/agent-sdk/overview) workbench for education. It runs entirely on your own machine: a graduate admissions assistant that researches programmes, drafts SOP/CV material and tracks deadlines, plus an adaptive learning loop that turns your sessions into memory the agent reuses. An optional Feishu (Lark) channel lets you talk to the same agent from chat.
+A local-first [Claude Agent](https://docs.claude.com/en/api/agent-sdk/overview) workbench for education. It runs entirely on your own machine: an adaptive learning loop that diagnoses the misconception behind a mistake, teaches it with an explicit strategy, checks understanding with a freshly generated task, and revisits the same difficulty days later — plus cross-chat memory the agent reuses. An optional Feishu (Lark) channel lets you talk to the same agent from chat.
 
 ## Quick start
 
@@ -27,11 +27,11 @@ npx fieldnote reset           # move the data directory aside (backup, never del
 
 ## Where your data lives
 
-Everything is written under `~/.fieldnote` by default — `~/.fieldnote/data/agent.db` (SQLite) for conversations, memory and application records, and `~/.fieldnote/data/workspaces/` for files the agent creates. Override the location with `--data <dir>` or the `FIELDNOTE_HOME` environment variable, and put optional settings such as `ANTHROPIC_API_KEY` or the Feishu app credentials in `~/.fieldnote/.env`.
+Everything is written under `~/.fieldnote` by default — `~/.fieldnote/data/agent.db` (SQLite) for conversations, memory and learning records, and `~/.fieldnote/data/workspaces/` for files the agent creates. Override the location with `--data <dir>` or the `FIELDNOTE_HOME` environment variable, and put optional settings such as `ANTHROPIC_API_KEY` or the Feishu app credentials in `~/.fieldnote/.env`.
 
 ## 中文简介
 
-fieldnote 是一个本地优先的 Claude Agent 教育工作台，包含研究生申请助手与自适应学习闭环，可选接入飞书。运行 `npx fieldnote` 即可在本机 <http://127.0.0.1:8787> 启动，所有对话、记忆与生成的文件都保存在 `~/.fieldnote`，不上传任何服务器。需要 Node.js 20+ 与 Claude 凭据（已 `claude login` 或设置 `ANTHROPIC_API_KEY`）；没有凭据时可用 `npx fieldnote --demo` 体验界面。环境有问题时先运行 `npx fieldnote doctor` 查看诊断。
+fieldnote 是一个本地优先的 Claude Agent 教育工作台，核心是一条自适应学习闭环：诊断、讲解、检验、回访，可选接入飞书。运行 `npx fieldnote` 即可在本机 <http://127.0.0.1:8787> 启动，所有对话、记忆与生成的文件都保存在 `~/.fieldnote`，不上传任何服务器。需要 Node.js 20+ 与 Claude 凭据（已 `claude login` 或设置 `ANTHROPIC_API_KEY`）；没有凭据时可用 `npx fieldnote --demo` 体验界面。环境有问题时先运行 `npx fieldnote doctor` 查看诊断。
 
 ## Links
 

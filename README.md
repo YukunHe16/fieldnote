@@ -1,6 +1,6 @@
 # Fieldnote
 
-A local-first Claude Agent workbench for education: an assistant that can carry you through an entire graduate application season — and that actually teaches you the thing you are stuck on.
+A local-first Claude Agent workbench for education: an assistant that diagnoses the misconception behind your mistake, teaches it with an explicit strategy, and checks with a task written for that diagnosis — where you, not the model, deliver the verdict.
 
 [![CI](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml/badge.svg)](https://github.com/YukunHe16/fieldnote/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -9,12 +9,9 @@ A local-first Claude Agent workbench for education: an assistant that can carry 
 
 **English** · [简体中文](README.zh-CN.md)
 
-![Fieldnote](docs/media/hero.png#gh-dark-mode-only)
-![Fieldnote](docs/media/hero-light.png#gh-light-mode-only)
+![Fieldnote](docs/assets/demo-planning-gap.png)
 
 ## Features
-
-**Graduate admissions assistant** — Built for Master's, MPhil, and PhD applications in the United States, Canada, Hong Kong, and Singapore. It handles programme and school research, school-list strategy, advisor matching, CV/SOP/PS/Research Statement drafting, and outreach and interview preparation. An admissions board tracks the application cycle, target programmes, materials, tasks, and deadlines, and every claim can be opened at its official source. Complex documents are produced through real collaboration between governed specialists (programme researcher, source verifier, writer, evaluator) rather than a fixed workflow.
 
 **Adaptive learning mode** — An educational on-call loop: set a goal → locate the specific difficulty → diagnose the cause → choose an explanation or exercise → collect verification evidence → you confirm the outcome. It covers 6 difficulty types, 8 teaching strategies, and 5 verification methods, with at most three intervention rounds per incident. The system may only *propose* an outcome; "understood / partly understood / still stuck" is always your call. The learner-facing conversation contains only teaching and practice — diagnosis, confidence, and strategy live in a separate learning panel. That panel now ships a metrics tab (resolution rates, intervention rounds, system-verdict calibration); research mode adds comparison conditions (adaptive loop vs a turns-matched continued-conversation baseline, or a one-shot baseline), an anonymized data export ([field reference](docs/RESEARCH_EXPORT.md)), and a rerunnable offline evaluation set ([design & sources](docs/internal/LEARNING_EVAL.md)). The loop also keeps watch on its own: resolved difficulties get +2d/+7d spaced-review revisits with fresh transfer tasks, exhausted incidents produce a structured handoff report (optionally paged to Feishu), and winning teaching moves are distilled into candidate approaches that trial and promote only through human review with host-attributed evidence. Outcome confirmation and a `/learn` command work over Feishu too.
 
@@ -22,7 +19,7 @@ A local-first Claude Agent workbench for education: an assistant that can carry 
 
 **Human-governed self-evolution and cross-chat memory** — Teaching strategies evolve from outcomes you confirmed, using a Beta posterior; a pending revision is only proposed once evidence thresholds are met, is previewed deterministically against frozen historical snapshots, and is enabled, rejected, or rolled back by you. General capability evolution proposes new Skill or subagent candidates under the same human review and cannot bypass hard safety checks. Cross-chat memory is organised into profile, preferences, goals, and projects, managed by this project's own SQLite memory layer; it is refined periodically and never rewrites entries you pinned by hand.
 
-**Feishu (Lark) channel and scheduled reports** — The same capabilities are reachable from a Feishu bot over a local long-lived connection — no public IP or tunnelling required. CardKit cards stream Thinking, the active Skill, and specialist activity, and support `/new`, `/agent`, `/stop`, `/continue`, and `/guide`. Scheduled jobs provide a weekly admissions review (Mondays 08:00) and a daily plan (08:00); both are disabled by default, can be delivered to the web app or Feishu, and are read-only reports.
+**Feishu (Lark) channel** — The same capabilities are reachable from a Feishu bot over a local long-lived connection — no public IP or tunnelling required. CardKit cards stream Thinking, the active Skill, and specialist activity, and support `/new`, `/agent`, `/stop`, `/continue`, and `/guide`.
 
 Secondary capabilities: **Run Replay** (replay a run against a frozen local input boundary, for auditing and before/after comparison when enabling a capability), **workspace sandboxing** (each conversation gets its own directory, agent writes are confined to it, and input attachments are read-only), **document skills** (export Markdown sources to real DOCX/PDF, with optional on-demand Office skills), and **temporary chats** (no cross-chat memory read or written; cleaned up when they end).
 
@@ -89,16 +86,16 @@ Developing from source requires Node ≥ 22.13 (a pnpm 11 requirement; running `
 TypeScript · React 19 + Vite · Fastify · SQLite (better-sqlite3) · [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) · MCP · Feishu CardKit · Vitest · Biome.
 
 ```text
-apps/web                 React + Vite chat workbench (SSE streaming, learning panel, admissions board)
+apps/web                 React + Vite chat workbench (SSE streaming, learning panel)
 apps/server              Fastify API, SQLite, agent runtime, specialist collaboration, Feishu channel
-apps/server/plugins      Governed Skills plugins shipped with the repo (admissions, documents, humanizer-zh)
+apps/server/plugins      Governed Skills plugins shipped with the repo (documents, humanizer-zh)
 packages/contracts       Types shared across web, server, and channels
 packages/fieldnote       The `fieldnote` CLI published to npm (the npx entry point)
 scripts/workbench.mjs    Local setup, doctor, and on-demand skill installation
 data/                    Local data: SQLite, conversation workspaces, evolution artifacts (never committed)
 ```
 
-The quality gate is `pnpm lint && pnpm typecheck && pnpm test && pnpm build` — roughly 307 tests, all hermetic: no network access and no model quota consumed.
+The quality gate is `pnpm lint && pnpm typecheck && pnpm test && pnpm build` — roughly 365 tests, all hermetic: no network access and no model quota consumed.
 
 ## Configuration reference
 
@@ -122,7 +119,7 @@ Most users only need to run setup; the table below rarely needs manual edits. **
 | `AGENT_MAX_CONCURRENCY` | `2` | Number of agents running concurrently |
 | `AGENT_MAX_TURNS` | `30` | Maximum agent turns per run |
 | `AGENT_RUN_TIMEOUT_MINUTES` | `20` | Application-level timeout |
-| `AGENT_MAX_BUDGET_USD` | `2` | Per-run budget cap for the main agent; managed admissions specialists have no dollar cap |
+| `AGENT_MAX_BUDGET_USD` | `2` | Per-run budget cap for the main agent; managed specialists (delegated subagents) have no dollar cap |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | empty | Setting both enables Feishu |
 | `FEISHU_ALLOWED_OPEN_IDS` | empty | open_ids allowed to use the bot |
 | `WEB_APP_URL` | `http://127.0.0.1:5173` | Local web address used by the "open conversation" button on Feishu cards |
@@ -141,7 +138,7 @@ Document skills optionally depend on external tools: `uv` / `python3` (PDF and M
 
 This is a `0.x` **single-user local product**: there is no login or authorisation, and APIs and data structures may still change in breaking ways — check the [changelog](CHANGELOG.md) before upgrading.
 
-Things it deliberately does not do: no PrairieLearn integration and no question bank, examination, grading, or course-management system; learning mode does not claim proven learning effects, does not use reinforcement learning, and never enables a teaching policy on its own; it is not a multi-tenant SaaS; and it will not submit applications, make payments, send email, or make any irreversible decision for you. The full boundary list is in [the feature guide's explicit non-goals](docs/FEATURES.md#17-明确的非目标与限制--explicit-non-goals-and-limitations).
+Things it deliberately does not do: no PrairieLearn integration and no question bank, examination, grading, or course-management system; learning mode does not claim proven learning effects, does not use reinforcement learning, and never enables a teaching policy on its own; it is not a multi-tenant SaaS; and it will not make payments, send email, or make any irreversible decision for you. The full boundary list is in [the feature guide's explicit non-goals](docs/FEATURES.md#15-明确的非目标与限制--explicit-non-goals-and-limitations).
 
 ## Security model
 
@@ -167,8 +164,7 @@ The first step is always `pnpm doctor` (or `npx fieldnote doctor`). It reports o
 ## Documentation
 
 - [Complete Feature Guide](docs/FEATURES.md) — bilingual reference for capabilities, boundaries, and explicit non-goals
-- [User guide](docs/USER_GUIDE.md) (Chinese) — full semantics for conversation management, agent control, learning mode, the admissions assistant, memory, workspaces, and Feishu
-- [Admissions assistant: sources, privacy, and capability boundaries](docs/ADMISSIONS_ASSISTANT.md) (Chinese)
+- [User guide](docs/USER_GUIDE.md) (Chinese) — full semantics for conversation management, agent control, learning mode, memory, workspaces, and Feishu
 - [Local Feishu bot setup](docs/FEISHU_SETUP.md) (Chinese)
 - [Feishu, self-evolution, and memory](docs/飞书-自进化-记忆.md) (Chinese)
 - [Contributing](CONTRIBUTING.md) · [Security model and vulnerability reporting](SECURITY.md) · [Changelog](CHANGELOG.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)

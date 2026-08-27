@@ -305,7 +305,7 @@ async function installOfficeSkills() {
         {
           name: "document-skills",
           version: "1.0.0",
-          description: "Anthropic document skills installed on demand for local graduate-admissions use."
+          description: "Anthropic document skills installed on demand for local document work."
         },
         null,
         2

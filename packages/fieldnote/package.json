@@ -1,7 +1,7 @@
 {
   "name": "fieldnote",
   "version": "0.1.0",
-  "description": "Local-first Claude Agent workbench for education — graduate admissions assistant and adaptive learning loop / 本地优先的 Claude Agent 教育工作台",
+  "description": "Local-first Claude Agent workbench for education — an adaptive learning loop that diagnoses, teaches, and verifies / 本地优先的 Claude Agent 教育工作台",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -29,7 +29,7 @@
     "claude",
     "agent",
     "education",
-    "admissions",
+    "learning",
     "tutoring",
     "feishu",
     "local-first"
