@@ -9,7 +9,8 @@ A local-first Claude Agent workbench for education: an assistant that diagnoses 
 
 **English** · [简体中文](README.zh-CN.md)
 
-![Fieldnote](docs/assets/demo-planning-gap.png)
+![Fieldnote](docs/media/hero.png#gh-dark-mode-only)
+![Fieldnote](docs/media/hero-light.png#gh-light-mode-only)
 
 ## Features
 

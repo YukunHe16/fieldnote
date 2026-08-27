@@ -9,7 +9,8 @@
 
 [English](README.md) · **简体中文**
 
-![Fieldnote](docs/assets/demo-planning-gap.png)
+![Fieldnote](docs/media/hero.png#gh-dark-mode-only)
+![Fieldnote](docs/media/hero-light.png#gh-light-mode-only)
 
 ## 功能
 
