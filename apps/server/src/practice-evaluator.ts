@@ -122,6 +122,94 @@ export function programmaticPracticeGate(draft: PracticeDraft): string[] {
 }
 
 /**
+ * How much of the learner-visible corpus the tier-3 judge is shown. The novelty check is
+ * only as informed as what it can see, and a background call has to stay small.
+ */
+export const EVALUATOR_CORPUS_ENTRIES = 8;
+export const EVALUATOR_CORPUS_ENTRY_CHARS = 400;
+
+export const PRACTICE_EVALUATOR_SYSTEM_PROMPT =
+  "You review a drafted practice task before it reaches a learner. Judge only what is in front of you. Reject when: the task's premise or expected answer is wrong (correctness); the task would not discriminate the stated misconception — a learner still holding it could answer correctly (fitToHypothesis); the difficulty is clearly mismatched to the stated level (difficulty); or the task is a trivial re-skin of one of the alreadySeenByLearner texts (novelty). Approve otherwise. Give short, actionable reasons when rejecting.";
+
+/**
+ * The tier-3 request, built here rather than at the call site so an offline harness judges
+ * with exactly the prompt production uses. A harness holding its own copy would drift
+ * silently, and a drifted harness measures a evaluator nobody runs.
+ */
+export function buildPracticeEvaluatorRequest(input: {
+  draft: PracticeDraft;
+  hypothesis: string;
+  goal: string;
+  corpus: string[];
+}): { systemPrompt: string; prompt: string; schema: Record<string, unknown> } {
+  const checkEnum = { type: "string", enum: ["pass", "fail", "unsure"] };
+  return {
+    systemPrompt: PRACTICE_EVALUATOR_SYSTEM_PROMPT,
+    prompt: JSON.stringify({
+      learningGoal: input.goal,
+      diagnosedMisconception: input.hypothesis,
+      alreadySeenByLearner: input.corpus
+        .slice(-EVALUATOR_CORPUS_ENTRIES)
+        .map((text) => text.slice(0, EVALUATOR_CORPUS_ENTRY_CHARS)),
+      draft: input.draft
+    }),
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["approved", "checks", "reasons"],
+      properties: {
+        approved: { type: "boolean" },
+        checks: {
+          type: "object",
+          additionalProperties: false,
+          required: ["correctness", "fitToHypothesis", "difficulty", "novelty"],
+          properties: {
+            correctness: checkEnum,
+            fitToHypothesis: checkEnum,
+            difficulty: checkEnum,
+            novelty: checkEnum
+          }
+        },
+        reasons: { type: "array", items: { type: "string" } }
+      }
+    }
+  };
+}
+
+/**
+ * Verdict decided by `approved` alone. The four checks are recorded for the calibration
+ * protocol but deliberately do not vote: a model that rejects has to say so in the field
+ * the pipeline reads, and one that approves while failing a check is a disagreement worth
+ * seeing in the record rather than one silently overridden here.
+ */
+export function parsePracticeEvaluatorVerdict(raw: Record<string, unknown> | null): PracticeEvaluatorVerdict {
+  if (!raw || typeof raw.approved !== "boolean") return { status: "error", reasons: ["evaluator returned no verdict"] };
+  const checks = (raw.checks ?? {}) as Record<string, unknown>;
+  const check = (value: unknown): "pass" | "fail" | "unsure" =>
+    value === "pass" || value === "fail" ? value : "unsure";
+  const reasons = Array.isArray(raw.reasons) ? raw.reasons.map((reason) => String(reason)).slice(0, 8) : [];
+  return {
+    status: raw.approved ? "approved" : "rejected",
+    checks: {
+      correctness: check(checks.correctness),
+      fitToHypothesis: check(checks.fitToHypothesis),
+      difficulty: check(checks.difficulty),
+      novelty: check(checks.novelty)
+    },
+    reasons:
+      raw.approved || reasons.length > 0
+        ? reasons
+        : ["The evaluator rejected the draft without naming a reason; revise and retry."]
+  };
+}
+
+/** True when the model approved a draft while marking one of the four checks failed. */
+export function verdictIsIncoherent(verdict: PracticeEvaluatorVerdict): boolean {
+  if (verdict.status !== "approved") return false;
+  return Object.values(verdict.checks).some((value) => value === "fail");
+}
+
+/**
  * Full three-tier pipeline. `evaluate` runs the LLM tier and may throw or return
  * `{status:"error"}`; both fail open per the loop's background-call convention — the
  * deterministic gates stay hard either way.

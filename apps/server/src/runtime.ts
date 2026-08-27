@@ -37,7 +37,9 @@ import type {
 import type { LearningCoordinator } from "./learning-coordinator.js";
 import {
   PRACTICE_NOVELTY_THRESHOLD,
+  buildPracticeEvaluatorRequest,
   noveltyScore,
+  parsePracticeEvaluatorVerdict,
   runPracticePipeline,
   type PracticeDraft,
   type PracticeEvaluatorVerdict
@@ -1101,27 +1103,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     corpus: string[];
     workspacePath: string;
   }): Promise<PracticeEvaluatorVerdict> {
-    const checkEnum = { type: "string", enum: ["pass", "fail", "unsure"] };
-    const schema = {
-      type: "object",
-      additionalProperties: false,
-      required: ["approved", "checks", "reasons"],
-      properties: {
-        approved: { type: "boolean" },
-        checks: {
-          type: "object",
-          additionalProperties: false,
-          required: ["correctness", "fitToHypothesis", "difficulty", "novelty"],
-          properties: {
-            correctness: checkEnum,
-            fitToHypothesis: checkEnum,
-            difficulty: checkEnum,
-            novelty: checkEnum
-          }
-        },
-        reasons: { type: "array", items: { type: "string" } }
-      }
-    };
+    const request = buildPracticeEvaluatorRequest(input);
     try {
       const raw = (await this.backgroundJson({
         workspacePath: input.workspacePath,
@@ -1130,37 +1112,11 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         // await blocks the tutor's draft tool, but a turn already runs minutes and an
         // evaluator that never runs guts the treatment arm's quality gate.
         timeoutMs: 120_000,
-        schema,
-        systemPrompt:
-          "You review a drafted practice task before it reaches a learner. Judge only what is in front of you. Reject when: the task's premise or expected answer is wrong (correctness); the task would not discriminate the stated misconception — a learner still holding it could answer correctly (fitToHypothesis); the difficulty is clearly mismatched to the stated level (difficulty); or the task is a trivial re-skin of one of the alreadySeenByLearner texts (novelty). Approve otherwise. Give short, actionable reasons when rejecting.",
-        prompt: JSON.stringify({
-          learningGoal: input.goal,
-          diagnosedMisconception: input.hypothesis,
-          // The novelty check is only as informed as what the judge can see; recent
-          // learner-visible texts, truncated to keep the background call small.
-          alreadySeenByLearner: input.corpus.slice(-8).map((text) => text.slice(0, 400)),
-          draft: input.draft
-        })
+        schema: request.schema,
+        systemPrompt: request.systemPrompt,
+        prompt: request.prompt
       })) as Record<string, unknown> | null;
-      if (!raw || typeof raw.approved !== "boolean")
-        return { status: "error", reasons: ["evaluator returned no verdict"] };
-      const checks = (raw.checks ?? {}) as Record<string, unknown>;
-      const check = (value: unknown): "pass" | "fail" | "unsure" =>
-        value === "pass" || value === "fail" ? value : "unsure";
-      const reasons = Array.isArray(raw.reasons) ? raw.reasons.map((reason) => String(reason)).slice(0, 8) : [];
-      return {
-        status: raw.approved ? "approved" : "rejected",
-        checks: {
-          correctness: check(checks.correctness),
-          fitToHypothesis: check(checks.fitToHypothesis),
-          difficulty: check(checks.difficulty),
-          novelty: check(checks.novelty)
-        },
-        reasons:
-          raw.approved || reasons.length > 0
-            ? reasons
-            : ["The evaluator rejected the draft without naming a reason; revise and retry."]
-      };
+      return parsePracticeEvaluatorVerdict(raw);
     } catch (error) {
       return { status: "error", reasons: [String((error as Error)?.message ?? error)] };
     }

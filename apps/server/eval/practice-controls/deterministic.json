@@ -1,0 +1,147 @@
+[
+  {
+    "id": "leak-verbatim-cjk",
+    "expectedGate": "programmatic",
+    "why": "The sketch is pasted into the task word for word; the substring check should fire. A CJK sketch this long clears the character-weighted guard on its own.",
+    "draft": {
+      "taskText": "请判断:最后一次访问 0 是冲突未命中，因为其他组还有空位。说说这个结论是怎么来的?",
+      "targetHypothesis": "学习者认为发生替换的未命中都是容量未命中",
+      "expectedAnswerSketch": "最后一次访问 0 是冲突未命中，因为其他组还有空位",
+      "difficulty": 3
+    },
+    "corpus": []
+  },
+  {
+    "id": "leak-verbatim-latin",
+    "expectedGate": "programmatic",
+    "why": "Same leak in the other script — the guard weights latin characters at 1 apiece, so a sketch this long qualifies.",
+    "draft": {
+      "taskText": "Given that the second call returns the same list object, explain what the first call did to it.",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "the second call returns the same list object",
+      "difficulty": 2
+    },
+    "corpus": []
+  },
+  {
+    "id": "leak-containment-reordered",
+    "expectedGate": "programmatic",
+    "why": "No verbatim substring survives the reordering, so check A stays silent and check B has to catch it: every token of the answer is somewhere in the task.",
+    "draft": {
+      "taskText": "Other sets in this cache remain empty, because the block that was evicted mapped to a set that was already full. Is that better called a conflict miss or a capacity miss?",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "conflict miss because other sets remain empty",
+      "difficulty": 3
+    },
+    "corpus": []
+  },
+  {
+    "id": "leak-boundary-four-of-four",
+    "expectedGate": "programmatic",
+    "why": "Boundary case. The containment ratio is strictly-greater-than 0.75, so a four-token sketch only trips when all four tokens land in the task. This one puts all four there.",
+    "draft": {
+      "taskText": "The list in this signature is a shared default, and it is mutable. What does that imply for the second call?",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "shared mutable default list",
+      "difficulty": 2
+    },
+    "corpus": []
+  },
+  {
+    "id": "leak-boundary-three-of-four",
+    "expectedGate": "none",
+    "why": "The other side of the same boundary: three of four tokens is exactly 0.75, which is not strictly greater, so this must pass. It documents why the guard needs total containment at four tokens. It probes the containment arithmetic only and is not a well-formed task, so the model tier does not judge it.",
+    "draft": {
+      "taskText": "The value in this signature is a shared default, and it is mutable. What does that imply for the second call?",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "shared mutable default list",
+      "difficulty": 2
+    },
+    "corpus": [],
+    "judge": false
+  },
+  {
+    "id": "difficulty-out-of-range",
+    "expectedGate": "programmatic",
+    "why": "Difficulty is declared outside 1-5. The deterministic gate stays hard even when the model tier would approve.",
+    "draft": {
+      "taskText": "Trace the three prints and say what each one shows.",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "the list accumulates across calls",
+      "difficulty": 9
+    },
+    "corpus": []
+  },
+  {
+    "id": "empty-task-text",
+    "expectedGate": "programmatic",
+    "why": "An empty task is a malformed draft, not a hard question.",
+    "draft": {
+      "taskText": "   ",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "the list accumulates across calls",
+      "difficulty": 2
+    },
+    "corpus": []
+  },
+  {
+    "id": "novelty-exact-copy",
+    "expectedGate": "novelty",
+    "why": "The learner has seen this exact task. Top of the ladder: similarity 1.0.",
+    "draft": {
+      "taskText": "Predict what tally(\"a\") prints the first and second time, and explain why the counts behave that way.",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "one shared dict, so the count accumulates",
+      "difficulty": 3
+    },
+    "corpus": [
+      "Predict what tally(\"a\") prints the first and second time, and explain why the counts behave that way."
+    ]
+  },
+  {
+    "id": "novelty-light-edit",
+    "expectedGate": "novelty",
+    "why": "The wording moved but the task did not. This is the re-skin the gate exists to stop: change the situation, not the sentence.",
+    "draft": {
+      "taskText": "Predict what tally(\"a\") prints on the first and on the second call, and explain why the counts behave the way they do.",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "one shared dict, so the count accumulates",
+      "difficulty": 3
+    },
+    "corpus": [
+      "Predict what tally(\"a\") prints the first and second time, and explain why the counts behave that way."
+    ]
+  },
+  {
+    "id": "novelty-structural-reskin",
+    "expectedGate": "evaluator",
+    "why": "Every surface noun and number is swapped, so lexical overlap drops under the threshold and tier 2 lets it through — but the mechanism is identical and a learner who did the first one answers this by pattern. This is exactly what the deterministic gate cannot see, and therefore what the model tier is for.",
+    "goal": "Understand Python default parameter values",
+    "hypothesis": "The learner believes a default argument expression is re-evaluated on every call",
+    "draft": {
+      "taskText": "Predict what register(7) yields on call one and call two, and say why the totals behave that way.",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "one shared accumulator, so the total grows",
+      "difficulty": 3
+    },
+    "corpus": [
+      "Predict what tally(\"a\") prints the first and second time, and explain why the counts behave that way."
+    ]
+  },
+  {
+    "id": "positive-fresh-transfer",
+    "expectedGate": "none",
+    "why": "A genuinely good draft: correct, on-hypothesis, plausibly scaled, and unrelated in wording to anything the learner has seen. Without positives the set measures recall and says nothing about false rejections.",
+    "goal": "Understand Python default parameter values",
+    "hypothesis": "The learner believes a default argument expression is re-evaluated on every call",
+    "draft": {
+      "taskText": "cart = []\ndef add_to_cart(item, target=cart):\n    target.append(item)\n    return target\n\nadd_to_cart(\"apple\")\ncart = [\"kiwi\"]\nprint(add_to_cart(\"banana\"))\n\nWhat does the print show, and which object was never touched?",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "def-time capture holds the original object; rebinding the name later does not move it",
+      "difficulty": 4
+    },
+    "corpus": [
+      "Predict what tally(\"a\") prints the first and second time, and explain why the counts behave that way."
+    ]
+  }
+]

@@ -1,0 +1,165 @@
+[
+  {
+    "id": "eval-correctness-false-answer",
+    "expectedGate": "evaluator",
+    "expectedCheck": "correctness",
+    "why": "Well-posed, novel, plausibly scaled — and the expected answer is checkably false. A direct-mapped cache with 8 lines maps blocks 0 and 8 to the same line, so the second access to 0 misses. The sketch claims it hits.",
+    "goal": "Understand cache miss classification",
+    "hypothesis": "The learner believes every replacement miss is a capacity miss",
+    "draft": {
+      "taskText": "A direct-mapped cache holds 8 lines of one block each. The program touches blocks 0, 8, 0, 8 in that order. Classify each of the four accesses and say which ones are misses.",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "The first two access miss; the third access to block 0 hits because the cache still holds it, and the fourth to block 8 hits as well.",
+      "difficulty": 3
+    },
+    "corpus": []
+  },
+  {
+    "id": "eval-correctness-contradictory-premise",
+    "expectedGate": "evaluator",
+    "expectedCheck": "correctness",
+    "why": "Harder than a wrong answer: the premise is internally inconsistent. A 2-way set-associative cache with 4 sets has 8 lines, not 4, so the task as stated cannot be traced at all.",
+    "goal": "Understand cache miss classification",
+    "hypothesis": "The learner believes every replacement miss is a capacity miss",
+    "draft": {
+      "taskText": "A 2-way set-associative cache has 4 sets and 4 lines in total. Walk the access sequence 0, 4, 8, 0 and classify every miss.",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "The final access to 0 is a conflict miss, because another set still had room.",
+      "difficulty": 3
+    },
+    "corpus": []
+  },
+  {
+    "id": "eval-fit-nondiscriminating",
+    "expectedGate": "evaluator",
+    "expectedCheck": "fitToHypothesis",
+    "why": "The load-bearing check, and the one that separates targeted practice from merely on-topic practice. The task is correct, novel and well-scaled, but a learner who still believes every replacement miss is a capacity miss computes this AMAT perfectly — the task cannot tell the two learners apart.",
+    "goal": "Understand cache miss classification",
+    "hypothesis": "The learner believes every replacement miss is a capacity miss",
+    "draft": {
+      "taskText": "A cache has a hit time of 2 cycles, a miss rate of 5%, and a miss penalty of 80 cycles. Compute the average memory access time and show your arithmetic.",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "AMAT = 2 + 0.05 * 80 = 6 cycles.",
+      "difficulty": 3
+    },
+    "corpus": []
+  },
+  {
+    "id": "eval-fit-nondiscriminating-python",
+    "expectedGate": "evaluator",
+    "expectedCheck": "fitToHypothesis",
+    "why": "Same failure in the other domain. The diagnosed misconception is about when a default is evaluated, but the task only asks the learner to read a list comprehension — someone holding the misconception answers it correctly.",
+    "goal": "Understand Python default parameter values",
+    "hypothesis": "The learner believes a default argument expression is re-evaluated on every call",
+    "draft": {
+      "taskText": "What does [n * 2 for n in range(4) if n % 2 == 0] evaluate to, and explain how you read the comprehension left to right?",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "[0, 4] — the filter keeps 0 and 2, and each is doubled.",
+      "difficulty": 2
+    },
+    "corpus": []
+  },
+  {
+    "id": "eval-difficulty-far-too-high",
+    "expectedGate": "evaluator",
+    "expectedCheck": "difficulty",
+    "why": "The cleanest difficulty control: the mismatch needs no shared rubric to see. A one-step arithmetic question declared at the top of the scale.",
+    "goal": "Understand Python default parameter values",
+    "hypothesis": "The learner believes a default argument expression is re-evaluated on every call",
+    "draft": {
+      "taskText": "What does 2 + 2 evaluate to in Python?",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "4",
+      "difficulty": 5
+    },
+    "corpus": []
+  },
+  {
+    "id": "eval-difficulty-far-too-low",
+    "expectedGate": "evaluator",
+    "expectedCheck": "difficulty",
+    "why": "The other direction: a multi-step trace across interleaved streams with a write-back policy, declared as the easiest possible task.",
+    "goal": "Understand cache miss classification",
+    "hypothesis": "The learner believes every replacement miss is a capacity miss",
+    "draft": {
+      "taskText": "A 4-way set-associative write-back cache with 2 sets and LRU replacement serves three interleaved access streams: A touches blocks 0, 8, 16; B touches 1, 9, 17; C touches 2, 0, 8. Interleave them round-robin starting with A, trace the full contents of both sets after every access, classify each miss, and state exactly which dirty lines are written back and when.",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "Ten accesses, seven of them cold; two dirty victims reach memory, the first at step six.",
+      "difficulty": 1
+    },
+    "corpus": []
+  },
+  {
+    "id": "eval-novelty-structural-reskin",
+    "expectedGate": "evaluator",
+    "expectedCheck": "novelty",
+    "why": "Same mechanism, every surface noun and number swapped, so lexical overlap stays far under the deterministic threshold. The learner who did the seen task answers this by pattern. This is the case tier 2 is structurally blind to.",
+    "goal": "Understand cache miss classification",
+    "hypothesis": "The learner believes every replacement miss is a capacity miss",
+    "draft": {
+      "taskText": "A hash table keeps 4 buckets with 2 slots each and evicts least-recently-used on overflow. Keys 3, 11, 19 arrive in order. Say which insertions displace an existing key and why.",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "The third key displaces one, because all three map to the same bucket while other buckets stay empty.",
+      "difficulty": 3
+    },
+    "corpus": [
+      "A 2-way set-associative cache has 4 sets and evicts least-recently-used on conflict. Blocks 0, 4, 8 arrive in order. Say which accesses evict an existing block and why."
+    ]
+  },
+  {
+    "id": "control-corpus-out-of-window",
+    "expectedGate": "none",
+    "expectedCheck": null,
+    "why": "A harness-validity control, not a pipeline control. The judge is shown only the last 8 corpus entries, so a duplicate parked at the ninth-most-recent position is invisible to it and MUST be approved. If this one gets rejected, the harness is not feeding the corpus the way production does and every other novelty result is suspect.",
+    "goal": "Understand cache miss classification",
+    "hypothesis": "The learner believes every replacement miss is a capacity miss",
+    "draft": {
+      "taskText": "A 2-way set-associative cache has 4 sets and evicts least-recently-used on conflict. Blocks 0, 4, 8 arrive in order. Say which accesses evict an existing block and why.",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "The third access evicts one, because all three map to the same set while other sets stay empty.",
+      "difficulty": 3
+    },
+    "corpus": [
+      "A 2-way set-associative cache has 4 sets and evicts least-recently-used on conflict. Blocks 0, 4, 8 arrive in order. Say which accesses evict an existing block and why.",
+      "filler task 1: what is the tag field width for a 32-bit address with 6 index bits and 4 offset bits?",
+      "filler task 2: name the three C's of cache misses and give one example of each.",
+      "filler task 3: for a write-through cache, when does the memory copy become stale?",
+      "filler task 4: what changes if the replacement policy switches from LRU to FIFO?",
+      "filler task 5: how does increasing associativity affect the index field width?",
+      "filler task 6: what is the difference between a block and a line in cache terminology?",
+      "filler task 7: why does a fully-associative cache have no index bits?",
+      "filler task 8: how many blocks does a 16 KiB cache with 64-byte blocks hold?"
+    ],
+    "judgeOnly": true
+  },
+  {
+    "id": "eval-positive-targeted-transfer",
+    "expectedGate": "none",
+    "expectedCheck": null,
+    "why": "A genuinely good draft that must be approved: correct, novel, plausibly scaled, and discriminating — a learner who thinks every replacement miss is a capacity miss gets this wrong, which is the whole point.",
+    "goal": "Understand cache miss classification",
+    "hypothesis": "The learner believes every replacement miss is a capacity miss",
+    "draft": {
+      "taskText": "A 2-way set-associative cache has 8 sets and is only one-eighth full when the program touches blocks 0, 16, 32 in order. The third access evicts something. Is that a capacity miss or a conflict miss, and how would you justify the answer to someone who says the cache clearly had room?",
+      "targetHypothesis": "The learner believes every replacement miss is a capacity miss",
+      "expectedAnswerSketch": "A conflict miss: all three blocks map to the same set even though seven other sets sit empty, so the eviction is caused by mapping, not by total capacity.",
+      "difficulty": 4
+    },
+    "corpus": []
+  },
+  {
+    "id": "eval-positive-python-transfer",
+    "expectedGate": "none",
+    "expectedCheck": null,
+    "why": "A second positive, in the other domain and at a different difficulty, so a false-rejection rate is measured across more than one kind of good item. (Its first version asked for 'the single change that makes every call return 1'; the judge rejected it as underdetermined, which was a fair catch — log.clear() satisfies that too — so the task was tightened.)",
+    "goal": "Understand Python default parameter values",
+    "hypothesis": "The learner believes a default argument expression is re-evaluated on every call",
+    "draft": {
+      "taskText": "def note(tag, log=[]):\n    log.append(tag)\n    return len(log)\n\nPredict what note(\"a\") returns on the first, second and third call, then explain when the list in the signature is created and why that explains the returns.",
+      "targetHypothesis": "The learner believes a default argument is re-evaluated on every call",
+      "expectedAnswerSketch": "1, 2, 3 — the list is built once when the def statement runs and the same object is reused by every call that omits the argument.",
+      "difficulty": 3
+    },
+    "corpus": []
+  }
+]
