@@ -713,6 +713,17 @@ ${itemRows.join("\n")}
 `;
 }
 
+/**
+ * Strips a trailing context-tier suffix such as `[1M]` from a model id.
+ *
+ * Those suffixes are a client-side convention: the Agent SDK (and the proxies in front of
+ * it) read them to pick a context tier, and the server the tutor runs through accepts them.
+ * This harness talks to `/v1/messages` directly, and that endpoint has never heard of them —
+ * Zhipu answers `400 modelCode：不存在` for every call. Stripping here lets one `.env`
+ * configure both paths instead of requiring --learner-model on every invocation.
+ */
+const bareModelId = (id) => id.replace(/\[[^\]]*\]\s*$/, "").trim() || id;
+
 async function main() {
   const args = parseArgs(process.argv);
   // The repo .env wins over inherited shell variables: an IDE/agent host may leak its own
@@ -720,25 +731,32 @@ async function main() {
   const env = { ...process.env, ...(await loadEnvFile(path.join(repo, ".env"))) };
   const items = await loadItems(args);
   if (items.length === 0) throw new Error("No eval items matched the filter");
+  const configuredModel =
+    args.learnerModel ??
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL ??
+    env.ANTHROPIC_MODEL ??
+    "claude-haiku-4-5-20251001";
   const cfg = {
     base: args.base.replace(/\/$/, ""),
     learnerBase: (args.learnerBase ?? env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, ""),
     learnerKey: args.learnerKey ?? env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "",
     tier: args.tier,
-    learnerModel:
-      args.learnerModel ??
-      env.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
-      env.ANTHROPIC_DEFAULT_SONNET_MODEL ??
-      env.ANTHROPIC_MODEL ??
-      "claude-haiku-4-5-20251001"
+    learnerModel: bareModelId(configuredModel)
   };
   // The judge grades the post-test; it never sees the persona and never plays the learner.
-  cfg.judgeModel = args.judgeModel ?? cfg.learnerModel;
+  cfg.judgeModel = bareModelId(args.judgeModel ?? cfg.learnerModel);
   const log = (message) => console.log(message);
   log(
     `Learning eval: ${items.length} items × ${args.conditions.length} conditions · tier=${cfg.tier} · against ${cfg.base}`
   );
-  log(`Learner simulator: ${cfg.learnerModel} @ ${cfg.learnerBase}`);
+  log(
+    `Learner simulator: ${cfg.learnerModel} @ ${cfg.learnerBase}${
+      cfg.learnerModel === configuredModel
+        ? ""
+        : ` (configured as ${configuredModel}; the direct API rejects the suffix)`
+    }`
+  );
   log(`Post-test judge: ${cfg.judgeModel} (literal patterns kept as a second opinion)`);
   if (args.dryRun) {
     for (const item of items) log(`  - ${item.id} (${item.difficultyType}) · ${item.concepts.length} concepts`);
