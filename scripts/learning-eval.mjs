@@ -383,9 +383,9 @@ async function runItem(cfg, item, condition, log) {
     bestVerdict: null,
     matchedConcepts: [],
     groundTruth: item.groundTruth ?? null,
-    // Null unless the item labels which concept means "went along with the wrong feedback";
+    // Null unless the item labels the concept that names the supported reading;
     // set after grading, once matchedConcepts is known.
-    feedbackAccepted: null,
+    sidedWithUnsupported: null,
     status: "completed",
     durationMs: 0
   };
@@ -503,12 +503,15 @@ async function runItem(cfg, item, condition, log) {
     const graded = lastGraded ?? gradeRegex(item, lastPostAnswer);
     record.conceptCoverage = lastPostAnswer ? graded.coverage : null;
     record.matchedConcepts = graded.matched;
-    // "Accepted the wrong feedback" is the ABSENCE of the concept that names the supported
-    // grader: a learner who never reaches it went along with the feedback the item was
-    // built to tempt them with. Unanswered post-tests stay null rather than counting as
-    // acceptance — no answer is not the same as a wrong one.
+    // The measured failure is the ABSENCE of the concept naming the supported reading: the
+    // learner finished on the side the evidence does not support. Which failure that IS
+    // depends on the cell — credulity where the described feedback is wrong, and refusal to
+    // accept sound feedback where it is right — so the report never pools the two halves.
+    // Unanswered post-tests stay null rather than counting as a failure: no answer is not
+    // the same as a wrong one.
     const acceptanceConcept = item.groundTruth?.acceptanceConcept;
-    record.feedbackAccepted = acceptanceConcept && lastPostAnswer ? !graded.matched.includes(acceptanceConcept) : null;
+    record.sidedWithUnsupported =
+      acceptanceConcept && lastPostAnswer ? !graded.matched.includes(acceptanceConcept) : null;
     // Only the on-call arm answers the post-test more than once, so scoring the last
     // answer alone gives it extra chances to end on a bad draw that the baseline never
     // faces. Both readings are reported; neither is silently preferred.
@@ -561,13 +564,13 @@ function aggregate(records) {
         rounds: [],
         coverage: [],
         bestCoverage: [],
-        acceptanceScored: 0,
-        acceptedWrongFeedback: 0
+        trustScored: 0,
+        trustErrors: 0
       };
       group.n += 1;
-      if (record.feedbackAccepted !== null && record.feedbackAccepted !== undefined) {
-        group.acceptanceScored += 1;
-        if (record.feedbackAccepted) group.acceptedWrongFeedback += 1;
+      if (record.sidedWithUnsupported !== null && record.sidedWithUnsupported !== undefined) {
+        group.trustScored += 1;
+        if (record.sidedWithUnsupported) group.trustErrors += 1;
       }
       if (record.finalVerdict) group[record.finalVerdict] += 1;
       else group.noOutcome += 1;
@@ -606,34 +609,57 @@ function renderReport(records, groups, meta) {
       if (group) conditionRows.push(line(`${condition} · ${family}`, group));
     }
   }
-  // Incorrect-feedback acceptance: the fraction of scored runs where the learner never
-  // reached the supported grader, i.e. went along with the feedback the item tempted them
-  // with. The `sound-*` cells are the control — there the tempting feedback is CORRECT, so
-  // a high rate there means blanket credulity and a low one means the learner can still
-  // agree when agreement is right. Without that row an acceptance rate cannot tell
-  // appropriate skepticism from rejecting everything.
-  const acceptanceRows = [];
+  // Feedback-trust errors: the fraction of scored runs whose final answer landed on the side
+  // the evidence does not support. The failure is NOT the same on both halves, so the table
+  // names it per row and the two halves are summarised separately. Pooling them would hide
+  // the very thing the controls were added for: a learner who distrusts every grader scores
+  // a clean sheet on the `wrong-*` half and fails the whole `sound-*` half, which reads as
+  // good judgement only until the control rows are put next to it.
+  const trustRows = [];
+  // Kept per condition: pooling the arms would average away the difference the eval exists
+  // to measure.
+  const halvesByCondition = new Map();
   for (const condition of meta.conditions) {
+    const halves = { wrong: { scored: 0, errors: 0 }, sound: { scored: 0, errors: 0 } };
+    halvesByCondition.set(condition, halves);
     for (const [key, group] of [...groups.entries()].sort()) {
       if (!key.startsWith("cell:") || !key.endsWith(`|${condition}`)) continue;
-      if (group.acceptanceScored === 0) continue;
+      if (group.trustScored === 0) continue;
       const cell = key.slice("cell:".length, key.length - condition.length - 1);
-      acceptanceRows.push(
-        `| ${cell} | ${condition} | ${group.acceptanceScored} | ${group.acceptedWrongFeedback} | ${pct(
-          group.acceptedWrongFeedback / group.acceptanceScored
-        )} |`
+      const half = cell.startsWith("wrong-") ? "wrong" : "sound";
+      halves[half].scored += group.trustScored;
+      halves[half].errors += group.trustErrors;
+      const mode = half === "wrong" ? "went along with wrong feedback" : "rejected sound feedback";
+      trustRows.push(
+        `| ${cell} | ${condition} | ${group.trustScored} | ${group.trustErrors} | ${pct(
+          group.trustErrors / group.trustScored
+        )} | ${mode} |`
       );
     }
   }
-  const acceptanceSection = acceptanceRows.length
-    ? `## Incorrect-feedback acceptance
+  const halfLine = (label, condition, half, mode) =>
+    half.scored === 0
+      ? null
+      : `- ${label} (${condition}): ${half.errors}/${half.scored} (${pct(half.errors / half.scored)}) — ${mode}.`;
+  const halfSummary = [...halvesByCondition.entries()]
+    .flatMap(([condition, halves]) => [
+      halfLine("Credulity", condition, halves.wrong, "finished on the side of feedback that was wrong"),
+      halfLine("Over-rejection", condition, halves.sound, "refused feedback that was correct")
+    ])
+    .filter(Boolean)
+    .join("\n");
+  const trustSection = trustRows.length
+    ? `## Feedback-trust errors
 
-Cells are \`(is the tempting feedback wrong?)-(does it endorse or reject the learner?)-(tone)\`.
-\`sound-*\` rows are controls: there the tempting feedback is correct, so accepting it is right.
+Cells are \`(is the feedback this cell describes wrong?)-(does it endorse or reject the
+learner?)-(tone)\`. The rate counts runs whose final answer sided against the supported
+reading — but that failure means opposite things on the two halves, so read them apart:
 
-| cell | condition | scored | accepted | rate |
-| --- | --- | --- | --- | --- |
-${acceptanceRows.join("\n")}
+${halfSummary}
+
+| cell | condition | scored | errors | rate | what the error was |
+| --- | --- | --- | --- | --- | --- |
+${trustRows.join("\n")}
 `
     : "";
   const itemRows = records.map(
@@ -666,7 +692,7 @@ ${acceptanceRows.join("\n")}
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ${conditionRows.join("\n")}
 
-${acceptanceSection}
+${trustSection}
 ## Per run
 
 | Item | Condition | Final verdict | Rounds | Coverage (last) | Coverage (best) | Incident status | Run status |

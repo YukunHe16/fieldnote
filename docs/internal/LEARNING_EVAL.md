@@ -85,13 +85,17 @@ looping model）、全局累加器泄漏（pg-reverse-accumulator，return-compo
 奇偶红鲱鱼（fu-binary-search-loop，B 对）、权威口吻的错误复杂度反馈（fu-complexity-triangle，
 学生原答案对——测"在权威压力下放弃正确答案"）。
 
-**因子矩阵与对照组。** 15 题按三个二值因子铺满 8 格：被吸引的那份反馈**是否错**
-× 它**肯定还是否定**学习者 × 语气**朴素还是权威**。`sound-*` 那半边是对照——那里被吸引
-的反馈其实是**对的**，接受它才是正确动作。没有这半边，接受率分不清"轻信"和"一律不信"：
-一个把所有反馈都拒掉的学习者会得到和一个恰当怀疑的学习者相同的低接受率。
-`scripts/learning-eval.mjs` 按格报告接受率，判定来自 `groundTruth.acceptanceConcept`
-在出口检查里**缺席**（缺席 = 没走到有证据支持的那位评分者 = 接受了错误反馈；
-未作答记为 null，不算接受）。
+**因子矩阵与对照组。** 15 题（9 轻信 + 6 对照）按三个二值因子铺满 8 格：本格所描述的
+那份反馈（`focalGrader`）**是否错** × 它**肯定还是否定**学习者 × 语气**朴素还是权威**。
+`sound-*` 那半边是对照——那里 focal 的反馈其实是**对的**，而 persona 的信念恰恰在推着
+学习者去推开它。没有这半边，指标分不清"轻信"和"一律不信"：一个把所有反馈都拒掉的
+学习者在轻信那半边会得到和恰当怀疑的学习者一样漂亮的成绩。
+
+判定来自 `groundTruth.acceptanceConcept`（正确结论）在出口检查里**缺席**：缺席 = 学习者
+最终**站到了没有证据支持的那一边**；未作答记为 null，不计入。注意这一个量在两半边是
+**两种相反的错误**——`wrong-*` 半边是轻信（顺着错的走），`sound-*` 半边是过度拒斥
+（把对的推开）。`scripts/learning-eval.mjs` 因此按格报告并**分半边汇总**，绝不合并成
+单一"接受率"：合并会把"一律不信"读成好判断。
 
 **单信念 vs 双信念（一个刻意保留的分组）。** 最早 6 题每题脚本了**两个**信念——一个关于
 学科内容、一个关于信谁——而 tutor 稳定地诊断出其中一个、漏掉另一个,judge 按整个信念列表
@@ -124,15 +128,19 @@ write-back 每次写都到内存（cm-write-policy）。每题的访问序列都
   "topicKey": "programming-plans",         // eval 数据集内的主题分组
   "title": "…",
   "opening": "学习者的第一条消息（含代码/错误信念）",
-  // 仅 fu 家族。结构化后才可计算"接受错误反馈率"：
-  //   wrongGrader / temptingGrader  哪份反馈是错的、persona 被哪一份吸引
-  //   temptingIsWrong               被吸引的那份是否就是错的（false = 对照题）
-  //   valence / tone                它是肯定还是否定学习者、语气权威还是朴素
-  //   acceptanceConcept             缺了这个概念就等于接受了错误反馈
-  //   note                          哪位评分者对、为什么
-  // 旧的自由文本形式仍可加载（读作 note），但算不出接受率。
-  "groundTruth": { "wrongGrader": "A", "temptingIsWrong": true, "valence": "endorses",
-                   "tone": "plain", "acceptanceConcept": "grader-b-supported", "note": "…" },
+  // 仅 fu 家族。结构化后才可按格子统计"站错边率"：
+  //   wrongGrader     哪位评分者是错的（"both" 表示两位都错）
+  //   focalGrader     本题这一格所描述的那份反馈出自谁；它的对错/语气/立场决定格子。
+  //                   注意它不是"学习者被吸引的那一份"：对照题里学习者恰恰想推开它。
+  //   temptingIsWrong focalGrader 是否就是错的那位（false = 对照题）。
+  //                   必须等于 wrongGrader === focalGrader，CI 里有断言。
+  //   valence / tone  focalGrader 那份反馈肯定还是否定学习者、语气权威还是朴素
+  //   acceptanceConcept  正确结论对应的概念 id；没命中它就是站到了没有依据的一边
+  //   note            哪位评分者对、为什么
+  // 旧的自由文本形式仍可加载（读作 note），但算不出这项指标。
+  "groundTruth": { "wrongGrader": "A", "focalGrader": "A", "temptingIsWrong": true,
+                   "valence": "endorses", "tone": "plain",
+                   "acceptanceConcept": "grader-b-supported", "note": "…" },
   "persona": {
     "beliefs": ["初始错误信念…"],          // fu 新题只写"信谁"这一条，见下
     "style": "作答风格与顽固度",

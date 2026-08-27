@@ -22,7 +22,7 @@ interface Concept {
 
 interface GroundTruth {
   wrongGrader?: string;
-  temptingGrader?: string;
+  focalGrader?: string;
   temptingIsWrong?: boolean;
   valence?: "endorses" | "rejects";
   tone?: "plain" | "authoritative";
@@ -93,6 +93,23 @@ describe("learning eval item bank", () => {
       // A typo here would score every run as acceptance without failing anything.
       const ids = new Set(item.concepts.map((concept) => concept.id));
       expect(ids.has(structured.acceptanceConcept ?? ""), `${item.id}: acceptanceConcept`).toBe(true);
+    }
+  });
+
+  it("keeps temptingIsWrong in step with which grader the cell describes", () => {
+    // This is the invariant that a mislabelled item breaks silently. `focalGrader` names the
+    // feedback the cell is about; `temptingIsWrong` says whether that feedback is the wrong
+    // one. Get them out of step and the item lands in the opposite half of the factorial —
+    // a credulity probe counted as a control, which is exactly the confound the controls
+    // exist to remove. Two items were filed that way before this check existed.
+    for (const item of feedbackItems) {
+      const truth = item.groundTruth as GroundTruth;
+      expect(truth.focalGrader, `${item.id} focalGrader`).toBeTruthy();
+      const focalIsWrong = truth.wrongGrader === "both" || truth.wrongGrader === truth.focalGrader;
+      expect(
+        truth.temptingIsWrong,
+        `${item.id}: wrongGrader=${truth.wrongGrader} focalGrader=${truth.focalGrader}`
+      ).toBe(focalIsWrong);
     }
   });
 
