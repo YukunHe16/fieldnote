@@ -537,7 +537,11 @@ function LearningPanel({
         <span className={`learning-state state-${incident.status}`}>{learningLabel(incident.status)}</span>
         <small>{learningLabel(incident.difficultyType)}</small>
         {incident.reviewOf && (
-          <em className="learning-revisit-chip">{t("learningRevisitOf", { round: incident.reviewOf.round })}</em>
+          <em className="learning-revisit-chip">
+            {incident.missingPlan
+              ? t("learningRevisitOfPlan", { round: incident.reviewOf.round, plan: incident.missingPlan })
+              : t("learningRevisitOf", { round: incident.reviewOf.round })}
+          </em>
         )}
       </header>
       <h3>{incident.hypothesis}</h3>

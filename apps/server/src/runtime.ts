@@ -1436,6 +1436,13 @@ export class ClaudeAgentRuntime implements AgentRuntime {
               "other"
             ]),
             hypothesis: z.string().min(1).max(1_000),
+            missingPlan: z
+              .string()
+              .max(120)
+              .optional()
+              .describe(
+                "For a planning gap, the specific plan the learner cannot yet assemble, named in two or three words — for example 'base case', 'accumulate in loop', 'guard before divide'. Name it whenever the difficulty is about assembling a known step into a plan; leave it out when the difficulty is a fact or a rule rather than a plan. The spaced revisit days later probes THIS plan in a new situation."
+              ),
             confidence: z.number().min(0).max(1).describe("Diagnostic confidence from 0 to 1, for example 0.75"),
             severity: z
               .number()
@@ -1445,11 +1452,12 @@ export class ClaudeAgentRuntime implements AgentRuntime {
               .describe("Difficulty severity as an integer from 1 to 5, for example 3"),
             evidenceMessageIds: z.array(z.string().uuid()).min(1).max(6)
           },
-          async ({ difficultyType, hypothesis, confidence, severity, evidenceMessageIds }) => {
+          async ({ difficultyType, hypothesis, missingPlan, confidence, severity, evidenceMessageIds }) => {
             const incident = store.openIncident({
               sessionId: session.id,
               difficultyType: difficultyType as LearningDifficultyType,
               hypothesis,
+              ...(missingPlan ? { missingPlan } : {}),
               confidence,
               severity,
               evidenceMessageIds,

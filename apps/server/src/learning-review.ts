@@ -70,10 +70,15 @@ export class LearningReviewRunner {
         return;
       }
       const incident = this.learning.getIncident(task.incidentId);
-      const focus = (incident?.hypothesis || session.goal || "").replace(/\s+/g, " ").trim().slice(0, 120);
+      const trim = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, 120);
+      // A named plan makes the revisit a plan-level transfer probe rather than a topic-level
+      // one: the question becomes whether THIS step transfers to a new situation, which is a
+      // much sharper thing to measure than whether the subject still feels familiar.
+      const plan = trim(incident?.missingPlan ?? "");
+      const focus = trim(incident?.hypothesis || session.goal || "");
       // Fired before submit: losing one revisit beats double-posting it into the chat.
       this.learning.markReviewTask(task.id, "fired");
-      const run = this.orchestrator.submit(task.conversationId, reviewPrompt(task.round, focus, this.locale()));
+      const run = this.orchestrator.submit(task.conversationId, reviewPrompt(task.round, focus, this.locale(), plan));
       // The run id is the linkage confirmVerification uses to tell the revisit's own
       // confirmation apart from unrelated confirmations in the same session.
       const runId = (run as { id?: unknown } | null | undefined)?.id;
@@ -84,16 +89,25 @@ export class LearningReviewRunner {
   }
 }
 
-function reviewPrompt(round: 1 | 2, focus: string, locale: "zh" | "en" = "zh"): string {
+/**
+ * The learner-voiced revisit message. When the diagnosis named a missing plan, the prompt
+ * asks for a task that exercises that plan specifically — the revisit then measures plan
+ * transfer, not topic recall.
+ */
+function reviewPrompt(round: 1 | 2, focus: string, locale: "zh" | "en" = "zh", plan = ""): string {
   if (locale === "en") {
     const opener =
       round === 1
         ? "It has been two days since we worked through this difficulty"
         : "A few more days have passed since the last review";
+    if (plan)
+      return `[Spaced review] ${opener}. The step I could not assemble was ${plan}. Please give me a brand-new task that cannot be finished without that same step — a different situation, not the original problem — and record this revisit through the learning loop as usual.`;
     const anchor = focus ? ` (${focus})` : "";
     return `[Spaced review] ${opener}. Please give me a brand-new transfer task on my earlier difficulty${anchor} — a different situation, not the original problem — and record this revisit through the learning loop as usual.`;
   }
   const opener = round === 1 ? "距离我们解决这个困难已经过了两天" : "距离上次复习又过了几天";
+  if (plan)
+    return `【间隔复习回访】${opener}。我当时组装不起来的那一步是${plan}。请出一道全新的小任务，必须用上同一步才能做出来——换一个情境，不要重复原题——并照常走学习回路记录这次回访。`;
   const anchor = focus ? `（${focus}）` : "";
   return `【间隔复习回访】${opener}。请针对我此前的困难${anchor}出一道全新的迁移小任务考考我——换一个情境，不要重复原题——并照常走学习回路记录这次回访。`;
 }

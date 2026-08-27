@@ -119,6 +119,12 @@ export interface LearningIncidentDto {
   confidence: number;
   severity: number;
   evidenceMessageIds: string[];
+  /**
+   * The specific plan behind the difficulty, when the tutor named one at diagnosis. A
+   * spaced revisit anchored on this probes whether THAT plan transferred, rather than
+   * whether the topic is still familiar.
+   */
+  missingPlan: string | null;
   openedRunId: string | null;
   /**
    * Set when this incident was opened by a spaced-review revisit: the earlier incident being
@@ -290,6 +296,8 @@ export interface OpenLearningIncidentInput {
   sessionId: string;
   difficultyType: LearningDifficultyType;
   hypothesis: string;
+  /** The specific plan the learner is missing, when the tutor can name one. */
+  missingPlan?: string | null;
   confidence: number;
   severity: number;
   evidenceMessageIds: string[];
@@ -443,6 +451,11 @@ CREATE TABLE IF NOT EXISTS learning_incidents (
   session_id TEXT NOT NULL REFERENCES learning_sessions(id) ON DELETE CASCADE,
   difficulty_type TEXT NOT NULL CHECK (difficulty_type IN ('planning_gap', 'conceptual_misconception', 'procedural_gap', 'feedback_uncertainty', 'prerequisite_gap', 'other')),
   hypothesis TEXT NOT NULL,
+  -- The specific plan the learner is missing (e.g. "base-case" for recursion), when the
+  -- tutor can name one. Free text, not a taxonomy: a plan-anchored revisit is a much
+  -- sharper transfer probe than a topic-anchored one, and that is worth having long
+  -- before plans become a first-class entity.
+  missing_plan TEXT,
   confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
   severity INTEGER NOT NULL CHECK (severity BETWEEN 1 AND 5),
   evidence_message_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -784,6 +797,9 @@ export class LearningStore {
     if (!incidentColumns.some((column) => column.name === "superseded_at")) {
       this.database.exec("ALTER TABLE learning_incidents ADD COLUMN superseded_at INTEGER");
     }
+    if (!incidentColumns.some((column) => column.name === "missing_plan")) {
+      this.database.exec("ALTER TABLE learning_incidents ADD COLUMN missing_plan TEXT");
+    }
     this.database.exec(`
       UPDATE learning_incidents
       SET opened_run_id = (
@@ -1079,14 +1095,15 @@ export class LearningStore {
     this.database
       .prepare(
         `INSERT INTO learning_incidents
-       (id, session_id, difficulty_type, hypothesis, confidence, severity, evidence_message_ids_json, opened_run_id, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'diagnosed', ?, ?)`
+       (id, session_id, difficulty_type, hypothesis, missing_plan, confidence, severity, evidence_message_ids_json, opened_run_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'diagnosed', ?, ?)`
       )
       .run(
         id,
         input.sessionId,
         input.difficultyType,
         hypothesis,
+        clean(input.missingPlan ?? "", 120) || null,
         input.confidence,
         input.severity,
         JSON.stringify(evidence),
@@ -3466,6 +3483,8 @@ export class LearningStore {
       sessionId: String(row.session_id),
       difficultyType: String(row.difficulty_type) as LearningDifficultyType,
       hypothesis: String(row.hypothesis),
+      missingPlan:
+        row.missing_plan === null || row.missing_plan === undefined ? null : String(row.missing_plan) || null,
       confidence: Number(row.confidence),
       severity: Number(row.severity),
       evidenceMessageIds: parseJson(String(row.evidence_message_ids_json), []),

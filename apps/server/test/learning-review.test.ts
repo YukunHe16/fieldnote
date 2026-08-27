@@ -22,7 +22,7 @@ function draftApproved(learning: LearningStore, incidentId: string, taskText: st
 
 const DAY = 24 * 60 * 60 * 1_000;
 
-function fixture() {
+function fixture(options: { missingPlan?: string } = {}) {
   const database = openDatabase(":memory:");
   const agents = new AgentStore(database);
   let now = Date.UTC(2026, 7, 24, 12);
@@ -40,6 +40,7 @@ function fixture() {
     sessionId: session.id,
     difficultyType: "conceptual_misconception",
     hypothesis: "把递归调用和循环迭代混为一谈",
+    ...(options.missingPlan ? { missingPlan: options.missingPlan } : {}),
     confidence: 0.8,
     severity: 3,
     evidenceMessageIds: [run.userMessageId]
@@ -76,6 +77,7 @@ function fixture() {
     learning,
     conversation,
     session,
+    incident,
     submitted,
     orchestrator,
     setNow: (value: number) => {
@@ -106,6 +108,45 @@ describe("LearningReviewRunner", () => {
     // A fired task never double-posts.
     runner.tick();
     expect(submitted).toHaveLength(1);
+    database.close();
+  });
+
+  it("anchors the revisit on the missing plan when the diagnosis named one", () => {
+    const { database, agents, learning, incident, submitted, orchestrator, setNow, now } = fixture({
+      missingPlan: "递归出口的判断"
+    });
+    expect(learning.getIncident(incident.id)?.missingPlan).toBe("递归出口的判断");
+    const runner = new LearningReviewRunner(learning, agents, orchestrator, now);
+    setNow(now() + 2 * DAY + 1_000);
+    runner.tick();
+    // A plan-anchored revisit asks for a task that CANNOT be finished without that step,
+    // which is a transfer probe; the hypothesis-anchored form only asks about the topic.
+    expect(submitted[0]!.content).toContain("递归出口的判断");
+    expect(submitted[0]!.content).toContain("必须用上同一步");
+    expect(submitted[0]!.content).not.toContain("把递归调用和循环迭代混为一谈");
+    database.close();
+  });
+
+  it("names the missing plan in the English revisit too", () => {
+    const { database, agents, learning, submitted, orchestrator, setNow, now } = fixture({
+      missingPlan: "base case"
+    });
+    const runner = new LearningReviewRunner(learning, agents, orchestrator, now, undefined, () => "en");
+    setNow(now() + 2 * DAY + 1_000);
+    runner.tick();
+    expect(submitted[0]!.content).toContain("base case");
+    expect(submitted[0]!.content).toContain("cannot be finished without that same step");
+    database.close();
+  });
+
+  it("falls back to the hypothesis when no plan was named", () => {
+    const { database, agents, learning, incident, submitted, orchestrator, setNow, now } = fixture();
+    expect(learning.getIncident(incident.id)?.missingPlan).toBeNull();
+    const runner = new LearningReviewRunner(learning, agents, orchestrator, now);
+    setNow(now() + 2 * DAY + 1_000);
+    runner.tick();
+    expect(submitted[0]!.content).toContain("把递归调用和循环迭代混为一谈");
+    expect(submitted[0]!.content).not.toContain("必须用上同一步");
     database.close();
   });
 

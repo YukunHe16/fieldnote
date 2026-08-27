@@ -363,6 +363,7 @@ export interface LearningIncidentDto {
   confidence: number;
   severity: number;
   evidenceMessageIds: string[];
+  missingPlan: string | null;
   openedRunId: string | null;
   reviewOf: { incidentId: string; round: number } | null;
   status: LearningIncidentStatus;

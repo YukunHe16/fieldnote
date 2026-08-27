@@ -148,10 +148,15 @@ export function renderLoopReportHtml(report: LearningLoopReportDto, meta: { gene
     ${
       incident.reviewOf
         ? `<p class="revisit">${biSpan(
-            bi(
-              `这是第 ${incident.reviewOf.round} 次回访 —— 同一个知识点，隔了一段时间再考你一次。`,
-              `This is revisit ${incident.reviewOf.round} \u2014 the same idea, checked again after a gap.`
-            )
+            incident.missingPlan
+              ? bi(
+                  `这是第 ${incident.reviewOf.round} 次回访 —— 同一步（${incident.missingPlan}），换个情境再考你一次。`,
+                  `This is revisit ${incident.reviewOf.round} \u2014 the same step (${incident.missingPlan}), checked again in a new situation.`
+                )
+              : bi(
+                  `这是第 ${incident.reviewOf.round} 次回访 —— 同一个知识点，隔了一段时间再考你一次。`,
+                  `This is revisit ${incident.reviewOf.round} \u2014 the same idea, checked again after a gap.`
+                )
           )}</p>`
         : ""
     }

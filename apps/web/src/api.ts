@@ -593,6 +593,7 @@ export function normalizeLearningIncident(input: unknown): LearningIncidentDto {
     confidence: number(raw.confidence),
     severity: number(raw.severity, 1),
     evidenceMessageIds: Array.isArray(evidence) ? evidence.filter((id): id is string => typeof id === "string") : [],
+    missingPlan: optionalString(raw.missingPlan ?? raw.missing_plan),
     openedRunId: optionalString(raw.openedRunId ?? raw.opened_run_id),
     reviewOf: normalizeLearningReviewOrigin(raw.reviewOf ?? raw.review_of),
     status: includes(

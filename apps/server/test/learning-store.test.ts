@@ -2166,4 +2166,51 @@ describe("learning practice items", () => {
     expect(revisitDraft.source).toBe("review");
     database.close();
   });
+
+  it("shows a revisit the whole session's corpus, including the loop it re-checks", () => {
+    const { database, agents, conversation, learning, session } = fixture("live", "on-call");
+    const first = incident(learning, session.id);
+    const intervention = learning.recordIntervention({
+      incidentId: first.id,
+      strategy: "contrastive_example",
+      rationale: "并排对照",
+      expectedSignal: "能说出差别"
+    });
+    const draft = draftApproved(learning, first.id, "第一轮的题面：请解释递归出口。");
+    const verification = learning.requestVerification({
+      incidentId: first.id,
+      interventionId: intervention.id,
+      method: "self_explanation",
+      prompt: "第一轮的题面：请解释递归出口。",
+      rubric: "说明出口条件",
+      practiceItemId: draft.id
+    });
+    learning.proposeSystemOutcome(verification.id, "resolved", 0.95);
+    learning.confirmVerification(verification.id, "resolved");
+
+    const task = learning.listReviewTasks(session.id).find((item) => item.round === 1);
+    const reviewRun = agents.createRun(conversation.id, "【间隔回访】两天前那道题…", "normal");
+    learning.markReviewTask(task!.id, "fired");
+    learning.attachReviewRun(task!.id, reviewRun.id);
+    const revisit = learning.openIncident({
+      sessionId: session.id,
+      difficultyType: "conceptual_misconception",
+      hypothesis: "两天后是否仍能区分",
+      confidence: 0.7,
+      severity: 3,
+      evidenceMessageIds: [reviewRun.userMessageId],
+      runId: reviewRun.id
+    });
+
+    // The corpus is scoped to the SESSION, so a revisit inherits everything the learner has
+    // already seen — which is what stops it re-asking the original question two days later.
+    // It also means the pool a revisit must stay novel against only ever grows, so if
+    // plan-anchored revisits ever start tripping the novelty gate, this is the coupling to
+    // look at first. Measured on live data at the time of writing: revisit drafts score
+    // 0.11-0.23 against a 0.6 threshold, so the headroom is real, not assumed.
+    const corpus = learning.practiceCorpus(revisit.id);
+    expect(corpus).toContain("第一轮的题面：请解释递归出口。");
+    expect(corpus).toContain(session.goal);
+    database.close();
+  });
 });
