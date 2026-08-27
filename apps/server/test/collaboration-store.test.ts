@@ -52,7 +52,7 @@ describe("collaboration store", () => {
         }
       ],
       openQuestions: ["是否接受晚交材料？"],
-      recommendedFollowups: [{ specialistId: "admissions-researcher", question: "确认例外条款" }]
+      recommendedFollowups: [{ specialistId: "source-verifier", question: "确认例外条款" }]
     });
     expect(completed.status).toBe("completed");
     expect(completed.structured).toBe(true);

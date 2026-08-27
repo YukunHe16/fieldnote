@@ -104,7 +104,7 @@ class TitleRuntime implements AgentRuntime {
     input.supplements.close();
     yield {
       type: "text.delta",
-      delta: "这是一段完整回答。我比较了两个方案的截止日期、学费和材料要求，并建议先核官方页面再写进申请材料。"
+      delta: "这是一段完整回答。我比较了两个方案的取舍、适用场景和常见误区，并建议先核官方文档再把结论写进笔记。"
     };
     yield { type: "completed" };
   }
@@ -722,7 +722,7 @@ describe("RunOrchestrator", () => {
     await waitFor(() => store.getConversation(conversation.id)?.title === "模型生成的短标题");
     expect(runtime.analysisInputs[0]).toMatchObject({
       prompt: "帮我比较两个方案",
-      response: "这是一段完整回答。我比较了两个方案的截止日期、学费和材料要求，并建议先核官方页面再写进申请材料。"
+      response: "这是一段完整回答。我比较了两个方案的取舍、适用场景和常见误区，并建议先核官方文档再把结论写进笔记。"
     });
     expect(memories.list({ category: "task" })[0]).toMatchObject({ title: "方案比较" });
     expect(memories.list({ category: "preference" })[0]).toMatchObject({ title: "比较方式" });

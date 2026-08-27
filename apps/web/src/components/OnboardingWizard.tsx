@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
-import { localizedProfile, useLocale, type MessageKey } from "../i18n";
+import { useLocale, type MessageKey } from "../i18n";
 import { Icon } from "../icons";
 import { detectProvider, mappingsFor, providerById, type ModelProviderId } from "../modelProviders";
 import type { AgentProfileId, RuntimeConfigStatus } from "../types";
@@ -11,13 +11,12 @@ import type { Workspace } from "../useWorkspace";
 export const ONBOARDED_KEY = "fieldnote-onboarded";
 
 const TOTAL_STEPS = 3;
-const WIZARD_PROFILES: AgentProfileId[] = ["local-operator"];
 
 const SAMPLE_PROMPTS: Record<string, Array<[MessageKey, MessageKey]>> = {
   "local-operator": [
-    ["promptIdeas", "promptIdeasHint"],
-    ["promptFiles", "promptFilesHint"],
-    ["promptSteps", "promptStepsHint"]
+    ["promptExplain", "promptExplainHint"],
+    ["promptCheck", "promptCheckHint"],
+    ["promptMaterial", "promptMaterialHint"]
   ]
 };
 
@@ -46,7 +45,7 @@ export function OnboardingWizard({
   const [provider, setProvider] = useState<ModelProviderId>("anthropic");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ tone: "ok" | "error"; message: string }>();
-  const [profileId, setProfileId] = useState<AgentProfileId>("local-operator");
+  const profileId: AgentProfileId = "local-operator";
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState("");
 
@@ -444,31 +443,6 @@ export function OnboardingWizard({
               {step === 2 && (
                 <>
                   <p className="onboarding-lead">{t("setupProfileBody")}</p>
-                  <div className="onboarding-profiles" role="radiogroup" aria-label={t("setupProfileTitle")}>
-                    {WIZARD_PROFILES.map((id) => {
-                      const summary = workspace.agentProfiles.find((item) => item.id === id);
-                      const copy = localizedProfile(id, summary?.name, summary?.description);
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          role="radio"
-                          aria-checked={profileId === id}
-                          className={`onboarding-profile ${profileId === id ? "is-selected" : ""}`}
-                          onClick={() => setProfileId(id)}
-                        >
-                          <span className="onboarding-card-icon">
-                            <Icon name="workspace" size={17} />
-                          </span>
-                          <span>
-                            <b>{copy.name}</b>
-                            <small>{copy.description}</small>
-                          </span>
-                          {profileId === id && <Icon name="check" size={15} />}
-                        </button>
-                      );
-                    })}
-                  </div>
                   <p className="onboarding-sample-label">{t("setupSamplePrompts")}</p>
                   <ul className="onboarding-samples">
                     {prompts.map(([label, hint]) => (

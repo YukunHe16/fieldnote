@@ -99,7 +99,7 @@ class RefinementRuntime implements AgentRuntime {
   }
 }
 
-class AdmissionRuntime implements AgentRuntime {
+class StubRuntime implements AgentRuntime {
   readonly kind = "demo" as const;
 
   async *run(_input: RuntimeInput): AsyncGenerator<RuntimeEvent> {
@@ -624,12 +624,12 @@ describe("MemoryCoordinator", () => {
   });
 
   it("rejects memory-control and pure-recall turns from task history", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-admission-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-coordinator-"));
     const database = openDatabase(":memory:");
     const store = new AgentStore(database);
     const memories = new MemoryStore(database);
     const events = new EventStore(database);
-    const runtime = new AdmissionRuntime();
+    const runtime = new StubRuntime();
     const coordinator = new MemoryCoordinator(config(root), store, memories, events, runtime);
     const conversation = store.createConversation();
     for (const prompt of [
@@ -788,7 +788,7 @@ describe("MemoryCoordinator", () => {
     const memories = new MemoryStore(database);
     const events = new EventStore(database);
     const learning = new LearningStore(database);
-    const runtime = new AdmissionRuntime();
+    const runtime = new StubRuntime();
     const conversation = store.createConversation("web", "学习", { profileId: "local-operator" });
     const run = store.createRun(conversation.id, "我还是没理解递归为什么需要出口，请换种讲法教我。", "normal");
     store.replaceMessageText(run.assistantMessageId, "可以，我们换一个例子来解释。");
@@ -815,7 +815,7 @@ describe("MemoryCoordinator", () => {
     const memories = new MemoryStore(database);
     const events = new EventStore(database);
     const learning = new LearningStore(database);
-    const runtime = new AdmissionRuntime();
+    const runtime = new StubRuntime();
     const conversation = store.createConversation("feishu", "飞书学习", { profileId: "local-operator" });
     const run = store.createRun(conversation.id, "我还是没理解递归为什么需要出口，请换种讲法教我。", "normal");
     store.replaceMessageText(run.assistantMessageId, "可以，我们换一个例子来解释。");

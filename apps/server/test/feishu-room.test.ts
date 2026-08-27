@@ -120,22 +120,22 @@ describe("feishu room", () => {
         questions: [
           {
             header: "优先事项",
-            question: "眼下申请准备中，你最想先推进哪一块？",
+            question: "眼下这门课里，你最想先弄懂哪一块？",
             options: [
-              { label: "选校组合与定位", description: "先收窄学校名单" },
-              { label: "截止日期与时间线" },
-              { label: "推荐信" },
-              { label: "文书" }
+              { label: "递归的调用栈", description: "先收窄到一个具体例子" },
+              { label: "指针与引用" },
+              { label: "复杂度分析" },
+              { label: "缓存机制" }
             ]
           }
         ]
       },
       { conversationId: "c1", runId: "r1" }
     ) as any;
-    expect(card.body.elements[0].content).toContain("选校组合与定位");
-    expect(card.body.elements[0].content).toContain("先收窄学校名单");
+    expect(card.body.elements[0].content).toContain("递归的调用栈");
+    expect(card.body.elements[0].content).toContain("先收窄到一个具体例子");
     expect(card.body.elements.filter((item: { tag: string }) => item.tag === "button")).toHaveLength(4);
-    expect(card.body.elements[1].text.content).toBe("选校组合与定位");
+    expect(card.body.elements[1].text.content).toBe("递归的调用栈");
     expect(card.body.elements.some((item: { tag: string }) => item.tag === "column_set")).toBe(false);
   });
 });

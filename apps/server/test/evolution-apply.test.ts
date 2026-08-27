@@ -123,8 +123,8 @@ describe("applyTurnEvolution", () => {
   it("does not treat a weakly overlapping filler playbook as the same method", async () => {
     const { root, database, evolution, coordinator } = await setup();
     const filler = evolution.createPlaybook({
-      title: "核官方任职",
-      instruction: "套磁前确认官方任职页",
+      title: "核官方文档",
+      instruction: "写代码前先确认官方文档",
       polarity: "do",
       origin: "distilled",
       scope: "profile",

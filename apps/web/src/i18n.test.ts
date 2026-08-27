@@ -30,14 +30,14 @@ describe("i18n", () => {
     applyLocale("en");
     expect(t("appTitle")).toBe("Fieldnote");
     expect(t("memory")).toBe("Memory");
-    expect(t("profileLocalDesc")).toBe("General files, research, and the learning loop");
-    expect(t("emptyLocalBody")).toContain("learning loop tracks understanding");
+    expect(t("profileLocalDesc")).toBe("The diagnose, teach, and verify loop — plus files and research");
+    expect(t("emptyLocalBody")).toContain("it finds the misconception first");
     expect(localizedProfile("local-operator", "本地助手").name).toBe("Local");
     applyLocale("zh");
     expect(t("appTitle")).toBe("Fieldnote");
     expect(t("memory")).toBe("记忆");
-    expect(t("profileLocalDesc")).toBe("通用文件、研究与学习回路");
-    expect(t("emptyLocalBody")).toContain("学习回路会跟踪理解");
+    expect(t("profileLocalDesc")).toBe("诊断—讲解—验证的学习回路，也做文件与研究");
+    expect(t("emptyLocalBody")).toContain("先找出误解在哪");
   });
 
   it("reads a saved locale from storage", () => {

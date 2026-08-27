@@ -11,20 +11,20 @@ import {
 describe("overlay routing helpers", () => {
   it("selects two to four playbooks that overlap the prompt, including Chinese cues", () => {
     const playbooks = [
-      { title: "先核官方截止日期", instruction: "写进材料前先核官方截止日期" },
-      { title: "文书先列提纲", instruction: "SOP 先列提纲再写长稿" },
-      { title: "套磁先核任职", instruction: "套磁前确认官方任职页" },
-      { title: "简历只写已确认事实", instruction: "CV 不编造成果" },
+      { title: "先核官方文档", instruction: "写进结论前先核官方文档" },
+      { title: "长文先列提纲", instruction: "长稿先列提纲再动笔" },
+      { title: "报错先看栈顶", instruction: "读报错先从栈顶那一行看起" },
+      { title: "只写已确认事实", instruction: "笔记不编造结论" },
       { title: "无关提醒", instruction: "每天喝水" },
       { title: "另一条无关", instruction: "保持桌面整洁" }
     ];
-    const chosen = selectRelevantPlaybooks(playbooks, "帮我核一下这个项目的截止日期和学费", 4);
+    const chosen = selectRelevantPlaybooks(playbooks, "帮我核一下这个接口的官方文档说明", 4);
     expect(chosen.length).toBeGreaterThanOrEqual(2);
     expect(chosen.length).toBeLessThanOrEqual(4);
-    expect(chosen[0]?.title).toBe("先核官方截止日期");
+    expect(chosen[0]?.title).toBe("先核官方文档");
     expect(chosen.some((item) => item.title === "无关提醒")).toBe(false);
     expect(countMatchedPlaybooks(playbooks, "你好")).toBe(0);
-    expect(countMatchedPlaybooks(playbooks, "帮我核一下这个项目的截止日期和学费")).toBeGreaterThan(0);
+    expect(countMatchedPlaybooks(playbooks, "帮我核一下这个接口的官方文档说明")).toBeGreaterThan(0);
   });
 
   it("reads used skill labels from activity blocks", () => {

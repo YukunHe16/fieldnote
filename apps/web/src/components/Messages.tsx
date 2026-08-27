@@ -1455,19 +1455,19 @@ export function EmptyConversation({ onPrompt }: { onPrompt: (prompt: string) => 
       </h1>
       <p>{t("emptyLocalBody")}</p>
       <div className="prompt-suggestions">
-        <button onClick={() => onPrompt(t("promptIdeasText"))}>
-          <span>{t("promptIdeas")}</span>
-          <small>{t("promptIdeasHint")}</small>
+        <button onClick={() => onPrompt(t("promptExplainText"))}>
+          <span>{t("promptExplain")}</span>
+          <small>{t("promptExplainHint")}</small>
           <Icon name="arrowUp" />
         </button>
-        <button onClick={() => onPrompt(t("promptFilesText"))}>
-          <span>{t("promptFiles")}</span>
-          <small>{t("promptFilesHint")}</small>
+        <button onClick={() => onPrompt(t("promptCheckText"))}>
+          <span>{t("promptCheck")}</span>
+          <small>{t("promptCheckHint")}</small>
           <Icon name="arrowUp" />
         </button>
-        <button onClick={() => onPrompt(t("promptStepsText"))}>
-          <span>{t("promptSteps")}</span>
-          <small>{t("promptStepsHint")}</small>
+        <button onClick={() => onPrompt(t("promptMaterialText"))}>
+          <span>{t("promptMaterial")}</span>
+          <small>{t("promptMaterialHint")}</small>
           <Icon name="arrowUp" />
         </button>
       </div>
