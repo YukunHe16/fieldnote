@@ -10,7 +10,7 @@
  *     [--conditions on-call,multi-turn] [--families planning_gap,...]
  *     [--items pg-sum-nested,...] [--out data/eval-runs] [--dry-run]
  *     [--learner-model <id>] [--learner-base <url>] [--learner-key <key>]
- *     [--judge-model <id>]
+ *     [--judge-model <id>] [--settle-timeout <seconds>]
  */
 
 import fs from "node:fs/promises";
@@ -25,7 +25,14 @@ const TRY_ANOTHER =
   "I still have not got it. Please try a different way of explaining, and check my understanding again with a new situation.";
 const NUDGE = "Here is my attempt above — can you check my understanding and tell me how I did?";
 const MAX_LEARNER_TURNS = 8;
-const IDLE_TIMEOUT_MS = 300_000;
+/**
+ * How long one tutor turn may take before the harness gives up on the item. The ceiling that
+ * matters is the server's own AGENT_RUN_TIMEOUT_MINUTES; this only decides how long the
+ * harness is willing to wait underneath it. Five minutes fits a fast provider, but a slower
+ * one pushes single turns past it and the item is scored `error` for no fault of the loop —
+ * so it is a flag, not a constant.
+ */
+const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 const POLL_MS = 1_500;
 
 function parseArgs(argv) {
@@ -49,6 +56,7 @@ function parseArgs(argv) {
     else if (key === "--judge-model") args.judgeModel = next();
     else if (key === "--learner-base") args.learnerBase = next();
     else if (key === "--learner-key") args.learnerKey = next();
+    else if (key === "--settle-timeout") args.settleTimeout = Number(next());
     else if (key === "--dry-run") args.dryRun = true;
     else throw new Error(`Unknown argument: ${key}`);
   }
@@ -125,7 +133,7 @@ async function api(base, method, route, body) {
   return response.status === 204 ? null : response.json();
 }
 
-async function waitForIdle(base, conversationId) {
+async function waitForIdle(base, conversationId, idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS) {
   const startedAt = Date.now();
   for (;;) {
     const detail = await api(base, "GET", `/api/conversations/${conversationId}`);
@@ -139,7 +147,7 @@ async function waitForIdle(base, conversationId) {
     } else if (!detail.activeRunId && (detail.queuedRuns ?? []).length === 0) {
       return detail;
     }
-    if (Date.now() - startedAt > IDLE_TIMEOUT_MS) throw new Error(`Run did not settle within ${IDLE_TIMEOUT_MS}ms`);
+    if (Date.now() - startedAt > idleTimeoutMs) throw new Error(`Run did not settle within ${idleTimeoutMs}ms`);
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 }
@@ -401,7 +409,7 @@ async function runItem(cfg, item, condition, log) {
       mode: "normal"
     });
     record.learnerTurns += 1;
-    let detail = await waitForIdle(cfg.base, conversation.id);
+    let detail = await waitForIdle(cfg.base, conversation.id, cfg.idleTimeoutMs);
     const answered = new Set();
     let lastAnswer = "";
     let lastPostAnswer = "";
@@ -446,7 +454,7 @@ async function runItem(cfg, item, condition, log) {
           mode: "normal"
         });
         record.learnerTurns += 1;
-        detail = await waitForIdle(cfg.base, conversation.id);
+        detail = await waitForIdle(cfg.base, conversation.id, cfg.idleTimeoutMs);
         continue;
       }
       stalls = 0;
@@ -475,7 +483,7 @@ async function runItem(cfg, item, condition, log) {
           mode: "normal"
         });
         record.learnerTurns += 1;
-        detail = await waitForIdle(cfg.base, conversation.id);
+        detail = await waitForIdle(cfg.base, conversation.id, cfg.idleTimeoutMs);
         continue;
       }
       // Verification awaiting the learner's answer. The state is read BEFORE this answer is
@@ -489,7 +497,7 @@ async function runItem(cfg, item, condition, log) {
         mode: "normal"
       });
       record.learnerTurns += 1;
-      detail = await waitForIdle(cfg.base, conversation.id);
+      detail = await waitForIdle(cfg.base, conversation.id, cfg.idleTimeoutMs);
     }
 
     const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
@@ -742,6 +750,7 @@ async function main() {
     learnerBase: (args.learnerBase ?? env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, ""),
     learnerKey: args.learnerKey ?? env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "",
     tier: args.tier,
+    idleTimeoutMs: args.settleTimeout ? args.settleTimeout * 1_000 : DEFAULT_IDLE_TIMEOUT_MS,
     learnerModel: bareModelId(configuredModel)
   };
   // The judge grades the post-test; it never sees the persona and never plays the learner.
@@ -758,6 +767,10 @@ async function main() {
     }`
   );
   log(`Post-test judge: ${cfg.judgeModel} (literal patterns kept as a second opinion)`);
+  if (cfg.idleTimeoutMs !== DEFAULT_IDLE_TIMEOUT_MS)
+    log(
+      `Per-turn settle budget: ${(cfg.idleTimeoutMs / 1000).toFixed(0)}s (default ${DEFAULT_IDLE_TIMEOUT_MS / 1000}s)`
+    );
   if (args.dryRun) {
     for (const item of items) log(`  - ${item.id} (${item.difficultyType}) · ${item.concepts.length} concepts`);
     log("Dry run only; nothing was executed.");
