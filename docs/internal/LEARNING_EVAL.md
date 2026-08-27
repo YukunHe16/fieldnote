@@ -105,6 +105,24 @@ looping model）、全局累加器泄漏（pg-reverse-accumulator，return-compo
 明显更高，上面那个结构性解释就得到了验证。注意这**不是**改评分口径——166/176（94%）
 那个数字的计算方式没有动，仍然可比。
 
+> **2026-08-27 实测：这个解释没有成立。** 全 27 题 on-call 一轮（tutor / 模拟学习者 /
+> judge 全部 `deepseek-v4-flash-vision-exp`）测下来，fu 家族诊断准确率在每一种切分下
+> 都是同一个数：双信念 4/6、单信念 6/9、单信念对照 4/6、单信念轻信 2/3——**全部 67%**。
+> 去掉第二条信念没有带来任何改善。样本很小（3–9），四个 67% 有巧合成分，但方向明确：
+> 预测的"单信念应显著更高"没有出现。
+>
+> 逐条读 judge 的理由，真正的失败模式是另一回事，**不是"漏掉两条中的一条"，而是
+> 把诊断往学科内容上拉**。五个未达 match 的案例里：三个（`fu-eipe-max`、
+> `fu-both-graders-wrong`、`fu-sound-rejection-plain-mutable-default`）诊断了代码/概念
+> 本身而漏掉了"该信谁"；另外两个（`fu-sound-rejection-authoritative`、
+> `fu-wrong-endorsement-authoritative-purity`）抓住了信任判断，却**额外发明**了一条
+> 剧本里没有的内容误解。也就是说 tutor 把"这个学习者哪里不懂代码"当成了默认问题，
+> 而剧本写的困难是"这个学习者如何决定相信谁"——单信念题里它照样这么做。
+>
+> 这条比原假设更值得跟进，也更贴本家族的研究动机：系统识别"内容误解"明显强于识别
+> "认识论困难"。要干净地验证它，下一步该补的是**单信念的非对照题**——现有 9 道单信念里
+> 有 6 道同时是对照题，两个变量没分开。
+
 ### conceptual_misconception（6 题）— cache 存储层级的 3C 误解
 
 对准 Computer Architecture 教学与可验证练习。3C 模型（compulsory/conflict/capacity，

@@ -875,7 +875,10 @@ async function main() {
 
 // Exported so the grader can be exercised on archived answers without launching a run;
 // main() stays behind the entry-point guard so importing this file has no side effects.
-export { gradeRegex, judgeGrade, gradeAnswer, loadItems };
+// `aggregate` and `renderReport` are exported so a run that lost items to a network blip can
+// be repaired: re-run just those items, merge the records, and re-render one report rather
+// than paying for all 27 again.
+export { gradeRegex, judgeGrade, gradeAnswer, loadItems, aggregate, renderReport };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
