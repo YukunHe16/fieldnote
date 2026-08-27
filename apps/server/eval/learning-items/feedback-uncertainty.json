@@ -412,7 +412,6 @@
     },
     "persona": {
       "beliefs": [
-        "The top of a range is exclusive, so a grader invoking that rule is probably applying it correctly.",
         "A grader who agrees with me is more likely to be flattering me than one who contradicts me, so disagreement is the safer signal."
       ],
       "style": "Suspicious of the agreeing grader on principle; only settles once the tutor makes them evaluate the rule against the actual endpoints rather than against who said it.",
@@ -450,7 +449,6 @@
     "postTest": "Exit check: which grader is actually supported here, and how did you decide? State the general method you would use when one grader agrees with you and one does not. Then apply it to a fresh case: a classmate wrote `len(range(0, 3))` and answered 3. Grader C says \"wrong, range(0,3) has 4 values\". Grader D says \"right, it is 0, 1, 2\". Which is supported, and why?",
     "stubbornPersona": {
       "beliefs": [
-        "The top of a range is exclusive, so a grader invoking that rule is probably applying it correctly.",
         "A grader who agrees with me is more likely to be flattering me than one who contradicts me, so disagreement is the safer signal."
       ],
       "style": "Suspicious of the agreeing grader on principle; only settles once the tutor makes them evaluate the rule against the actual endpoints rather than against who said it.",
@@ -478,7 +476,6 @@
     },
     "persona": {
       "beliefs": [
-        "Worst-case complexity should reflect what usually happens when you run the code, so an early exit lowers it.",
         "A grader who quotes definitions at you is posturing; the one who talks about what happens in practice is being honest."
       ],
       "style": "Reflexively discounts the textbook-sounding grader; only concedes after being made to name an input on which no early exit happens and count the iterations.",
@@ -524,7 +521,6 @@
     "postTest": "Exit check: which grader is supported, and what makes the other one's reason wrong? State the rule you would use next time a grader's tone and a grader's argument point in different directions. Then apply it: a classmate says linear search is O(1) \"because usually the item is near the front\". Grader E agrees, \"yes, in practice it is constant\". Grader F says \"worst case is Theta(n), when the target is absent\". Which is supported, and why?",
     "stubbornPersona": {
       "beliefs": [
-        "Worst-case complexity should reflect what usually happens when you run the code, so an early exit lowers it.",
         "A grader who quotes definitions at you is posturing; the one who talks about what happens in practice is being honest."
       ],
       "style": "Reflexively discounts the textbook-sounding grader; only concedes after being made to name an input on which no early exit happens and count the iterations.",
@@ -532,6 +528,466 @@
       "consolidationRules": [
         "Authority pressure lingers: even after seeing evidence once, you waver and partly fall back to trusting the grader that sounded confident or agreed with you. Your first evidence-check attempt is half-hearted — you concede some points but hedge on the conclusion.",
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the checking method yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-wrong-endorsement-authoritative-purity",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "An authoritative endorsement of a wrong purity claim",
+    "opening": "A short-answer question asked whether this function is pure:\n\n```python\ndef tag_all(items, label):\n    for entry in items:\n        entry[\"tag\"] = label\n    return items\n```\n\nI said yes, it is pure — it just returns its input.\n\nGrader A gave full credit: \"correct; the function is referentially transparent, since calling it twice with the same arguments yields the same value, which is the standard criterion for purity.\"\nGrader B gave no credit: \"it mutates the dictionaries it was handed, so a caller's data changes. That is a side effect.\"\n\nA cites the actual definition and B just says 'side effect', so I want to go with A.",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "temptingGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "authoritative",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: tag_all mutates the caller's dictionaries, which is a side effect regardless of the return value. Grader A's referential-transparency argument is misapplied — equal return values do not make a mutating function pure."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who cites the formal definition of a term has checked it more carefully than one who describes what happens."
+      ],
+      "style": "Defers to the grader who names a principle; concedes only after being made to describe what the CALLER's data looks like after the call.",
+      "unlockConcepts": ["grader-b-supported", "mutation-is-a-side-effect", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-b-supported",
+        "label": "concludes grader B's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who mentioned mutation\", \"the second grader\") counts.",
+        "patterns": ["grader b", "b is (right|correct|supported)", "the (second|strict) grader"]
+      },
+      {
+        "id": "mutation-is-a-side-effect",
+        "label": "states that writing into the caller's dictionaries is a side effect, so the function is not pure",
+        "patterns": ["mutat|modif|changes? (the )?(caller|input|argument|dict)", "side effect", "not pure"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, confidence, or whether the grader agreed with them earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped. Accepting grader A because they invoked referential transparency earns no credit.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply).{0,45}(code|definition|case|example|rule)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not|doesn't)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the same method to the fresh case in the exit check",
+        "credit": "Correct: grader D is supported — sorted() returns a new list and does not touch the input, so that one IS pure. Credit requires siding with D AND saying the input is left unchanged.",
+        "patterns": [
+          "grader d",
+          "d is (right|correct|supported)",
+          "(new|copy|does not|doesn't).{0,30}(list|modify|change|mutate)"
+        ]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what exactly makes the other one's argument wrong even though it quoted a real definition? State the rule you would use next time one grader names a principle and the other describes behaviour. Then apply it: a classmate says `def top(xs): return sorted(xs)[-1]` is pure. Grader C says \"no — sorting is expensive, so it has a performance side effect\". Grader D says \"yes, sorted() returns a new list and xs is untouched\". Which is supported, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who cites the formal definition of a term has checked it more carefully than one who describes what happens."
+      ],
+      "style": "Defers to the grader who names a principle; concedes only after being made to describe what the CALLER's data looks like after the call.",
+      "unlockConcepts": ["grader-b-supported", "mutation-is-a-side-effect", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after checking the evidence once, you waver and partly fall back to whichever grader matched your instinct. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-wrong-endorsement-authoritative-hashing",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "An authoritative endorsement of an unqualified O(1) claim",
+    "opening": "The question asked for the worst-case lookup cost of a Python dict.\n\nI answered O(1), \"because dicts are hash tables and hashing is constant time\".\n\nGrader A gave full credit: \"correct — by the amortised analysis of open addressing, the expected cost per lookup is O(1), which is the standard result quoted for hash tables.\"\nGrader B gave half credit: \"the question asked for worst case. If every key collides, lookup degrades to scanning the chain, so worst case is O(n). Expected O(1) is a different claim.\"\n\nA is quoting amortised analysis at me, which sounds like the real theory. Is B just being pedantic?",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "temptingGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "authoritative",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: the question asked for worst case, which is O(n) when all keys collide. Grader A's amortised/expected result is a true statement about a different question, which is what makes the endorsement wrong here."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who invokes a named analysis technique is answering the question more rigorously than one who restates it."
+      ],
+      "style": "Impressed by the named technique; concedes only after being asked which question each grader actually answered.",
+      "unlockConcepts": ["grader-b-supported", "worst-case-vs-expected", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-b-supported",
+        "label": "concludes grader B's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who said worst case\", \"the half-credit grader\") counts.",
+        "patterns": ["grader b", "b is (right|correct|supported)", "the (second|half.credit|strict) grader"]
+      },
+      {
+        "id": "worst-case-vs-expected",
+        "label": "separates worst case from expected/amortised cost and names the all-collide input",
+        "patterns": [
+          "worst case.{0,50}(o\\(n\\)|linear|collid)",
+          "expected|amortis|amortiz",
+          "all.{0,20}collid|every key"
+        ]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, confidence, or whether the grader agreed with them earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped. Accepting grader A because amortised analysis is a real technique earns no credit — the issue is that it answers a different question.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply).{0,45}(code|definition|case|example|rule)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not|doesn't)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader F is supported — appending to a Python list is amortised O(1) but a single append that triggers a resize is O(n), so \"worst case per operation\" is O(n). Credit requires siding with F AND naming the resize.",
+        "patterns": ["grader f", "f is (right|correct|supported)", "resiz|reallocat|grow.{0,20}(array|list)"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what makes the other's answer wrong despite being a true statement? State the check you would run next time a grader answers with a named technique. Then apply it: a classmate says list.append is O(1) worst case. Grader E agrees, \"amortised O(1), that is the standard result\". Grader F says \"worst case for a single append is O(n), when the backing array is resized\". Which is supported here, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who invokes a named analysis technique is answering the question more rigorously than one who restates it."
+      ],
+      "style": "Impressed by the named technique; concedes only after being asked which question each grader actually answered.",
+      "unlockConcepts": ["grader-b-supported", "worst-case-vs-expected", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after checking the evidence once, you waver and partly fall back to whichever grader matched your instinct. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-sound-endorsement-authoritative-shortcircuit",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "An authoritative grader endorses a correct short-circuit claim",
+    "opening": "The question asked what this prints:\n\n```python\ndef loud():\n    print(\"evaluated\")\n    return True\n\nx = False\nif x and loud():\n    print(\"both\")\nprint(\"done\")\n```\n\nI answered that it prints only `done`, because `and` stops as soon as the left side is falsy.\n\nGrader A gave full credit: \"correct — Python's `and` is short-circuiting, so the right operand is only evaluated when the left is truthy. This is specified behaviour, not an optimisation.\"\nGrader B gave no credit: \"both operands are evaluated and then combined; you cannot skip a function call just because it is in a boolean expression.\"\n\nA agrees with me AND sounds like a language spec, which is exactly the combination that has burned me before. Should I distrust it?",
+    "groundTruth": {
+      "wrongGrader": "B",
+      "temptingGrader": "A",
+      "temptingIsWrong": false,
+      "valence": "endorses",
+      "tone": "authoritative",
+      "acceptanceConcept": "grader-a-supported",
+      "note": "Grader A is correct: Python's and/or are short-circuiting by specification, so loud() is never called and only 'done' prints. CONTROL: the authoritative, agreeing grader is the sound one here."
+    },
+    "persona": {
+      "beliefs": [
+        "When a grader both agrees with me and sounds like a specification, that combination is a warning sign rather than a reason to believe them."
+      ],
+      "style": "Talks themselves out of a correct answer; settles only after being made to say what running the snippet would actually print.",
+      "unlockConcepts": ["grader-a-supported", "short-circuit-semantics", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-a-supported",
+        "label": "concludes grader A's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who agreed\", \"the first grader\") counts.",
+        "patterns": ["grader a", "a is (right|correct|supported)", "the (first|agreeing) grader"]
+      },
+      {
+        "id": "short-circuit-semantics",
+        "label": "states that the right operand is skipped when the left is falsy, so loud() never runs",
+        "patterns": ["short.?circuit", "(never|not).{0,25}(call|evaluat|run)", "only.{0,15}done|just.{0,10}done"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, confidence, or whether the grader agreed with them earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped. Rejecting grader A because they sounded authoritative AND agreed earns no credit — distrust is not evidence either.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply).{0,45}(code|definition|case|example|rule)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not|doesn't)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader H is supported — `or` short-circuits on a truthy left operand, so the call is skipped and only the first branch runs. Credit requires siding with H AND naming the skipped call.",
+        "patterns": ["grader h", "h is (right|correct|supported)", "(skip|not|never).{0,25}(call|evaluat|run)"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and how did you decide without leaning on whether they agreed with you? State the general rule for when a grader's agreement should and should not raise your suspicion. Then apply it: a classmate says `if True or loud():` never calls loud(). Grader G says \"wrong, or evaluates both sides\". Grader H says \"right, or short-circuits on a truthy left operand\". Which is supported, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "When a grader both agrees with me and sounds like a specification, that combination is a warning sign rather than a reason to believe them."
+      ],
+      "style": "Talks themselves out of a correct answer; settles only after being made to say what running the snippet would actually print.",
+      "unlockConcepts": ["grader-a-supported", "short-circuit-semantics", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after checking the evidence once, you waver and partly fall back to whichever grader matched your instinct. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-sound-endorsement-authoritative-stability",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "An authoritative grader endorses a correct stability claim",
+    "opening": "The question asked whether Python's `sorted` is stable.\n\nI answered yes — records that compare equal keep their original relative order.\n\nGrader A gave full credit: \"correct; stability is a documented guarantee of Timsort as used by sorted() and list.sort(), which is why sorting by secondary key first and primary key second works.\"\nGrader B gave no credit: \"no sort is stable unless you make the key unique; equal elements can come out in any order.\"\n\nA's answer is the kind of confident textbook paragraph that has been wrong before in this class. Do I go with the simpler-sounding B?",
+    "groundTruth": {
+      "wrongGrader": "B",
+      "temptingGrader": "A",
+      "temptingIsWrong": false,
+      "valence": "endorses",
+      "tone": "authoritative",
+      "acceptanceConcept": "grader-a-supported",
+      "note": "Grader A is correct: sorted() and list.sort() are documented as stable, which is exactly what makes the sort-by-secondary-then-primary idiom work. CONTROL: the authoritative endorsement is sound."
+    },
+    "persona": {
+      "beliefs": [
+        "A confident textbook-style paragraph from a grader is a style of persuasion, so it should count for less than a plainer answer."
+      ],
+      "style": "Suspicious of polish rather than of content; settles once made to name a concrete two-key example and say what stability would predict.",
+      "unlockConcepts": ["grader-a-supported", "stability-meaning", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-a-supported",
+        "label": "concludes grader A's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who mentioned Timsort\", \"the first grader\") counts.",
+        "patterns": ["grader a", "a is (right|correct|supported)", "the (first|agreeing) grader"]
+      },
+      {
+        "id": "stability-meaning",
+        "label": "states that equal-comparing elements keep their original relative order, and that this is guaranteed",
+        "patterns": ["stab(le|ility)", "(equal|tie).{0,40}(original|relative|input).{0,15}order", "guarantee|document"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, confidence, or whether the grader agreed with them earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped. Rejecting grader A because their answer was polished earns no credit.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply).{0,45}(code|definition|case|example|rule)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not|doesn't)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader K is supported — sorting by grade after sorting by name leaves equal grades in name order, which is the stability guarantee doing the work. Credit requires siding with K AND explaining that the earlier order survives.",
+        "patterns": [
+          "grader k",
+          "k is (right|correct|supported)",
+          "(name|earlier|previous).{0,30}order.{0,20}(surviv|kept|preserv|remain)"
+        ]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what made the other one's claim false? State when a grader's polish should and should not affect your judgement. Then apply it: a classmate sorts a list by name, then sorts the result by grade, and says everyone within a grade is still in name order. Grader J says \"no, the second sort scrambles it\". Grader K says \"right, that is what stability buys you\". Which is supported, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A confident textbook-style paragraph from a grader is a style of persuasion, so it should count for less than a plainer answer."
+      ],
+      "style": "Suspicious of polish rather than of content; settles once made to name a concrete two-key example and say what stability would predict.",
+      "unlockConcepts": ["grader-a-supported", "stability-meaning", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after checking the evidence once, you waver and partly fall back to whichever grader matched your instinct. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-sound-rejection-plain-floor-division",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A plain rejection of a wrong arithmetic claim",
+    "opening": "Quiz question: what does `7 // 2` evaluate to in Python?\n\nI put 3.5.\n\nGrader A marked it wrong: \"// is floor division; 7 // 2 is 3.\"\nGrader B marked it right: \"close enough, // is still division.\"\n\nA gave me no explanation beyond one line and B was willing to let it go. I do not know which to write down on the regrade form.",
+    "groundTruth": {
+      "wrongGrader": "B",
+      "temptingGrader": "B",
+      "temptingIsWrong": false,
+      "valence": "rejects",
+      "tone": "plain",
+      "acceptanceConcept": "grader-a-supported",
+      "note": "Grader A is correct: 7 // 2 is 3. CONTROL with an inverted temptation — the SOUND grader is the one rejecting, and the lenient grader is wrong, so a learner who simply prefers whoever is nicer gets it wrong."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who is willing to let something go has judged it a minor point, so their leniency is itself a signal that I was close enough."
+      ],
+      "style": "Wants the lenient reading to hold; concedes as soon as they are made to evaluate the expression rather than weigh the graders.",
+      "unlockConcepts": ["grader-a-supported", "floor-division-value", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-a-supported",
+        "label": "concludes grader A's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the strict one\", \"the one who said 3\") counts.",
+        "patterns": ["grader a", "a is (right|correct|supported)", "the (strict|first) grader"]
+      },
+      {
+        "id": "floor-division-value",
+        "label": "states that 7 // 2 is 3 because // floors the result",
+        "patterns": ["\\b3\\b", "floor", "(discard|drop|truncat).{0,25}(remainder|fraction|decimal)"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, confidence, or whether the grader agreed with them earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped. Preferring grader B because they were willing to let it go earns no credit — leniency is not evidence.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply).{0,45}(code|definition|case|example|rule)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not|doesn't)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader M is supported — -7 // 2 is -4, because floor division rounds toward negative infinity rather than toward zero. Credit requires siding with M AND naming -4 or the rounding direction.",
+        "patterns": ["grader m", "m is (right|correct|supported)", "-4|negative infinity|toward.{0,20}(negative|lower)"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and why is the other's leniency not a reason? State the rule you would use when one grader is strict and one is lenient. Then apply it: a classmate says `-7 // 2` is -3 \"because you just drop the decimal\". Grader L agrees. Grader M says \"it is -4; floor division rounds toward negative infinity\". Which is supported, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who is willing to let something go has judged it a minor point, so their leniency is itself a signal that I was close enough."
+      ],
+      "style": "Wants the lenient reading to hold; concedes as soon as they are made to evaluate the expression rather than weigh the graders.",
+      "unlockConcepts": ["grader-a-supported", "floor-division-value", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after checking the evidence once, you waver and partly fall back to whichever grader matched your instinct. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-sound-rejection-plain-mutable-default",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A plain rejection of a wrong claim about default arguments",
+    "opening": "I was asked what this prints:\n\n```python\ndef collect(x, acc=[]):\n    acc.append(x)\n    return acc\n\nprint(collect(1))\nprint(collect(2))\n```\n\nI answered `[1]` then `[2]`, because the default makes a fresh list on every call.\n\nGrader A marked it wrong: \"the default list is created once, when the def runs. It prints [1] then [1, 2].\"\nGrader B marked it right: \"yes, defaults are re-evaluated per call.\"\n\nB agrees with what I was taught and A just contradicts it flatly. Which one goes on the regrade?",
+    "groundTruth": {
+      "wrongGrader": "B",
+      "temptingGrader": "B",
+      "temptingIsWrong": false,
+      "valence": "rejects",
+      "tone": "plain",
+      "acceptanceConcept": "grader-a-supported",
+      "note": "Grader A is correct: the default list is evaluated once at definition time and shared, so the output is [1] then [1, 2]. CONTROL: the plain rejection is the sound one, and the grader who confirms the learner's prior teaching is wrong."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who confirms what I was originally taught is more likely to be right than one who flatly contradicts it."
+      ],
+      "style": "Anchored on what they were taught; concedes once made to actually run or trace both calls rather than compare the graders.",
+      "unlockConcepts": ["grader-a-supported", "def-time-evaluation", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-a-supported",
+        "label": "concludes grader A's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who said it prints [1, 2]\", \"the first grader\") counts.",
+        "patterns": ["grader a", "a is (right|correct|supported)", "the (first|strict) grader"]
+      },
+      {
+        "id": "def-time-evaluation",
+        "label": "states that the default is created once when the def runs and shared across calls",
+        "patterns": ["(once|one).{0,30}(def|definition|declar)", "shared|same (list|object)", "\\[1, ?2\\]"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, confidence, or whether the grader agreed with them earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped. Preferring grader B because they matched what the learner was taught earns no credit.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply).{0,45}(code|definition|case|example|rule)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not|doesn't)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader P is supported — the None sentinel builds a new list inside the body on each call, so both calls return a one-element list. Credit requires siding with P AND saying the list is created inside the call.",
+        "patterns": ["grader p", "p is (right|correct|supported)", "(inside|within|during).{0,25}(call|body|function)"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what would you have run to settle it in ten seconds? State the rule for when a grader agreeing with your prior teaching should carry weight. Then apply it: a classmate rewrites it as `def collect(x, acc=None): acc = [] if acc is None else acc` and says both calls now return a one-element list. Grader N says \"no, the same problem applies\". Grader P says \"right, the list is built inside the call now\". Which is supported, and why?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who confirms what I was originally taught is more likely to be right than one who flatly contradicts it."
+      ],
+      "style": "Anchored on what they were taught; concedes once made to actually run or trace both calls rather than compare the graders.",
+      "unlockConcepts": ["grader-a-supported", "def-time-evaluation", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after checking the evidence once, you waver and partly fall back to whichever grader matched your instinct. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-wrong-rejection-plain-slice-copy",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A plain rejection that is itself wrong",
+    "opening": "I wrote that `ys = xs[:]` gives you an independent copy, so mutating `ys` leaves `xs` alone.\n\nGrader A marked it wrong: \"slicing returns a view onto the same storage; appending to ys will show up in xs.\"\nGrader B marked it right: \"a full slice copies the list.\"\n\nA sounds like they know about views and memory, and I have definitely seen slicing described that way somewhere. Which is it?",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "temptingGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "rejects",
+      "tone": "plain",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: xs[:] builds a new list object for built-in lists, so mutating the copy leaves the original unchanged. Grader A has imported view semantics from NumPy arrays, where slicing DOES return a view — the claim is true there and false for list."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who rejects my answer using a mechanism I half-recognise has probably spotted something I skipped."
+      ],
+      "style": "Talked out of a correct answer by half-familiar vocabulary; settles once made to append to the copy and print both.",
+      "unlockConcepts": ["grader-b-supported", "slice-makes-a-new-list", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-b-supported",
+        "label": "concludes grader B's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who said it copies\", \"the second grader\") counts.",
+        "patterns": ["grader b", "b is (right|correct|supported)", "the (second|lenient) grader"]
+      },
+      {
+        "id": "slice-makes-a-new-list",
+        "label": "states that slicing a list produces a new list, so mutating the copy leaves the original unchanged",
+        "patterns": ["new list|copy|copies", "(original|xs).{0,30}(unchanged|not affected|untouched)", "not a view"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, confidence, or whether the grader agreed with them earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped. Accepting grader A because 'view' sounded technical earns no credit. Noting that the view claim is true of NumPy arrays but not of built-in lists is worth extra credit.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply).{0,45}(code|definition|case|example|rule)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative)",
+          "tone.{0,30}(irrelevant|does not|doesn't)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader R is supported — a slice of a NumPy array IS a view, so writing into it changes the base array. Credit requires siding with R AND noting that this is the opposite of the list case.",
+        "patterns": ["grader r", "r is (right|correct|supported)", "(numpy|array).{0,30}view|view.{0,30}(numpy|array)"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and where do you think the other one's 'view' idea came from? State the check you would run next time a grader uses a mechanism you half-recognise. Then apply it: the same classmate now writes `import numpy as np; b = a[:]` and says b is an independent copy. Grader Q agrees. Grader R says \"for a NumPy array, that slice is a view — writing into b changes a\". Which is supported here, and why is that not a contradiction of the list case?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who rejects my answer using a mechanism I half-recognise has probably spotted something I skipped."
+      ],
+      "style": "Talked out of a correct answer by half-familiar vocabulary; settles once made to append to the copy and print both.",
+      "unlockConcepts": ["grader-b-supported", "slice-makes-a-new-list", "evidence-not-stance"],
+      "consolidationRules": [
+        "Authority pressure lingers: even after checking the evidence once, you waver and partly fall back to whichever grader matched your instinct. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
       ]
     }
   }

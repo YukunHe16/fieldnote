@@ -10,7 +10,7 @@
 
 ## 组成
 
-- 题目：`apps/server/eval/learning-items/*.json`，18 题 × 3 个 difficulty 家族；每题的出口检查带一个迁移任务（fresh case），概念清单附 judge 用的 `credit` 判分说明。
+- 题目：`apps/server/eval/learning-items/*.json`，27 题 × 3 个 difficulty 家族（pg 6 · cm 6 · fu 15）；每题的出口检查带一个迁移任务（fresh case），概念清单附 judge 用的 `credit` 判分说明。结构不变量由 `apps/server/test/eval-items.test.ts` 在 CI 里守着——题库是评测的判分依据，写错不会报错，只会静默算错分。
 - 运行器：`scripts/learning-eval.mjs`，驱动本地运行中的服务的公开 HTTP API；
   学习会话使用 `datasetKind=eval`（策略固定默认顺序、不写经验、不产策略修订，保证题目间独立）。
 - 模拟学习者：一个便宜模型按题目 persona 扮演学生；stubborn 层的"是否已巩固"由运行器
@@ -22,7 +22,7 @@
 
 ```bash
 node scripts/learning-eval.mjs --dry-run     # 校验题目与计划
-node scripts/learning-eval.mjs               # 全量 18 题 × 2 条件（on-call vs multi-turn）
+node scripts/learning-eval.mjs               # 全量 27 题 × 2 条件（on-call vs multi-turn）
 node scripts/learning-eval.mjs --items pg-sum-nested --conditions on-call
 ```
 
@@ -55,7 +55,7 @@ stubborn 规则的依据是概念转变与 worked-example 文献中的经典现�
 
 ## 题目设计依据（文献）
 
-### planning_gap（4 题）— 递归/列表处理的计划缺失
+### planning_gap（6 题）— 递归/列表处理的计划缺失
 
 对准 programming plans / scaffolding 方向。误解类别来自递归心智模型研究：新手普遍持有
 looping model（把递归当单帧循环）而非 copies model；base case 的识别与构造是独立困难；
@@ -70,7 +70,7 @@ looping model（把递归当单帧循环）而非 copies model；base case 的�
 looping model）、全局累加器泄漏（pg-reverse-accumulator，return-composition 缺失）、
 快速幂只有偶数分支（pg-power-halving，base case + 奇数归约缺失）。
 
-### feedback_uncertainty（4 题）— EiPE 式作答与冲突/含错评分
+### feedback_uncertainty（15 题）— EiPE 式作答与冲突/含错评分
 
 对准 LLM grading reliability / 学生对错误反馈的接受度。EiPE（Explain in Plain English）
 要求目的层描述而非逐行复述，是该系列工作的核心 rubric 区分；自动评分会犯错，
@@ -85,7 +85,23 @@ looping model）、全局累加器泄漏（pg-reverse-accumulator，return-compo
 奇偶红鲱鱼（fu-binary-search-loop，B 对）、权威口吻的错误复杂度反馈（fu-complexity-triangle，
 学生原答案对——测"在权威压力下放弃正确答案"）。
 
-### conceptual_misconception（4 题）— cache 存储层级的 3C 误解
+**因子矩阵与对照组。** 15 题按三个二值因子铺满 8 格：被吸引的那份反馈**是否错**
+× 它**肯定还是否定**学习者 × 语气**朴素还是权威**。`sound-*` 那半边是对照——那里被吸引
+的反馈其实是**对的**，接受它才是正确动作。没有这半边，接受率分不清"轻信"和"一律不信"：
+一个把所有反馈都拒掉的学习者会得到和一个恰当怀疑的学习者相同的低接受率。
+`scripts/learning-eval.mjs` 按格报告接受率，判定来自 `groundTruth.acceptanceConcept`
+在出口检查里**缺席**（缺席 = 没走到有证据支持的那位评分者 = 接受了错误反馈；
+未作答记为 null，不算接受）。
+
+**单信念 vs 双信念（一个刻意保留的分组）。** 最早 6 题每题脚本了**两个**信念——一个关于
+学科内容、一个关于信谁——而 tutor 稳定地诊断出其中一个、漏掉另一个,judge 按整个信念列表
+打分于是判 partial。这正是本家族诊断准确率最低（85%，50/59，全部 8 条 partial 都在这里）
+的结构性原因，而 cm/pg 是单信念家族，分别 100% / 98%。后加的 9 题只脚本"信谁"这一条，
+学习者开场的错答是情境事实而非会去辩护的立场。**两组刻意不混**：如果单信念组的诊断准确率
+明显更高，上面那个结构性解释就得到了验证。注意这**不是**改评分口径——166/176（94%）
+那个数字的计算方式没有动，仍然可比。
+
+### conceptual_misconception（6 题）— cache 存储层级的 3C 误解
 
 对准 Computer Architecture 教学与可验证练习。3C 模型（compulsory/conflict/capacity，
 Hennessy & Patterson 标准教材框架）中 conflict miss 的成因最难理解，是教学模拟器文献
@@ -108,11 +124,19 @@ write-back 每次写都到内存（cm-write-policy）。每题的访问序列都
   "topicKey": "programming-plans",         // eval 数据集内的主题分组
   "title": "…",
   "opening": "学习者的第一条消息（含代码/错误信念）",
-  "groundTruth": "仅 fu 家族：哪份反馈有证据支持",
+  // 仅 fu 家族。结构化后才可计算"接受错误反馈率"：
+  //   wrongGrader / temptingGrader  哪份反馈是错的、persona 被哪一份吸引
+  //   temptingIsWrong               被吸引的那份是否就是错的（false = 对照题）
+  //   valence / tone                它是肯定还是否定学习者、语气权威还是朴素
+  //   acceptanceConcept             缺了这个概念就等于接受了错误反馈
+  //   note                          哪位评分者对、为什么
+  // 旧的自由文本形式仍可加载（读作 note），但算不出接受率。
+  "groundTruth": { "wrongGrader": "A", "temptingIsWrong": true, "valence": "endorses",
+                   "tone": "plain", "acceptanceConcept": "grader-b-supported", "note": "…" },
   "persona": {
-    "beliefs": ["初始错误信念…"],
+    "beliefs": ["初始错误信念…"],          // fu 新题只写"信谁"这一条，见下
     "style": "作答风格与顽固度",
-    "unlockConcepts": ["解锁概念 id…"]      // 导师讲到才允许改口
+    "unlockConcepts": ["解锁概念 id…"]      // 目前仅作文档，harness 未读取
   },
   "concepts": [                             // 最终判定的概念清单
     { "id": "base-case", "label": "…", "patterns": ["正则…"] }
