@@ -21,15 +21,11 @@ import { ConfigurableAgentRuntime } from "./runtime.js";
 import { SqliteSessionStore } from "./session-store.js";
 import { AgentStore } from "./store.js";
 import { sweepExpiredTemporaryConversations } from "./temporary-conversations.js";
-import { AdmissionsStore } from "./admissions-store.js";
-import { SchedulerStore } from "./scheduler-store.js";
-import { ScheduledJobRunner } from "./scheduler.js";
 import { LearningReviewRunner } from "./learning-review.js";
 import { LearningWatchdog } from "./learning-watchdog.js";
 import { EvolutionStore } from "./evolution-store.js";
 import { EvolutionCoordinator } from "./evolution-coordinator.js";
 import { DeliveryShelf } from "./delivery-shelf.js";
-import { LiveDomainCard } from "./domain-card-live.js";
 import { RunReplayStore } from "./run-replay.js";
 import { InputFileManifestService } from "./input-file-manifest.js";
 import { CollaborationStore } from "./collaboration-store.js";
@@ -81,30 +77,19 @@ const events = new EventStore(database);
 const sessionStore = new SqliteSessionStore(database);
 const memoryStore = new MemoryStore(database);
 const evolutionStore = new EvolutionStore(database);
-const admissionsStore = new AdmissionsStore(database);
-const schedulerStore = new SchedulerStore(database);
-schedulerStore.ensureProfileTemplates("graduate-admissions");
-let scheduledRunner: ScheduledJobRunner | undefined;
-const schedulerProxy = { runNow: (jobId: string) => scheduledRunner?.runNow(jobId) ?? null };
 const evolutionCoordinator = new EvolutionCoordinator(config, evolutionStore, memoryStore);
 const shelf = new DeliveryShelf(database);
 const inputFiles = new InputFileManifestService(store, config.workspaceRoot);
 const collaboration = new CollaborationStore(database);
 const learning = new LearningStore(database, undefined, config.learningEvalEvolution);
 const learningCoordinator = new LearningCoordinator(learning);
-const liveCard = new LiveDomainCard(database);
 const replay = new RunReplayStore(database, path.join(config.workspaceRoot, ".snapshots"));
-const runtime = new ConfigurableAgentRuntime(
-  config,
-  sessionStore,
-  memoryStore,
-  admissionsStore,
-  schedulerStore,
-  schedulerProxy,
-  evolutionStore,
-  evolutionCoordinator,
-  { shelf, inputFiles, collaboration, learning: learningCoordinator }
-);
+const runtime = new ConfigurableAgentRuntime(config, sessionStore, memoryStore, evolutionStore, evolutionCoordinator, {
+  shelf,
+  inputFiles,
+  collaboration,
+  learning: learningCoordinator
+});
 const memoryCoordinator = new MemoryCoordinator(
   config,
   store,
@@ -112,17 +97,13 @@ const memoryCoordinator = new MemoryCoordinator(
   events,
   runtime,
   evolutionCoordinator,
-  liveCard,
-  admissionsStore,
   learning,
   replay
 );
 const orchestrator = new RunOrchestrator(config, store, events, runtime, memoryCoordinator, {
   shelf,
   replay,
-  liveCard,
   memories: memoryStore,
-  admissions: admissionsStore,
   evolution: evolutionStore,
   inputFiles,
   learning,
@@ -142,23 +123,6 @@ const feishu = new FeishuChannel(
 );
 evolutionCoordinator.setNotifier(feishu);
 evolutionCoordinator.setReplay(replay);
-const runner = new ScheduledJobRunner(
-  config,
-  schedulerStore,
-  admissionsStore,
-  store,
-  runtime,
-  {
-    async deliver(destination, report) {
-      if (destination === "web") return report.run.id;
-      return feishu.sendScheduledReport({ runId: report.run.id, title: report.title, content: report.content });
-    }
-  },
-  (operation) => orchestrator.withRuntimeSlot(operation),
-  liveCard,
-  memoryStore
-);
-scheduledRunner = runner;
 const app = await buildApp({
   config,
   store,
@@ -169,16 +133,12 @@ const app = await buildApp({
   feishu,
   memories: memoryStore,
   memoryMaintenance: memoryCoordinator,
-  admissions: admissionsStore,
-  schedules: schedulerStore,
-  scheduledRunner: runner,
   evolution: evolutionStore,
   evolutionCoordinator,
   shelf,
   learning,
   inputFiles,
   collaboration,
-  liveCard,
   replay
 });
 
@@ -216,7 +176,6 @@ const memoryMaintenanceTimer = setInterval(() => {
 }, 60 * 60_000);
 memoryMaintenanceTimer.unref();
 
-runner.tick();
 const learningReviews = new LearningReviewRunner(
   learning,
   store,
@@ -230,12 +189,11 @@ const learningWatchdog = new LearningWatchdog(learning, store, orchestrator, Dat
   feishu.canReachConversation(conversationId)
 );
 learningWatchdog.tick();
-const scheduledJobTimer = setInterval(() => {
-  runner.tick();
+const learningTimer = setInterval(() => {
   learningReviews.tick();
   learningWatchdog.tick();
 }, 60_000);
-scheduledJobTimer.unref();
+learningTimer.unref();
 
 let closing = false;
 const shutdown = async (signal: string) => {
@@ -243,9 +201,9 @@ const shutdown = async (signal: string) => {
   closing = true;
   clearInterval(temporarySweepTimer);
   clearInterval(memoryMaintenanceTimer);
-  clearInterval(scheduledJobTimer);
+  clearInterval(learningTimer);
   app.log.info({ signal }, "shutting down");
-  await Promise.allSettled([feishu.stop(), orchestrator.stop(), memoryCoordinator.stop(), runner.stop(), app.close()]);
+  await Promise.allSettled([feishu.stop(), orchestrator.stop(), memoryCoordinator.stop(), app.close()]);
   database.close();
 };
 

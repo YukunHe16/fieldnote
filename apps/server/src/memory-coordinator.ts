@@ -9,8 +9,6 @@ import { emptyTurnAnalysis } from "./runtime.js";
 import { DEFAULT_PARTICIPANT_ID, type AgentStore, type RunRecord } from "./store.js";
 import type { EvolutionCoordinator } from "./evolution-coordinator.js";
 import { countMatchedPlaybooks, skillLabelsFromBlocks, subagentLabelsFromBlocks } from "./overlay-context.js";
-import type { LiveDomainCard } from "./domain-card-live.js";
-import type { AdmissionsStore } from "./admissions-store.js";
 import type { LearningStore } from "./learning-store.js";
 import { detectLearningOpportunity } from "./learning-opportunity.js";
 import { isEvolutionEligibleConversation } from "./evolution-eligibility.js";
@@ -34,8 +32,6 @@ export class MemoryCoordinator {
     private readonly events: EventStore,
     private readonly runtime: AgentRuntime,
     private readonly evolution?: EvolutionCoordinator,
-    private readonly liveCard?: LiveDomainCard,
-    private readonly admissions?: AdmissionsStore,
     private readonly learning?: LearningStore,
     private readonly replay?: RunReplayStore
   ) {
@@ -292,11 +288,6 @@ export class MemoryCoordinator {
         }
       }
     }
-    this.liveCard?.capture(
-      conversation.profileId,
-      this.memories.stableContext(conversation.profileId),
-      this.admissions
-    );
     return "completed";
   }
 

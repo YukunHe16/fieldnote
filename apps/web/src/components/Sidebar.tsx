@@ -192,7 +192,7 @@ export function Sidebar({
               <button
                 className="new-chat-button"
                 onClick={() => {
-                  void workspace.createConversation(false, workspace.conversation?.profileId ?? "graduate-admissions");
+                  void workspace.createConversation(false, workspace.conversation?.profileId ?? "local-operator");
                   onClose();
                 }}
               >

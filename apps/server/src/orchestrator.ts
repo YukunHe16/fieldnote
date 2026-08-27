@@ -8,13 +8,11 @@ import type { MemoryCoordinator } from "./memory-coordinator.js";
 import { RuntimeInputQueue, type AgentRuntime, type RuntimeEvent } from "./runtime.js";
 import type { AgentStore, RunRecord, StoredAttachment } from "./store.js";
 import { DEFAULT_PARTICIPANT_ID } from "./store.js";
-import { isAgentProfileId, LEGACY_PROFILE_ID } from "./agent-profiles.js";
+import { DEFAULT_PROFILE_ID, isAgentProfileId, LEGACY_PROFILE_ID } from "./agent-profiles.js";
 import { readUiLocale } from "./locale.js";
 import type { DeliveryShelf } from "./delivery-shelf.js";
 import type { RunReplayStore } from "./run-replay.js";
-import type { LiveDomainCard } from "./domain-card-live.js";
 import type { MemoryStore } from "./memory-store.js";
-import type { AdmissionsStore } from "./admissions-store.js";
 import type { EvolutionStore } from "./evolution-store.js";
 import type { InputFileManifestService } from "./input-file-manifest.js";
 import type { InputFileManifestItem } from "./input-file-manifest.js";
@@ -24,9 +22,7 @@ import type { CollaborationStore } from "./collaboration-store.js";
 export type OrchestratorServices = {
   shelf?: DeliveryShelf;
   replay?: RunReplayStore;
-  liveCard?: LiveDomainCard;
   memories?: MemoryStore;
-  admissions?: AdmissionsStore;
   evolution?: EvolutionStore;
   inputFiles?: InputFileManifestService;
   learning?: LearningStore;
@@ -479,7 +475,7 @@ export class RunOrchestrator {
         // Zero crosstalk in BOTH directions: a study participant's run must neither read
         // nor write the owner's memories (memoryEnabled also mounts the memory MCP with
         // remember/forget/search), and must not receive the owner's evolved playbooks,
-        // domain card, or capability artifacts (evolutionEnabled).
+        // or capability artifacts (evolutionEnabled).
         memoryEnabled: !conversation.temporary && conversation.participantId === DEFAULT_PARTICIPANT_ID,
         evolutionEnabled: conversation.participantId === DEFAULT_PARTICIPANT_ID,
         profileId: isAgentProfileId(conversation.profileId) ? conversation.profileId : LEGACY_PROFILE_ID,
@@ -549,7 +545,6 @@ export class RunOrchestrator {
         conversation.profileId,
         frozenInputFiles
       );
-      this.captureDomainCard(conversation.profileId);
       this.events.append({
         type: "message.completed",
         conversationId: run.conversationId,
@@ -1026,19 +1021,10 @@ export class RunOrchestrator {
     return prompts.map((prompt, index) => (index === 0 ? prompt : `补充信息：${prompt}`)).join("\n\n");
   }
 
-  private captureDomainCard(profileId: string): void {
-    if (!this.services?.liveCard) return;
-    this.services.liveCard.capture(
-      profileId,
-      this.services.memories?.stableContext(profileId) ?? [],
-      this.services.admissions
-    );
-  }
-
   private putOnShelf(run: RunRecord, attachment: StoredAttachment): void {
     const conversation = this.store.getConversation(run.conversationId);
     this.services?.shelf?.put({
-      profileId: conversation?.profileId ?? "graduate-admissions",
+      profileId: conversation?.profileId ?? DEFAULT_PROFILE_ID,
       conversationId: run.conversationId,
       attachmentId: attachment.id,
       fileName: attachment.fileName,

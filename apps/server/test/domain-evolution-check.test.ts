@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { evaluateArtifactDomain, runShadowCheck } from "../src/domain-evolution-check.js";
 
 describe("domain evolution check", () => {
-  it("blocks an empty personal method and a resume skill without safety rules", () => {
+  it("blocks an empty personal method, a resume skill without safety rules, and a one-step skill", () => {
     expect(
       evaluateArtifactDomain({
         kind: "skill",
@@ -36,20 +36,20 @@ describe("domain evolution check", () => {
     expect(
       evaluateArtifactDomain({
         kind: "skill",
-        slug: "deadline-check",
-        name: "截止日期",
-        description: "核截止日期",
-        body: "1. 看记忆里的旧日期\n2. 直接写进材料"
+        slug: "one-step-method",
+        name: "一步流程",
+        description: "只有一步的做法",
+        body: "1. 直接给结论"
       }).ok
     ).toBe(false);
 
     expect(
       evaluateArtifactDomain({
         kind: "skill",
-        slug: "deadline-check",
-        name: "截止日期",
-        description: "核截止日期",
-        body: "1. 打开官方项目页\n2. 抄截止日期"
+        slug: "two-step-method",
+        name: "两步流程",
+        description: "先看材料再写结论",
+        body: "1. 先看材料\n2. 再写结论"
       }).ok
     ).toBe(true);
   });

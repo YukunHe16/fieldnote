@@ -111,19 +111,17 @@ describe("activity presentation", () => {
         id: "a1",
         type: "mcp",
         status: "completed",
-        title: "申请进度",
-        technicalName: "mcp__application_tracker__add_program",
+        technicalName: "WebSearch",
         children: []
       },
       {
         id: "a2",
         type: "mcp",
         status: "completed",
-        title: "申请进度",
-        technicalName: "mcp__application_tracker__add_program",
+        technicalName: "WebSearch",
         children: []
       },
-      { id: "t2", type: "text", status: "completed", content: "录入完成", children: [] }
+      { id: "t2", type: "text", status: "completed", content: "检索完成", children: [] }
     ]);
     expect(groups.map((group) => group.type)).toEqual(["text", "activity", "text"]);
     expect(groups[1]?.type === "activity" && groups[1].blocks).toHaveLength(2);
@@ -142,32 +140,6 @@ describe("activity presentation", () => {
     expect(
       activityHeadline([
         {
-          id: "a1",
-          type: "mcp",
-          status: "running",
-          title: "申请进度",
-          technicalName: "mcp__application_tracker__add_program",
-          children: []
-        }
-      ])
-    ).toBe("正在更新申请进度");
-    expect(
-      activityHeadline([
-        {
-          id: "a1",
-          type: "mcp",
-          status: "completed",
-          title: "申请进度",
-          technicalName: "mcp__application_tracker__add_program",
-          startedAt: "2026-08-19T10:00:00.000Z",
-          completedAt: "2026-08-19T10:00:12.000Z",
-          children: []
-        }
-      ])
-    ).toBe("更新了申请进度 · 12秒");
-    expect(
-      activityHeadline([
-        {
           id: "s1",
           type: "mcp",
           status: "running",
@@ -177,16 +149,6 @@ describe("activity presentation", () => {
         }
       ])
     ).toBe("正在检索 2 个网页");
-    expect(
-      activityStepTitle({
-        id: "a1",
-        type: "mcp",
-        status: "completed",
-        title: "申请进度",
-        technicalName: "mcp__application_tracker__add_program",
-        children: []
-      })
-    ).toBe("录入项目");
     expect(
       activityStepTitle({
         id: "w1",
@@ -305,11 +267,11 @@ describe("activity presentation", () => {
       id: "s1",
       type: "mcp" as const,
       status: "completed" as const,
-      technicalName: "mcp__admissions_evidence__search_official_sources",
-      input: { query: "MSc Artificial Intelligence tuition fees admission deadline", domains: ["hku.hk"] },
+      technicalName: "WebSearch",
+      input: { query: "vitest workspace configuration reference", domains: ["vitest.dev"] },
       children: []
     };
-    expect(activityPills(block)).toEqual(["hku.hk"]);
+    expect(activityPills(block)).toEqual(["vitest.dev"]);
     expect(activityDetailFacts(block)).toEqual([]);
   });
 
@@ -320,7 +282,7 @@ describe("activity presentation", () => {
   });
 
   it("collapses text that was persisted twice in a row", () => {
-    const once = "官网首页大多不直接写推荐信数量，还有一两个链接失效了。我换成搜索各校的招生细则页再核实。";
+    const once = "搜索结果里大多没有直接给出版本号，还有一两个链接失效了。我换成读取官方文档页再核实。";
     expect(collapseExactRepeatedHalf(once + once)).toBe(once);
     expect(collapseExactRepeatedHalf(once)).toBe(once);
   });

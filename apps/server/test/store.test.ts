@@ -6,12 +6,12 @@ describe("AgentStore", () => {
   it("keeps empty drafts out of conversation history until the user sends a message", () => {
     const database = openDatabase(":memory:");
     const store = new AgentStore(database);
-    const draft = store.createConversation("web", "新对话", { profileId: "graduate-admissions" });
+    const draft = store.createConversation("web", "新对话", { profileId: "local-operator" });
 
     expect(store.listConversations("active")).toEqual([]);
     store.createRun(draft.id, "第一条真实请求", "normal");
     expect(store.listConversations("active")).toEqual([
-      expect.objectContaining({ id: draft.id, profileId: "graduate-admissions" })
+      expect.objectContaining({ id: draft.id, profileId: "local-operator" })
     ]);
     database.close();
   });
@@ -85,15 +85,15 @@ describe("AgentStore", () => {
     expect(store.getBranchRuntime(newConversation.activeBranchId)?.sdkSessionId).toBeNull();
     expect(newConversation.profileId).toBe("local-operator");
 
-    const admissions = store.createConversation("web", "申学", { profileId: "graduate-admissions" });
-    const admissionsRun = store.createRun(admissions.id, "比较项目", "normal");
-    expect(admissions).toMatchObject({ profileId: "graduate-admissions", profileName: "申学助手" });
-    expect(admissionsRun.profileRevision).toBeGreaterThan(0);
-    const admissionsBranch = store.createBranchFromMessage(admissionsRun.userMessageId, {
+    const chosen = store.createConversation("web", "本地任务", { profileId: "local-operator" });
+    const chosenRun = store.createRun(chosen.id, "整理工作区", "normal");
+    expect(chosen).toMatchObject({ profileId: "local-operator", profileName: "本地助手" });
+    expect(chosenRun.profileRevision).toBeGreaterThan(0);
+    const chosenBranch = store.createBranchFromMessage(chosenRun.userMessageId, {
       asNewConversation: true,
       includeTarget: true
     });
-    expect(admissionsBranch.profileId).toBe("graduate-admissions");
+    expect(chosenBranch.profileId).toBe("local-operator");
     database.close();
   });
 

@@ -1,20 +1,11 @@
-import type { DomainCardDto, PlaybookDto } from "@fieldnote/contracts";
+import type { PlaybookDto } from "@fieldnote/contracts";
 
 const PLAYBOOK_CHAR_BUDGET = 1_500;
 const PLAYBOOK_INJECT_LIMIT = 4;
 const SKILL_EVIDENCE: Record<string, string> = {
-  项目调研: "官方 截止 学费 语言 奖学金 签证 核验 official deadline tuition language",
-  项目比较: "比较 对比 项目 programme comparison",
-  导师匹配: "导师 实验室 教授 faculty lab advisor",
-  申请策略: "选校 策略 规划 组合 strategy",
-  "CV 写作": "简历 CV resume",
-  文书写作: "文书 SOP 陈述 statement",
-  事实审校: "审校 一致 核对 review",
-  套磁与面试: "套磁 面试 推荐 outreach interview",
-  申请进度: "看板 截止 状态 材料 tracker deadline",
   PDF: "PDF markdown 导出 转 pdf",
-  Word: "docx word 文书 简历",
-  Excel: "xlsx excel 表格 选校",
+  Word: "docx word 文档 排版",
+  Excel: "xlsx excel 表格 数据",
   "Markdown 转 PDF": "转PDF markdown pdf-creator",
   "文档转 Markdown": "读PDF 转markdown doc-to-markdown",
   "Word 排版": "docx-creator 排版 Word",
@@ -134,14 +125,10 @@ export function playbookMatchesUsedSkills(
 }
 
 export function formatOverlayContext(input: {
-  card?: DomainCardDto | null;
   playbooks?: PlaybookDto[];
   memories?: Array<{ category: string; title: string; content: string }>;
 }): string {
   const parts: string[] = [];
-  if (input.card?.lines.length) {
-    parts.push(`<user_domain_card>\n${input.card.lines.map((line) => `- ${line}`).join("\n")}\n</user_domain_card>`);
-  }
   const playbookLines: string[] = [];
   let used = 0;
   for (const item of input.playbooks ?? []) {

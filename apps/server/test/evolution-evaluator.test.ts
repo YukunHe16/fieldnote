@@ -38,7 +38,7 @@ describe("evolution evaluator", () => {
   it("rejects prompt injection, extra tools, nested delegation, and invalid subagent effort", () => {
     expect(
       evaluateArtifactProgrammatically({
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         kind: "skill",
         slug: "personal-method",
         name: "方法",
@@ -49,7 +49,7 @@ describe("evolution evaluator", () => {
 
     expect(
       evaluateArtifactProgrammatically({
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         kind: "subagent",
         slug: "personal-delegate",
         name: "个人子代理",
@@ -59,7 +59,7 @@ describe("evolution evaluator", () => {
     ).toBe("reject");
 
     const invalidEffort = evaluateArtifactProgrammatically({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "subagent",
       slug: "invalid-effort-delegate",
       name: "错误强度子代理",
@@ -82,7 +82,7 @@ describe("evolution evaluator", () => {
     replay.freeze({
       runId: "run-deadline",
       conversationId: "c1",
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "帮我核 截止日期",
       overlay: {},
       workspacePath: workspace
@@ -96,7 +96,7 @@ describe("evolution evaluator", () => {
       }
     });
     const artifact = await coordinator.propose({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: "evolved-deadline-check",
       name: "截止日期核对",
@@ -113,7 +113,7 @@ describe("evolution evaluator", () => {
     expect(artifact.evaluation?.reason).toContain("飞书未发送");
     expect(artifact.evaluation?.replayRunId).toBe("run-deadline");
     expect(notified).toBe(true);
-    const overlay = path.join(root, "evolved", "graduate-admissions", "skills", "evolved-deadline-check", "SKILL.md");
+    const overlay = path.join(root, "evolved", "local-operator", "skills", "evolved-deadline-check", "SKILL.md");
     expect(await fs.readFile(overlay, "utf8")).toContain("截止日期核对");
     database.close();
     await fs.rm(root, { recursive: true, force: true });
@@ -133,7 +133,7 @@ describe("evolution evaluator", () => {
       }
     });
     const artifact = await coordinator.propose({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: "clean-review-reason",
       name: "清晰检查原因",
@@ -153,7 +153,7 @@ describe("evolution evaluator", () => {
     const evolution = new EvolutionStore(database);
     const coordinator = new EvolutionCoordinator(testConfig(root), evolution);
     const artifact = await coordinator.propose({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: "unsafe-method",
       name: "危险方法",
@@ -170,7 +170,7 @@ describe("evolution evaluator", () => {
     expect(passed?.status).toBe("rejected");
     expect(passed?.evaluation?.reason).toContain("人审不能覆盖硬检查");
     await expect(
-      fs.access(path.join(root, "evolved", "graduate-admissions", "skills", "unsafe-method", "SKILL.md"))
+      fs.access(path.join(root, "evolved", "local-operator", "skills", "unsafe-method", "SKILL.md"))
     ).rejects.toThrow();
     database.close();
     await fs.rm(root, { recursive: true, force: true });
@@ -187,30 +187,30 @@ describe("evolution evaluator", () => {
       polarity: "do",
       origin: "user",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
 
     expect(
       await coordinator.proposeFromPrompt({
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         prompt: "以后都这样"
       })
     ).toBeNull();
 
     const first = await coordinator.proposeFromPrompt({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "做成 skill"
     });
     expect(first?.slug).toBe("evolved-personal-method");
     expect(first?.status).toBe("pending");
 
     const second = await coordinator.proposeFromPrompt({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "做成 skill"
     });
     expect(second?.id).toBe(first?.id);
-    expect(evolution.pendingArtifacts("graduate-admissions")).toHaveLength(1);
-    expect(evolution.enabledArtifacts("graduate-admissions")).toHaveLength(0);
+    expect(evolution.pendingArtifacts("local-operator")).toHaveLength(1);
+    expect(evolution.enabledArtifacts("local-operator")).toHaveLength(0);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -223,11 +223,11 @@ describe("evolution evaluator", () => {
 
     expect(
       await coordinator.proposeFromPrompt({
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         prompt: "做成 skill"
       })
     ).toBeNull();
-    expect(evolution.pendingArtifacts("graduate-admissions")).toEqual([]);
+    expect(evolution.pendingArtifacts("local-operator")).toEqual([]);
 
     database.close();
     await fs.rm(root, { recursive: true, force: true });
@@ -239,7 +239,7 @@ describe("evolution evaluator", () => {
     const evolution = new EvolutionStore(database);
     const coordinator = new EvolutionCoordinator(testConfig(root), evolution);
     const artifact = await coordinator.propose({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: "evolved-personal-method",
       name: "个人工作方法",

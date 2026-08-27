@@ -112,49 +112,19 @@ function MarkdownBody({ content }: { content: string }) {
 }
 
 const friendlyIntegrations: Record<string, { zh: string; en: string }> = {
-  "graduate-admissions": { zh: "申学助手", en: "Admissions" },
   "local-operator": { zh: "本地执行助手", en: "Local" },
   "lark-calendar": { zh: "飞书日历", en: "Feishu Calendar" },
   "lark-doc": { zh: "飞书文档", en: "Feishu Docs" },
   "lark-drive": { zh: "飞书云空间", en: "Feishu Drive" },
   "lark-mail": { zh: "飞书邮箱", en: "Feishu Mail" },
   "lark-task": { zh: "飞书任务", en: "Feishu Tasks" },
-  "admissions-evidence": { zh: "官方资料", en: "Official sources" },
-  "academic-research": { zh: "学术研究", en: "Academic research" },
   websearch: { zh: "网页搜索", en: "Web search" },
   webfetch: { zh: "网页读取", en: "Web fetch" },
   browser: { zh: "网页浏览", en: "Browser" }
 };
 
 const toolActions: Record<string, { zh: string; en: string }> = {
-  create_application_cycle: { zh: "建立申请周期", en: "Create application cycle" },
-  set_applicant_profile: { zh: "更新申请档案", en: "Update applicant profile" },
-  get_snapshot: { zh: "读取申请进度", en: "Read application snapshot" },
-  add_program: { zh: "录入项目", en: "Add program" },
-  update_program: { zh: "更正项目信息", en: "Update program" },
-  update_program_status: { zh: "更新项目状态", en: "Update program status" },
-  delete_program: { zh: "删除项目", en: "Delete program" },
-  update_application_cycle: { zh: "更新申请周期", en: "Update application cycle" },
-  add_requirement: { zh: "添加材料要求", en: "Add requirement" },
-  update_requirement: { zh: "更正材料要求", en: "Update requirement" },
-  update_requirement_status: { zh: "更新材料状态", en: "Update requirement status" },
-  add_task: { zh: "添加任务", en: "Add task" },
-  update_task: { zh: "更正任务", en: "Update task" },
-  set_task_completed: { zh: "更新任务", en: "Update task" },
-  list_artifacts: { zh: "查看已生成文件", en: "List generated files" },
-  register_artifact: { zh: "登记申请材料", en: "Register material" },
-  list_sources: { zh: "查看已核验来源", en: "List verified sources" },
-  search_official_sources: { zh: "检索官方来源", en: "Search official sources" },
-  fetch_official_page: { zh: "读取官方页面", en: "Fetch official page" },
-  save_source: { zh: "保存官方来源", en: "Save official source" },
-  search_openalex: { zh: "检索 OpenAlex", en: "Search OpenAlex" },
-  search_crossref: { zh: "检索 Crossref", en: "Search Crossref" },
-  search_ror: { zh: "检索机构信息", en: "Search institution" },
   present_files: { zh: "分享文件", en: "Share files" },
-  list_schedules: { zh: "查看计划任务", en: "List scheduled jobs" },
-  create_schedule: { zh: "创建计划任务", en: "Create scheduled job" },
-  update_schedule: { zh: "更新计划任务", en: "Update scheduled job" },
-  run_schedule_now: { zh: "立即运行计划", en: "Run job now" },
   websearch: { zh: "检索网页", en: "Search the web" },
   webfetch: { zh: "读取网页", en: "Fetch a page" },
   read: { zh: "读取文件", en: "Read file" },
@@ -166,22 +136,7 @@ const toolActions: Record<string, { zh: string; en: string }> = {
   notebookedit: { zh: "编辑笔记本", en: "Edit notebook" }
 };
 
-type ActivityFamily =
-  | "tracker"
-  | "search"
-  | "fetch"
-  | "evidence"
-  | "academic"
-  | "researcher"
-  | "verifier"
-  | "writer"
-  | "evaluator"
-  | "skill"
-  | "subagent"
-  | "schedule"
-  | "workspace"
-  | "memory"
-  | "generic";
+type ActivityFamily = "search" | "fetch" | "skill" | "subagent" | "workspace" | "memory" | "generic";
 
 export function friendlyIntegrationName(name = "", kind: AssistantBlockDto["type"] = "activity") {
   const normalized = name
@@ -270,17 +225,8 @@ export function activityToolKey(block: AssistantBlockDto) {
 
 export function activityFamily(block: AssistantBlockDto): ActivityFamily {
   const hay = `${block.title ?? ""} ${block.technicalName ?? ""} ${block.name ?? ""}`.toLowerCase();
-  if (hay.includes("application_tracker") || hay.includes("application-tracker") || hay.includes("申请进度"))
-    return "tracker";
   if (hay.includes("websearch") || hay.includes("网页搜索")) return "search";
   if (hay.includes("webfetch") || hay.includes("网页读取")) return "fetch";
-  if (hay.includes("admissions_evidence") || hay.includes("官方资料")) return "evidence";
-  if (hay.includes("academic_research") || hay.includes("学术研究")) return "academic";
-  if (hay.includes("researcher") || hay.includes("项目研究员")) return "researcher";
-  if (hay.includes("verifier") || hay.includes("资料核验")) return "verifier";
-  if (hay.includes("delegate_writer") || hay.includes("文书写作")) return "writer";
-  if (hay.includes("evaluator") || hay.includes("文书审校")) return "evaluator";
-  if (hay.includes("admissions_schedule") || hay.includes("计划任务") || block.type === "cron") return "schedule";
   if (hay.includes("memory")) return "memory";
   if (block.type === "skill") return "skill";
   if (block.type === "subagent") return "subagent";
@@ -308,10 +254,6 @@ export function activityStepDetail(block: AssistantBlockDto) {
   const input = parseActivityValue(block.input ?? block.inputSummary);
   if (input && typeof input === "object" && !Array.isArray(input)) {
     const record = input as Record<string, unknown>;
-    const school = typeof record.school === "string" ? record.school : "";
-    const program = typeof record.program === "string" ? record.program : "";
-    if (school && program) return `${school} · ${program}`;
-    if (school) return school;
     if (typeof record.query === "string" && record.query.trim()) return record.query.trim();
     if (typeof record.command === "string" && record.command.trim()) return record.command.trim();
     const filePath =
@@ -337,7 +279,6 @@ export function activityPills(block: AssistantBlockDto) {
   const pills: string[] = [];
   if (input && typeof input === "object" && !Array.isArray(input)) {
     const record = input as Record<string, unknown>;
-    if (typeof record.school === "string" && record.school.trim()) pills.push(record.school.trim());
     const domains = record.domains;
     if (Array.isArray(domains)) {
       for (const domain of domains) {
@@ -357,14 +298,6 @@ const factLabels: Record<string, { zh: string; en: string }> = {
   query: { zh: "查询", en: "Query" },
   domains: { zh: "范围", en: "Scope" },
   url: { zh: "页面", en: "Page" },
-  officialUrl: { zh: "官网", en: "Official site" },
-  school: { zh: "学校", en: "School" },
-  program: { zh: "项目", en: "Program" },
-  degree: { zh: "学位", en: "Degree" },
-  country: { zh: "地区", en: "Region" },
-  fieldOfStudy: { zh: "方向", en: "Field" },
-  intakeTerm: { zh: "入学季", en: "Intake" },
-  label: { zh: "材料", en: "Material" },
   title: { zh: "标题", en: "Title" },
   status: { zh: "状态", en: "Status" }
 };
@@ -442,8 +375,7 @@ export function activityHeadline(blocks: AssistantBlockDto[]) {
       ? families[0]
       : "generic";
   const searches = flattenActivityBlocks(blocks).filter(
-    (block) =>
-      activityFamily(block) === "search" || activityFamily(block) === "evidence" || activityFamily(block) === "fetch"
+    (block) => activityFamily(block) === "search" || activityFamily(block) === "fetch"
   );
   const urls = flattenActivityBlocks(blocks).flatMap((block) => collectActivityUrls(block.input ?? block.inputSummary));
   const searchCount = Math.max(urls.length, searches.length);
@@ -455,33 +387,18 @@ export function activityHeadline(blocks: AssistantBlockDto[]) {
     return t("activityIncomplete");
   }
   if (running) {
-    if (family === "tracker") return t("activityTrackerRun");
     if (family === "search")
       return searchCount > 1 ? t("activitySearchMany", { count: searchCount }) : t("activitySearchOne");
-    if (family === "fetch" || family === "evidence") return t("activityFetchRun");
-    if (family === "academic") return t("activityAcademicRun");
-    if (family === "researcher") return t("activityResearcherRun");
-    if (family === "verifier") return t("activityVerifierRun");
-    if (family === "writer") return t("activityWriterRun");
-    if (family === "evaluator") return t("activityEvaluatorRun");
-    if (family === "schedule") return t("activityScheduleRun");
+    if (family === "fetch") return t("activityFetchRun");
     if (family === "workspace") return titles[0] ? titles.slice(0, 2).join(" · ") : t("activityWorkspaceRun");
     if (family === "memory") return t("activityMemoryRun");
     if (family === "skill") return t("activitySkillRun");
     if (family === "subagent") return t("activitySubagentRun");
     return t("activityToolRun");
   }
-  if (family === "tracker")
-    return duration ? t("activityTrackerDoneFor", { duration: compactDuration(duration) }) : t("activityTrackerDone");
   if (family === "search")
     return searchCount > 0 ? t("activitySearchDoneMany", { count: searchCount }) : t("activitySearchDone");
-  if (family === "fetch" || family === "evidence") return t("activityFetchDone");
-  if (family === "academic") return t("activityAcademicDone");
-  if (family === "researcher") return t("activityResearcherDone");
-  if (family === "verifier") return t("activityVerifierDone");
-  if (family === "writer") return t("activityWriterDone");
-  if (family === "evaluator") return t("activityEvaluatorDone");
-  if (family === "schedule") return t("activityScheduleDone");
+  if (family === "fetch") return t("activityFetchDone");
   if (family === "workspace") {
     const label = titles.slice(0, 2).join(" · ") || t("activityWorkspaceDone");
     return duration ? `${label} · ${compactDuration(duration)}` : label;
@@ -524,19 +441,11 @@ function activityGlyph(
 ): "globe" | "search" | "file" | "activity" | "clock" | "memory" | "check" | "warning" {
   if (block.status === "failed" || block.status === "interrupted") return "warning";
   const family = activityFamily(block);
-  if (family === "search" || family === "fetch" || family === "evidence" || family === "academic") return "globe";
+  if (family === "search" || family === "fetch") return "globe";
   if (family === "workspace") return "file";
-  if (family === "schedule") return "clock";
+  if (block.type === "cron") return "clock";
   if (family === "memory") return "memory";
-  if (
-    family === "skill" ||
-    family === "subagent" ||
-    family === "researcher" ||
-    family === "verifier" ||
-    family === "writer" ||
-    family === "evaluator"
-  )
-    return "activity";
+  if (family === "skill" || family === "subagent") return "activity";
   if (block.status === "completed") return "check";
   return "search";
 }
@@ -658,9 +567,7 @@ function ActivityStep({ block }: { block: AssistantBlockDto }) {
           <div className="activity-pills">
             {visiblePills.map((pill) => (
               <span key={pill}>
-                {activityFamily(block) === "search" ||
-                activityFamily(block) === "fetch" ||
-                activityFamily(block) === "evidence" ? (
+                {activityFamily(block) === "search" || activityFamily(block) === "fetch" ? (
                   <Icon name="globe" size={10} />
                 ) : null}
                 {pill}
@@ -1515,9 +1422,8 @@ function assistantBlockRevision(blocks: AssistantBlockDto[]): string {
     .join("|");
 }
 
-export function EmptyConversation({ onPrompt, profileId }: { onPrompt: (prompt: string) => void; profileId?: string }) {
+export function EmptyConversation({ onPrompt }: { onPrompt: (prompt: string) => void }) {
   const { t } = useLocale();
-  const admissions = profileId === "graduate-admissions";
   return (
     <motion.div
       className="empty-conversation"
@@ -1541,61 +1447,29 @@ export function EmptyConversation({ onPrompt, profileId }: { onPrompt: (prompt: 
           <Icon name="brand" size={29} />
         </div>
       </div>
-      <p className="eyebrow">{admissions ? t("emptyAdmissionsEyebrow") : t("emptyLocalEyebrow")}</p>
+      <p className="eyebrow">{t("emptyLocalEyebrow")}</p>
       <h1>
-        {admissions ? (
-          <>
-            {t("emptyAdmissionsTitle")}
-            <br />
-            <em>{t("emptyAdmissionsEm")}</em>
-          </>
-        ) : (
-          <>
-            {t("emptyLocalTitle")}
-            <br />
-            <em>{t("emptyLocalEm")}</em>
-          </>
-        )}
+        {t("emptyLocalTitle")}
+        <br />
+        <em>{t("emptyLocalEm")}</em>
       </h1>
-      <p>{admissions ? t("emptyAdmissionsBody") : t("emptyLocalBody")}</p>
+      <p>{t("emptyLocalBody")}</p>
       <div className="prompt-suggestions">
-        {admissions ? (
-          <>
-            <button onClick={() => onPrompt(t("promptProfileText"))}>
-              <span>{t("promptProfile")}</span>
-              <small>{t("promptProfileHint")}</small>
-              <Icon name="arrowUp" />
-            </button>
-            <button onClick={() => onPrompt(t("promptPlanText"))}>
-              <span>{t("promptPlan")}</span>
-              <small>{t("promptPlanHint")}</small>
-              <Icon name="arrowUp" />
-            </button>
-            <button onClick={() => onPrompt(t("promptReviewText"))}>
-              <span>{t("promptReview")}</span>
-              <small>{t("promptReviewHint")}</small>
-              <Icon name="arrowUp" />
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={() => onPrompt(t("promptIdeasText"))}>
-              <span>{t("promptIdeas")}</span>
-              <small>{t("promptIdeasHint")}</small>
-              <Icon name="arrowUp" />
-            </button>
-            <button onClick={() => onPrompt(t("promptFilesText"))}>
-              <span>{t("promptFiles")}</span>
-              <small>{t("promptFilesHint")}</small>
-              <Icon name="arrowUp" />
-            </button>
-            <button onClick={() => onPrompt(t("promptStepsText"))}>
-              <span>{t("promptSteps")}</span>
-              <small>{t("promptStepsHint")}</small>
-              <Icon name="arrowUp" />
-            </button>
-          </>
-        )}
+        <button onClick={() => onPrompt(t("promptIdeasText"))}>
+          <span>{t("promptIdeas")}</span>
+          <small>{t("promptIdeasHint")}</small>
+          <Icon name="arrowUp" />
+        </button>
+        <button onClick={() => onPrompt(t("promptFilesText"))}>
+          <span>{t("promptFiles")}</span>
+          <small>{t("promptFilesHint")}</small>
+          <Icon name="arrowUp" />
+        </button>
+        <button onClick={() => onPrompt(t("promptStepsText"))}>
+          <span>{t("promptSteps")}</span>
+          <small>{t("promptStepsHint")}</small>
+          <Icon name="arrowUp" />
+        </button>
       </div>
     </motion.div>
   );
@@ -1747,7 +1621,7 @@ export function MessageViewport({
                   </motion.div>
                 ))
               ) : (
-                <EmptyConversation key="empty" onPrompt={onSeedPrompt} profileId={conversation?.profileId} />
+                <EmptyConversation key="empty" onPrompt={onSeedPrompt} />
               )}
               {messages.length > 0 &&
                 shouldShowSyntheticStatus(messages, conversation?.runState, Boolean(conversation?.pendingQuestion)) && (

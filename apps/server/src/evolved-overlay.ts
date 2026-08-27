@@ -124,6 +124,6 @@ ${input.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}
 
 ## Safety
 
-Do not invent user facts. Prefer official sources for admissions facts. Current user input always wins over this skill.
+Do not invent user facts. Prefer official sources for factual claims. Current user input always wins over this skill.
 `;
 }

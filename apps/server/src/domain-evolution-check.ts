@@ -26,9 +26,6 @@ export function evaluateArtifactDomain(
       return { ok: false, reason: "简历类 skill 必须包含不编造规则和交付物约定。" };
     }
   }
-  if (/截止|学费|奖学金|语言要求|deadline|tuition/i.test(text) && !/官方|url|http|核验|verified|source/i.test(text)) {
-    return { ok: false, reason: "资料核验影子任务：截止日期或费用类做法必须约定官方来源。" };
-  }
   const steps = (artifact.body.match(/^\s*(?:\d+\.|- )/gm) ?? []).length;
   if (steps < 2 && artifact.kind === "skill") {
     return { ok: false, reason: "skill 步骤过少，不能证明做法可复用。" };

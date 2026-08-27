@@ -45,7 +45,7 @@ describe("run replay store", () => {
     const store = new RunReplayStore(openDatabase(":memory:"), path.join(root, "snapshots"));
     const frozenArtifact = {
       id: "artifact-1",
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill" as const,
       slug: "resume-method",
       name: "简历方法",
@@ -61,7 +61,7 @@ describe("run replay store", () => {
     const snapshot = store.freeze({
       runId: "run-1",
       conversationId: "c1",
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "改简历",
       overlay: {
         playbookIds: ["p1"],
@@ -106,10 +106,10 @@ describe("run replay store", () => {
       polarity: "do",
       origin: "user",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
     const currentArtifact = evolution.createArtifact({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: "current-skill",
       name: "当前能力",
@@ -118,15 +118,7 @@ describe("run replay store", () => {
       origin: "distilled",
       status: "enabled"
     });
-    const runtime = new ClaudeAgentRuntime(
-      testConfig(root),
-      new SqliteSessionStore(database),
-      memories,
-      undefined,
-      undefined,
-      undefined,
-      evolution
-    );
+    const runtime = new ClaudeAgentRuntime(testConfig(root), new SqliteSessionStore(database), memories, evolution);
     const inspect = runtime as unknown as {
       memoryContext(input: Record<string, unknown>): string;
       resolveEvolvedArtifacts(input: Record<string, unknown>): (typeof currentArtifact)[];
@@ -142,14 +134,14 @@ describe("run replay store", () => {
       artifacts: []
     };
     const emptyContext = inspect.memoryContext({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "回放",
       pinnedOverlay: emptyOverlay
     });
     expect(emptyContext).not.toContain("回放之后才新增");
     expect(
       inspect.resolveEvolvedArtifacts({
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         pinnedOverlay: emptyOverlay
       })
     ).toEqual([]);
@@ -164,7 +156,7 @@ describe("run replay store", () => {
       artifacts: [frozenArtifact]
     };
     const frozenContext = inspect.memoryContext({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "回放",
       pinnedOverlay: frozenOverlay
     });
@@ -173,7 +165,7 @@ describe("run replay store", () => {
     expect(frozenContext).not.toContain("回放之后才新增");
     expect(
       inspect.resolveEvolvedArtifacts({
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         pinnedOverlay: frozenOverlay
       })[0]?.body
     ).toContain("冻结步骤");

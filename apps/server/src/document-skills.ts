@@ -44,8 +44,8 @@ const BUNDLED_PLUGINS: BundledPluginSpec[] = [
     directory: "document-skills",
     skills: [
       { name: "pdf", from: "skills/pdf", blurb: { name: "PDF", description: "读取、抽取和导出 PDF。" } },
-      { name: "docx", from: "skills/docx", blurb: { name: "Word", description: "读取和生成 Word 文书、简历。" } },
-      { name: "xlsx", from: "skills/xlsx", blurb: { name: "Excel", description: "读取和生成选校表、截止日期表。" } }
+      { name: "docx", from: "skills/docx", blurb: { name: "Word", description: "读取和生成 Word 文档。" } },
+      { name: "xlsx", from: "skills/xlsx", blurb: { name: "Excel", description: "读取和生成表格。" } }
     ]
   },
   {
@@ -54,7 +54,7 @@ const BUNDLED_PLUGINS: BundledPluginSpec[] = [
       {
         name: "pdf-creator",
         from: "skills/pdf-creator",
-        blurb: { name: "Markdown 转 PDF", description: "把文书和简历 Markdown 排成带中文的 PDF。" }
+        blurb: { name: "Markdown 转 PDF", description: "把 Markdown 排成带中文的 PDF。" }
       },
       {
         name: "doc-to-markdown",
@@ -74,7 +74,7 @@ const BUNDLED_PLUGINS: BundledPluginSpec[] = [
       {
         name: "humanizer-zh",
         from: "skills/humanizer-zh",
-        blurb: { name: "去 AI 痕迹", description: "把文书改得更像人写的，去掉套话和 AI 腔。" }
+        blurb: { name: "去 AI 痕迹", description: "把文稿改得更像人写的，去掉套话和 AI 腔。" }
       }
     ]
   }

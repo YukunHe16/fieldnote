@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
   ConversationDetailDto,
-  DomainCardDto,
   EvolvedArtifactDto,
   EvolvedArtifactKind,
   EvolvedArtifactStatus,
@@ -370,7 +369,7 @@ export class EvolutionStore {
     playbooks: PlaybookDto[];
     artifactIds: string[];
     memories?: Array<Pick<MemoryItemDto, "id" | "category" | "title" | "content">>;
-    card?: DomainCardDto | null;
+    card?: { title: string; lines: string[] } | null;
   }): OverlaySnapshotDto {
     const id = randomUUID();
     const card = input.card ? { title: input.card.title, lines: input.card.lines } : null;

@@ -160,7 +160,6 @@ function ChatHeader({
   workspace,
   onSidebar,
   onDelete,
-  onSupport,
   onRuntimeSettings,
   onDiagnostics,
   onFeishuSettings,
@@ -173,7 +172,6 @@ function ChatHeader({
   workspace: ReturnType<typeof useWorkspace>;
   onSidebar: () => void;
   onDelete: (item: ConversationSummary) => void;
-  onSupport: (kind: SupportPanelKind) => void;
   onRuntimeSettings: () => void;
   onDiagnostics: () => void;
   onFeishuSettings: () => void;
@@ -189,7 +187,6 @@ function ChatHeader({
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(conversation?.title ?? t("newConversation"));
   const [menu, setMenu] = useState(false);
-  const [supportMenu, setSupportMenu] = useState(false);
   const [profileMenu, setProfileMenu] = useState(false);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const headerStatus =
@@ -324,78 +321,28 @@ function ChatHeader({
               >
                 <p>{t("chooseAssistant")}</p>
                 <small className="profile-switcher-hint">{t("switchProfileHint")}</small>
-                {workspace.agentProfiles
-                  .filter((profile) => profile.id === "graduate-admissions" || profile.id === "local-operator")
-                  .sort((a) => (a.id === "graduate-admissions" ? -1 : 1))
-                  .map((profile) => {
-                    const copy = localizedProfile(profile.id, profile.name, profile.description);
-                    return (
-                      <button
-                        key={profile.id}
-                        role="menuitem"
-                        aria-current={conversation?.profileId === profile.id ? "true" : undefined}
-                        className={conversation?.profileId === profile.id ? "is-current" : ""}
-                        onClick={() => {
-                          setProfileMenu(false);
-                          if (conversation?.profileId !== profile.id)
-                            void workspace.createConversation(false, profile.id);
-                        }}
-                      >
-                        <span>
-                          <b>{copy.name}</b>
-                          <small>{copy.description}</small>
-                        </span>
-                        {conversation?.profileId === profile.id && <Icon name="check" size={14} />}
-                      </button>
-                    );
-                  })}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-        <div className="header-menu-wrap support-menu-wrap">
-          <button
-            className="icon-button"
-            onClick={() => setSupportMenu((value) => !value)}
-            aria-label={t("openSupport")}
-            aria-expanded={supportMenu}
-          >
-            <Icon name="activity" />
-          </button>
-          <AnimatePresence>
-            {supportMenu && (
-              <motion.div
-                className="popover header-popover support-popover"
-                role="menu"
-                initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.97 }}
-                transition={{ type: "spring", bounce: 0, duration: 0.24 }}
-              >
-                <button
-                  onClick={() => {
-                    setSupportMenu(false);
-                    onSupport("admissions");
-                  }}
-                >
-                  <Icon name="activity" />
-                  <span>
-                    <b>{t("admissionsBoard")}</b>
-                    <small>{t("admissionsBoardHint")}</small>
-                  </span>
-                </button>
-                <button
-                  onClick={() => {
-                    setSupportMenu(false);
-                    onSupport("schedules");
-                  }}
-                >
-                  <Icon name="clock" />
-                  <span>
-                    <b>{t("scheduledJobs")}</b>
-                    <small>{t("scheduledJobsHint")}</small>
-                  </span>
-                </button>
+                {workspace.agentProfiles.map((profile) => {
+                  const copy = localizedProfile(profile.id, profile.name, profile.description);
+                  return (
+                    <button
+                      key={profile.id}
+                      role="menuitem"
+                      aria-current={conversation?.profileId === profile.id ? "true" : undefined}
+                      className={conversation?.profileId === profile.id ? "is-current" : ""}
+                      onClick={() => {
+                        setProfileMenu(false);
+                        if (conversation?.profileId !== profile.id)
+                          void workspace.createConversation(false, profile.id);
+                      }}
+                    >
+                      <span>
+                        <b>{copy.name}</b>
+                        <small>{copy.description}</small>
+                      </span>
+                      {conversation?.profileId === profile.id && <Icon name="check" size={14} />}
+                    </button>
+                  );
+                })}
               </motion.div>
             )}
           </AnimatePresence>
@@ -742,7 +689,6 @@ export default function App() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("memory");
   const [supportPanel, setSupportPanel] = useState<SupportPanelKind>();
-  const [scheduledRunId, setScheduledRunId] = useState<string>();
   const [deleteItem, setDeleteItem] = useState<ConversationSummary>();
   const [deleting, setDeleting] = useState(false);
   const [seededPrompt, setSeededPrompt] = useState<string>();
@@ -763,14 +709,6 @@ export default function App() {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute("content", theme === "light" ? "#ffffff" : "#000000");
   }, [theme]);
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const runId = url.searchParams.get("scheduledRun");
-    if (runId) {
-      setScheduledRunId(runId);
-      setSupportPanel("schedules");
-    }
-  }, []);
   // First-run wizard: `?onboarding=1` forces it once for anyone; otherwise it only
   // greets a fresh demo-runtime install that neither this browser nor the server
   // has marked as onboarded.
@@ -890,12 +828,6 @@ export default function App() {
 
   function closeSupportPanel() {
     setSupportPanel(undefined);
-    if (scheduledRunId) {
-      setScheduledRunId(undefined);
-      const url = new URL(window.location.href);
-      url.searchParams.delete("scheduledRun");
-      window.history.replaceState(null, "", url);
-    }
   }
 
   return (
@@ -927,7 +859,6 @@ export default function App() {
               workspace={workspace}
               onSidebar={() => setSidebarOpen((value) => !value)}
               onDelete={setDeleteItem}
-              onSupport={setSupportPanel}
               onRuntimeSettings={() => setRuntimeSettingsOpen(true)}
               onDiagnostics={() => setDiagnosticsOpen(true)}
               onFeishuSettings={() => setFeishuSettingsOpen(true)}
@@ -991,7 +922,6 @@ export default function App() {
       />
       <SupportPanel
         kind={supportPanel}
-        scheduledRunId={scheduledRunId}
         conversation={workspace.conversation}
         onSessionUpdate={workspace.updateLearningSession}
         onConfirmVerification={workspace.confirmLearningVerification}

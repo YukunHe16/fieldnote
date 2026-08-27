@@ -32,15 +32,6 @@ import type {
   MemoryReferenceDto,
   MemorySettingsDto,
   MemorySourceDto,
-  AdmissionsArtifact,
-  AdmissionsCycle,
-  AdmissionsProfile,
-  AdmissionsProgram,
-  AdmissionsRequirement,
-  AdmissionsSource,
-  AdmissionsTask,
-  ScheduledJob,
-  ScheduledJobRun,
   SendMessageResponse,
   SendMode,
   AskUserQuestion,
@@ -852,23 +843,6 @@ export function normalizeFeishuSenderCandidate(input: unknown): FeishuSenderCand
   };
 }
 
-export function normalizeScheduledJobRun(input: unknown): ScheduledJobRun {
-  const raw = object(input);
-  const blocks = Array.isArray(raw.blocks) ? nestAssistantBlocks(raw.blocks.map(normalizeAssistantBlock)) : [];
-  return {
-    ...raw,
-    id: string(raw.id, crypto.randomUUID()),
-    jobId: string(raw.jobId ?? raw.job_id) || undefined,
-    status: string(raw.status) || undefined,
-    startedAt: string(raw.startedAt ?? raw.started_at) || undefined,
-    completedAt: string(raw.completedAt ?? raw.completed_at) || undefined,
-    title: string(raw.title) || undefined,
-    summary: string(raw.summary) || undefined,
-    content: string(raw.content) || undefined,
-    blocks
-  };
-}
-
 export function normalizeConversationDetail(input: unknown): ConversationDetail {
   const source = object(input);
   const queuedRuns = Array.isArray(source.queuedRuns)
@@ -1049,7 +1023,7 @@ export const api = {
     });
   },
 
-  async createConversation(temporary = false, profileId = "graduate-admissions", participantId?: string) {
+  async createConversation(temporary = false, profileId = "local-operator", participantId?: string) {
     const response = await request<ConversationSummary | { conversation: ConversationSummary }>("/api/conversations", {
       method: "POST",
       headers: JSON_HEADERS,
@@ -1484,128 +1458,7 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify({ verdict, reason })
     }),
-  getEvolvedArtifact: (id: string) => request<EvolvedArtifact>(`/api/evolved-artifacts/${id}`),
-
-  async admissionsCycles() {
-    return unwrapNamedList<AdmissionsCycle>(await request("/api/admissions/cycles"), ["cycles"]);
-  },
-  createAdmissionsCycle: (input: Partial<AdmissionsCycle>) =>
-    request<AdmissionsCycle>("/api/admissions/cycles", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  updateAdmissionsCycle: (id: string, input: Partial<AdmissionsCycle>) =>
-    request<AdmissionsCycle>("/api/admissions/cycles", {
-      method: "PATCH",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ id, ...input })
-    }),
-  admissionsProfile: () => request<AdmissionsProfile>("/api/admissions/profile"),
-  createAdmissionsProfile: (input: Partial<AdmissionsProfile>) =>
-    request<AdmissionsProfile>("/api/admissions/profile", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  saveAdmissionsProfile: (input: Partial<AdmissionsProfile>) =>
-    request<AdmissionsProfile>("/api/admissions/profile", {
-      method: "PATCH",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  async admissionsPrograms() {
-    return unwrapNamedList<AdmissionsProgram>(await request("/api/admissions/programs"), ["programs"]);
-  },
-  createAdmissionsProgram: (input: Partial<AdmissionsProgram>) =>
-    request<AdmissionsProgram>("/api/admissions/programs", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  updateAdmissionsProgram: (id: string, input: Partial<AdmissionsProgram>) =>
-    request<AdmissionsProgram>("/api/admissions/programs", {
-      method: "PATCH",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ id, ...input })
-    }),
-  deleteAdmissionsProgram: (id: string) =>
-    request<void>(`/api/admissions/programs/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  async admissionsRequirements(programId: string) {
-    return unwrapNamedList<AdmissionsRequirement>(await request(`/api/admissions/programs/${programId}/requirements`), [
-      "requirements"
-    ]);
-  },
-  createAdmissionsRequirement: (programId: string, input: Partial<AdmissionsRequirement>) =>
-    request<AdmissionsRequirement>(`/api/admissions/programs/${programId}/requirements`, {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  updateAdmissionsRequirement: (programId: string, id: string, input: Partial<AdmissionsRequirement>) =>
-    request<AdmissionsRequirement>(`/api/admissions/programs/${programId}/requirements`, {
-      method: "PATCH",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ id, ...input })
-    }),
-  async admissionsTasks() {
-    return unwrapNamedList<AdmissionsTask>(await request("/api/admissions/tasks"), ["tasks"]);
-  },
-  createAdmissionsTask: (input: Partial<AdmissionsTask>) =>
-    request<AdmissionsTask>("/api/admissions/tasks", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  updateAdmissionsTask: (id: string, input: Partial<AdmissionsTask>) =>
-    request<AdmissionsTask>("/api/admissions/tasks", {
-      method: "PATCH",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ id, ...input })
-    }),
-  async admissionsSources() {
-    return unwrapNamedList<AdmissionsSource>(await request("/api/admissions/sources"), ["sources"]);
-  },
-  createAdmissionsSource: (input: Partial<AdmissionsSource>) =>
-    request<AdmissionsSource>("/api/admissions/sources", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  updateAdmissionsSource: (id: string, input: Partial<AdmissionsSource>) =>
-    request<AdmissionsSource>("/api/admissions/sources", {
-      method: "PATCH",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ id, ...input })
-    }),
-  async admissionsArtifacts() {
-    return unwrapNamedList<AdmissionsArtifact>(await request("/api/admissions/artifacts"), ["artifacts"]);
-  },
-  admissionsArtifactDownloadUrl: (id: string) => `/api/admissions/artifacts/${encodeURIComponent(id)}/download`,
-
-  async scheduledJobs() {
-    return unwrapNamedList<ScheduledJob>(await request("/api/scheduled-jobs"), ["jobs"]);
-  },
-  createScheduledJob: (input: Partial<ScheduledJob>) =>
-    request<ScheduledJob>("/api/scheduled-jobs", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input)
-    }),
-  updateScheduledJob: (id: string, input: Partial<ScheduledJob>) =>
-    request<ScheduledJob>("/api/scheduled-jobs", {
-      method: "PATCH",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ id, ...input })
-    }),
-  async scheduledJobRuns(id: string) {
-    return unwrapNamedList<ScheduledJobRun>(await request(`/api/scheduled-jobs/${id}/runs`), ["runs"]).map(
-      normalizeScheduledJobRun
-    );
-  },
-  scheduledJobRun: async (id: string) =>
-    normalizeScheduledJobRun(await request<ScheduledJobRun>(`/api/scheduled-job-runs/${id}`)),
-  runScheduledJob: (id: string) => request<ScheduledJobRun>(`/api/scheduled-jobs/${id}/run`, { method: "POST" })
+  getEvolvedArtifact: (id: string) => request<EvolvedArtifact>(`/api/evolved-artifacts/${id}`)
 };
 
 export function createEventStream(

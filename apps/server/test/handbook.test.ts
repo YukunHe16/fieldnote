@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { parseHandbook, renderHandbook } from "../src/handbook.js";
 import { parseUiLocale, uiLocaleInstruction } from "../src/locale.js";
 import { formatOverlayContext } from "../src/overlay-context.js";
-import { buildDomainCard } from "../src/domain-card.js";
 
 describe("handbook overlay", () => {
   it("round-trips do/dont lines and skips blank or heading lines", () => {
@@ -27,7 +26,7 @@ describe("handbook overlay", () => {
         polarity: "do",
         origin: "confirmed",
         scope: "profile",
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         enabled: true,
         expiresAt: null,
         revision: 1,
@@ -46,9 +45,8 @@ describe("handbook overlay", () => {
     expect(parsed.errors[0]).toMatch(/缺少做法说明|不安全的指令腔/);
   });
 
-  it("injects domain card before playbooks and memories", () => {
+  it("injects playbooks before memories", () => {
     const overlay = formatOverlayContext({
-      card: { profileId: "graduate-admissions", title: "申请人作战卡", lines: ["申请目标：PhD / CS"] },
       playbooks: [
         {
           id: "p1",
@@ -57,7 +55,7 @@ describe("handbook overlay", () => {
           polarity: "do",
           origin: "user",
           scope: "profile",
-          profileId: "graduate-admissions",
+          profileId: "local-operator",
           enabled: true,
           expiresAt: null,
           revision: 1,
@@ -69,36 +67,12 @@ describe("handbook overlay", () => {
       ],
       memories: [{ category: "preference", title: "语气", content: "简洁" }]
     });
-    expect(overlay.indexOf("<user_domain_card>")).toBeLessThan(overlay.indexOf("<user_playbook>"));
+    expect(overlay.indexOf("<user_playbook>")).toBeGreaterThan(-1);
     expect(overlay.indexOf("<user_playbook>")).toBeLessThan(overlay.indexOf("<user_memory>"));
     expect(overlay).toContain("untrusted");
     expect(uiLocaleInstruction("en")).toMatch(/English/);
     expect(uiLocaleInstruction("zh")).toMatch(/中文/);
     expect(parseUiLocale("en-US,en;q=0.9")).toBe("en");
     expect(parseUiLocale("zh-CN")).toBe("zh");
-  });
-
-  it("builds an admissions card from memories when no cycle exists", () => {
-    const card = buildDomainCard("graduate-admissions", [
-      {
-        id: "m1",
-        category: "goal",
-        title: "申请目标",
-        content: "2027 秋 PhD",
-        keywords: [],
-        sourceKind: "manual",
-        importance: 5,
-        pinned: false,
-        status: "active",
-        scope: "profile",
-        profileId: "graduate-admissions",
-        sources: [],
-        createdAt: "",
-        updatedAt: ""
-      }
-    ]);
-    expect(card?.title).toBe("申请人作战卡");
-    expect(card?.lines[0]).toContain("2027 秋 PhD");
-    expect(buildDomainCard("local-operator", [])).toBeNull();
   });
 });

@@ -25,23 +25,16 @@ import { runDoctor } from "./doctor.js";
 import { type AgentStore, DEFAULT_PARTICIPANT_ID, InputAttachmentOverwriteError } from "./store.js";
 import { deleteConversationData } from "./temporary-conversations.js";
 import { DEFAULT_PROFILE_ID, getAgentProfile, isAgentProfileId, listAgentProfileSummaries } from "./agent-profiles.js";
-import type { AdmissionsStore } from "./admissions-store.js";
-import { registerAdmissionsRoutes } from "./admissions-routes.js";
-import type { SchedulerStore } from "./scheduler-store.js";
-import type { ScheduledJobRunner } from "./scheduler.js";
-import { registerSchedulerRoutes } from "./scheduler-routes.js";
 import { EvolutionStore } from "./evolution-store.js";
 import { isEvolutionEligibleConversation } from "./evolution-eligibility.js";
 import { renderResearchExportHtml } from "./export-html.js";
 import { renderLoopReportHtml } from "./loop-report-html.js";
 import { confirmLearningVerification } from "./learning-confirm.js";
 import { handbookDocument, parseHandbook } from "./handbook.js";
-import { buildDomainCard } from "./domain-card.js";
 import { EvolutionCoordinator } from "./evolution-coordinator.js";
 import { parseUiLocale, rememberUiLocale } from "./locale.js";
 import { playbookMatchesUsedSkills, skillLabelsFromBlocks } from "./overlay-context.js";
 import type { DeliveryShelf } from "./delivery-shelf.js";
-import type { LiveDomainCard } from "./domain-card-live.js";
 import type { RunReplayStore } from "./run-replay.js";
 import { InputFileManifestService, MAX_INPUT_FILE_BYTES } from "./input-file-manifest.js";
 import { CollaborationStore } from "./collaboration-store.js";
@@ -96,16 +89,12 @@ export interface AppDependencies {
     Partial<Pick<FeishuChannel, "senderCandidates">>;
   memories?: MemoryStore;
   memoryMaintenance?: Pick<MemoryCoordinator, "maintenanceStatus" | "scheduleMaintenance">;
-  admissions?: AdmissionsStore;
-  schedules?: SchedulerStore;
-  scheduledRunner?: ScheduledJobRunner;
   evolution?: EvolutionStore;
   evolutionCoordinator?: EvolutionCoordinator;
   shelf?: DeliveryShelf;
   learning?: LearningStore;
   inputFiles?: InputFileManifestService;
   collaboration?: CollaborationStore;
-  liveCard?: LiveDomainCard;
   replay?: RunReplayStore;
 }
 
@@ -295,10 +284,6 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         : null
     };
   };
-  const captureLiveCard = () => {
-    const profileId = "graduate-admissions";
-    dependencies.liveCard?.capture(profileId, memories.stableContext(profileId), dependencies.admissions);
-  };
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -322,10 +307,6 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   await app.register(multipart, {
     limits: { files: 1, fileSize: MAX_INPUT_FILE_BYTES, fields: 5 }
   });
-  if (dependencies.admissions) registerAdmissionsRoutes(app, dependencies.admissions, config, captureLiveCard);
-  if (dependencies.schedules && dependencies.scheduledRunner) {
-    registerSchedulerRoutes(app, dependencies.schedules, dependencies.scheduledRunner);
-  }
 
   app.get("/api/health", async () => ({
     ok: true,
@@ -1170,22 +1151,6 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       const message = error instanceof Error ? error.message : "手册未能保存";
       return reply.code(400).send({ error: message });
     }
-  });
-
-  app.get("/api/domain-card", async (request, reply) => {
-    const profileId = requestedProfileId((request.query as { profileId?: string }).profileId);
-    if (!profileId) return reply.code(400).send({ error: "作战卡需要指定助手" });
-    const captured =
-      dependencies.liveCard?.capture(profileId, memories.stableContext(profileId), dependencies.admissions) ??
-      buildDomainCard(profileId, memories.stableContext(profileId), dependencies.admissions);
-    if (!captured) return null;
-    const latest = dependencies.liveCard?.latest(profileId);
-    return {
-      profileId: captured.profileId,
-      title: captured.title,
-      lines: captured.lines,
-      ...(latest ? { patch: latest.patch, createdAt: new Date(latest.createdAt).toISOString() } : {})
-    };
   });
 
   app.get("/api/equipment", async (request, reply) => {

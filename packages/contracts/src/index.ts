@@ -66,86 +66,6 @@ export interface AgentProfileSummaryDto {
   channels: ChannelKind[];
 }
 
-export type ApplicationProgramStatus =
-  | "researching"
-  | "shortlisted"
-  | "applying"
-  | "submitted"
-  | "interview"
-  | "offer"
-  | "rejected"
-  | "withdrawn";
-export type ApplicationRequirementStatus = "missing" | "in_progress" | "ready" | "submitted" | "waived";
-
-export interface ApplicationCycleDto {
-  id: string;
-  name: string;
-  degree: string;
-  fieldOfStudy: string;
-  intakeTerm: string;
-  targetRegions: string[];
-  active: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ApplicationProgramDeadlineDto {
-  id: string;
-  label: string;
-  dueAt: string;
-}
-
-export interface ApplicationProgramDto {
-  id: string;
-  cycleId: string;
-  school: string;
-  program: string;
-  country: string;
-  degree: string;
-  status: ApplicationProgramStatus;
-  officialUrl: string;
-  applicationFee: number | null;
-  feeCurrency: string | null;
-  deadlineAt: string | null;
-  deadlines: ApplicationProgramDeadlineDto[];
-  fundingSummary: string;
-  lastVerifiedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type ScheduleTemplateId = "weekly-application-review" | "daily-application-plan";
-export interface ScheduledJobDto {
-  id: string;
-  profileId: string;
-  templateId: ScheduleTemplateId;
-  name: string;
-  description: string;
-  schedule: string;
-  /** IANA zone the schedule's wall-clock time is anchored to. */
-  timezone: string;
-  enabled: boolean;
-  destinations: ChannelKind[];
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ScheduledJobRunDto {
-  id: string;
-  jobId: string;
-  scheduledAt: string;
-  status: "queued" | "running" | "completed" | "failed";
-  title: string | null;
-  content: string;
-  blocks: unknown[];
-  retryCount: number;
-  mergedScheduleCount: number;
-  startedAt: string | null;
-  completedAt: string | null;
-}
-
 export interface AttachmentDto {
   id: string;
   messageId: string | null;
@@ -542,14 +462,6 @@ export interface HandbookDocumentDto {
   profileId: string | null;
   markdown: string;
   playbooks: PlaybookDto[];
-}
-
-export interface DomainCardDto {
-  profileId: string;
-  title: string;
-  lines: string[];
-  patch?: string | null;
-  createdAt?: string;
 }
 
 export interface CollaborationFindingDto {

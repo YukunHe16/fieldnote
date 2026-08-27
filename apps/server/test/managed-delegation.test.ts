@@ -85,7 +85,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
           /* consume host messages */
         }
       }
-      const server = options.mcpServers.admissions_delegation as { tools: ToolDefinition[] } | undefined;
+      const server = options.mcpServers.managed_delegation as { tools: ToolDefinition[] } | undefined;
       if (!server) {
         yield {
           type: "stream_event",
@@ -105,7 +105,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
             content: toolUseIds.map((id) => ({
               type: "tool_use",
               id,
-              name: "mcp__admissions_delegation__delegate_researcher",
+              name: "mcp__managed_delegation__delegate_researcher",
               input: { task: "比较两个项目" }
             }))
           }
@@ -136,7 +136,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
               {
                 type: "tool_use",
                 id: toolUseId,
-                name: "mcp__admissions_delegation__delegate_researcher",
+                name: "mcp__managed_delegation__delegate_researcher",
                 input: { task: "比较两个项目" }
               }
             ]
@@ -170,8 +170,45 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   }
 }));
 
+type SqliteDatabase = ReturnType<typeof import("../src/database.js").openDatabase>;
+
 const roots: string[] = [];
+const databases: SqliteDatabase[] = [];
+
+/**
+ * No profile ships built-in delegates any more, so the managed delegation server only exists
+ * when an evolved subagent is enabled. `delegateFromArtifact` derives the tool name from the
+ * slug, so the `researcher` slug is what makes `delegate_researcher` callable.
+ */
+async function enableEvolvedResearcher(existing?: SqliteDatabase) {
+  const [{ openDatabase }, { EvolutionStore }] = await Promise.all([
+    import("../src/database.js"),
+    import("../src/evolution-store.js")
+  ]);
+  const database = existing ?? openDatabase(":memory:");
+  if (!existing) databases.push(database);
+  const evolution = new EvolutionStore(database);
+  evolution.createArtifact({
+    profileId: "local-operator",
+    kind: "subagent",
+    slug: "researcher",
+    name: "个人流程子代理",
+    description: "完成一个边界明确的调研任务",
+    body: JSON.stringify({
+      systemPrompt: "Complete one bounded research task and report the result back.",
+      skills: [],
+      mcpFactories: [],
+      maxTurns: 8,
+      allowDelegation: false
+    }),
+    origin: "distilled",
+    status: "enabled"
+  });
+  return evolution;
+}
+
 afterEach(async () => {
+  for (const database of databases.splice(0)) database.close();
   childMode = "success";
   childOptions = undefined;
   parentOptions = undefined;
@@ -237,9 +274,6 @@ describe("managed specialist delegation", () => {
       undefined,
       undefined,
       undefined,
-      undefined,
-      undefined,
-      undefined,
       {
         learning: new coordinatorModule.LearningCoordinator(learning)
       }
@@ -298,7 +332,9 @@ describe("managed specialist delegation", () => {
         logLevel: "silent",
         nodeEnv: "test"
       },
-      {} as never
+      {} as never,
+      undefined,
+      await enableEvolvedResearcher()
     );
     const supplements = new RuntimeInputQueue();
     supplements.close();
@@ -309,7 +345,7 @@ describe("managed specialist delegation", () => {
       userMessageId: "message-1",
       conversationTitle: "项目比较",
       memoryEnabled: false,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "比较两个项目",
       workspacePath: root,
       attachments: [],
@@ -366,7 +402,10 @@ describe("managed specialist delegation", () => {
         tool_input: { file_path: "attachments/source.pdf", content: "overwrite" }
       })
     ).resolves.toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
-    expect(parentOptions?.tools).toEqual(expect.arrayContaining(["Bash"]));
+    // The tool allowlist belongs to the specialist child: `delegateToolsFor` grants Read to
+    // every delegate but `source-verifier`, and Bash is added on top. The parent is never
+    // restricted to an allowlist.
+    expect(childOptions?.tools).toEqual(["Read", "Bash"]);
     expect(parentOptions?.sandbox?.allowUnsandboxedCommands).toBe(true);
     expect(parentOptions?.sandbox?.filesystem?.denyWrite).toEqual([path.join(root, "attachments")]);
     expect(childOptions?.sandbox?.filesystem?.denyWrite).toEqual([path.join(root, "attachments")]);
@@ -398,7 +437,9 @@ describe("managed specialist delegation", () => {
         logLevel: "silent",
         nodeEnv: "test"
       },
-      {} as never
+      {} as never,
+      undefined,
+      await enableEvolvedResearcher()
     );
     const supplements = new RuntimeInputQueue();
     supplements.push({
@@ -424,7 +465,7 @@ describe("managed specialist delegation", () => {
       conversationId: "conversation-1",
       userMessageId: "message-1",
       assistantMessageId: "message-2",
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "核验资料",
       workspacePath: root,
       attachments: [],
@@ -467,13 +508,15 @@ describe("managed specialist delegation", () => {
         logLevel: "silent",
         nodeEnv: "test"
       },
-      {} as never
+      {} as never,
+      undefined,
+      await enableEvolvedResearcher()
     );
     const supplements = new RuntimeInputQueue();
     supplements.close();
     const events = [];
     for await (const event of runtime.run({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "比较两个项目",
       workspacePath: root,
       attachments: [],
@@ -516,14 +559,16 @@ describe("managed specialist delegation", () => {
         logLevel: "silent",
         nodeEnv: "test"
       },
-      {} as never
+      {} as never,
+      undefined,
+      await enableEvolvedResearcher()
     );
     const supplements = new RuntimeInputQueue();
     supplements.close();
     const collect = async () => {
       const events = [];
       for await (const event of runtime.run({
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         prompt: "比较两个项目",
         workspacePath: root,
         attachments: [],
@@ -576,13 +621,15 @@ describe("managed specialist delegation", () => {
         logLevel: "silent",
         nodeEnv: "test"
       },
-      {} as never
+      {} as never,
+      undefined,
+      await enableEvolvedResearcher()
     );
     const supplements = new RuntimeInputQueue();
     supplements.close();
     const events = [];
     for await (const event of runtime.run({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "比较两个项目",
       workspacePath: root,
       attachments: [],
@@ -620,14 +667,14 @@ describe("managed specialist delegation", () => {
     roots.push(root);
     const database = openDatabase(":memory:");
     const agents = new AgentStore(database);
-    const conversation = agents.createConversation("web", "协作核验", { profileId: "graduate-admissions" });
+    const conversation = agents.createConversation("web", "协作核验", { profileId: "local-operator" });
     const run = agents.createRun(conversation.id, "核验截止日期", "normal");
     const collaboration = new CollaborationStore(database);
     const learning = new LearningStore(database);
     const learningCoordinator = new LearningCoordinator(learning);
     learning.createSession({
       conversationId: conversation.id,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       goal: "理解如何核验相互冲突的截止日期",
       topicKey: "deadline-verification"
     });
@@ -655,10 +702,7 @@ describe("managed specialist delegation", () => {
       },
       {} as never,
       undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+      await enableEvolvedResearcher(database),
       undefined,
       { collaboration, learning: learningCoordinator }
     );
@@ -672,7 +716,7 @@ describe("managed specialist delegation", () => {
       assistantMessageId: run.assistantMessageId,
       conversationTitle: conversation.title,
       memoryEnabled: false,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "核验截止日期",
       workspacePath: root,
       attachments: [],
@@ -735,11 +779,11 @@ describe("managed specialist delegation", () => {
     roots.push(root);
     const database = openDatabase(":memory:");
     const agents = new AgentStore(database);
-    const conversation = agents.createConversation("web", "学习", { profileId: "graduate-admissions" });
+    const conversation = agents.createConversation("web", "学习", { profileId: "local-operator" });
     const run = agents.createRun(conversation.id, "我不理解递归", "normal");
     const learning = new LearningStore(database);
     const learningCoordinator = new LearningCoordinator(learning);
-    learning.createSession({ conversationId: conversation.id, profileId: "graduate-admissions", goal: "理解递归" });
+    learning.createSession({ conversationId: conversation.id, profileId: "local-operator", goal: "理解递归" });
     const runtime = new ClaudeAgentRuntime(
       {
         host: "127.0.0.1",
@@ -766,9 +810,6 @@ describe("managed specialist delegation", () => {
       undefined,
       undefined,
       undefined,
-      undefined,
-      undefined,
-      undefined,
       { learning: learningCoordinator }
     );
     const supplements = new RuntimeInputQueue();
@@ -778,7 +819,7 @@ describe("managed specialist delegation", () => {
       conversationId: conversation.id,
       userMessageId: run.userMessageId,
       assistantMessageId: run.assistantMessageId,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "我不理解递归",
       workspacePath: root,
       attachments: [],
@@ -804,11 +845,11 @@ describe("managed specialist delegation", () => {
     expect(learning.listIncidents(learning.getSessionForConversation(conversation.id)!.id)).toHaveLength(1);
 
     const sourceIncident = learning.listIncidents(learning.getSessionForConversation(conversation.id)!.id)[0]!;
-    const replayConversation = agents.createConversation("web", "学习回放", { profileId: "graduate-admissions" });
+    const replayConversation = agents.createConversation("web", "学习回放", { profileId: "local-operator" });
     const replayRun = agents.createRun(replayConversation.id, "重新检查", "normal");
     learning.createSession({
       conversationId: replayConversation.id,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       goal: "理解递归",
       datasetKind: "replay"
     });
@@ -819,7 +860,7 @@ describe("managed specialist delegation", () => {
       conversationId: replayConversation.id,
       userMessageId: replayRun.userMessageId,
       assistantMessageId: replayRun.assistantMessageId,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "重新检查",
       workspacePath: root,
       attachments: [],
@@ -840,10 +881,13 @@ describe("managed specialist delegation", () => {
     })) {
       /* drain */
     }
-    expect(String(parentOptions?.systemPrompt)).not.toContain(run.userMessageId);
-    expect(String(parentOptions?.systemPrompt)).toContain('"evidenceMessageCount":1');
+    // local-operator runs append onto the claude_code preset, so the injected text is the
+    // `append` field rather than the whole option.
+    const replayPrompt = String((parentOptions?.systemPrompt as { append?: string } | undefined)?.append ?? "");
+    expect(replayPrompt).not.toContain(run.userMessageId);
+    expect(replayPrompt).toContain('"evidenceMessageCount":1');
 
-    const inactive = agents.createConversation("web", "普通", { profileId: "graduate-admissions" });
+    const inactive = agents.createConversation("web", "普通", { profileId: "local-operator" });
     const inactiveRun = agents.createRun(inactive.id, "普通问题", "normal");
     const inactiveQueue = new RuntimeInputQueue();
     inactiveQueue.close();
@@ -852,7 +896,7 @@ describe("managed specialist delegation", () => {
       conversationId: inactive.id,
       userMessageId: inactiveRun.userMessageId,
       assistantMessageId: inactiveRun.assistantMessageId,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "普通问题",
       workspacePath: root,
       attachments: [],

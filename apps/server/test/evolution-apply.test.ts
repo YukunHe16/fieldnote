@@ -87,22 +87,22 @@ describe("applyTurnEvolution", () => {
       polarity: "do",
       origin: "distilled",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
     const confirmed = await coordinator.applyTurnEvolution({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       retried: false,
-      usedSkills: ["项目调研"],
+      usedSkills: ["Word 排版"],
       usedSubagents: [],
       injectedPlaybooks: [playbook],
       analysis: { ...acceptAnalysis(), matchedPlaybookIds: [playbook.id], evolveTarget: "playbook" }
     });
     expect(confirmed.playbooks[0]?.origin).toBe("confirmed");
-    expect(evolution.listArtifacts("graduate-admissions")).toHaveLength(0);
+    expect(evolution.listArtifacts("local-operator")).toHaveLength(0);
 
     const fresh = await setup();
     const created = await fresh.coordinator.applyTurnEvolution({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       retried: false,
       usedSkills: [],
       usedSubagents: [],
@@ -128,10 +128,10 @@ describe("applyTurnEvolution", () => {
       polarity: "do",
       origin: "distilled",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
     const created = await coordinator.applyTurnEvolution({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       retried: false,
       usedSkills: [],
       usedSubagents: [],
@@ -151,7 +151,7 @@ describe("applyTurnEvolution", () => {
   it("vetoes model accept when the turn was a retry", async () => {
     const { root, database, evolution, coordinator } = await setup();
     const result = await coordinator.applyTurnEvolution({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       retried: true,
       usedSkills: [],
       usedSubagents: [],
@@ -160,7 +160,7 @@ describe("applyTurnEvolution", () => {
     });
     expect(result.playbooks).toHaveLength(0);
     expect(result.artifacts).toHaveLength(0);
-    expect(evolution.activePlaybooks("graduate-admissions")).toHaveLength(0);
+    expect(evolution.activePlaybooks("local-operator")).toHaveLength(0);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -168,16 +168,16 @@ describe("applyTurnEvolution", () => {
   it("proposes one pending skill after three same-method accepts and does not enable it", async () => {
     const { root, database, evolution, coordinator } = await setup();
     const input = {
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       retried: false,
-      usedSkills: ["项目调研"],
+      usedSkills: ["Word 排版"],
       usedSubagents: [] as string[],
       injectedPlaybooks: [],
       analysis: acceptAnalysis()
     };
     await coordinator.applyTurnEvolution(input);
     await coordinator.applyTurnEvolution(input);
-    expect(evolution.listArtifacts("graduate-admissions")).toHaveLength(0);
+    expect(evolution.listArtifacts("local-operator")).toHaveLength(0);
     const third = await coordinator.applyTurnEvolution(input);
     expect(third.artifacts).toHaveLength(1);
     expect(third.artifacts[0]).toMatchObject({
@@ -186,9 +186,9 @@ describe("applyTurnEvolution", () => {
       status: "pending",
       origin: "distilled"
     });
-    expect(evolution.enabledArtifacts("graduate-admissions")).toHaveLength(0);
+    expect(evolution.enabledArtifacts("local-operator")).toHaveLength(0);
     const fourth = await coordinator.applyTurnEvolution(input);
-    expect(evolution.pendingArtifacts("graduate-admissions")).toHaveLength(1);
+    expect(evolution.pendingArtifacts("local-operator")).toHaveLength(1);
     expect(fourth.artifacts[0]?.slug).toBe("evolved-personal-method");
     database.close();
     await fs.rm(root, { recursive: true, force: true });
@@ -197,10 +197,10 @@ describe("applyTurnEvolution", () => {
   it("proposes a pending subagent for repeated delegated work that cannot nest", async () => {
     const { root, database, evolution, coordinator } = await setup();
     const input = {
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       retried: false,
       usedSkills: [] as string[],
-      usedSubagents: ["项目研究员"],
+      usedSubagents: ["协作助手"],
       injectedPlaybooks: [],
       analysis: {
         ...acceptAnalysis("长时间调研一个项目并核验官方页面"),
@@ -211,7 +211,7 @@ describe("applyTurnEvolution", () => {
     await coordinator.applyTurnEvolution(input);
     await coordinator.applyTurnEvolution(input);
     await coordinator.applyTurnEvolution(input);
-    const artifacts = evolution.pendingArtifacts("graduate-admissions");
+    const artifacts = evolution.pendingArtifacts("local-operator");
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]).toMatchObject({
       kind: "subagent",

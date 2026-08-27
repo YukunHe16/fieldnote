@@ -122,7 +122,7 @@ function MemoryEditor({
   const [content, setContent] = useState(memory?.content ?? "");
   const [keywords, setKeywords] = useState(memory?.keywords.join("、") ?? "");
   const [importance, setImportance] = useState(memory?.importance ?? 3);
-  const [profileId, setProfileId] = useState(memory?.profileId ?? currentProfileId ?? "graduate-admissions");
+  const [profileId, setProfileId] = useState(memory?.profileId ?? currentProfileId ?? "local-operator");
   const { t } = useLocale();
   const scoped = category === "goal" || category === "project" || category === "task";
 

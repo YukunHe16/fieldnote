@@ -11,14 +11,9 @@ import type { Workspace } from "../useWorkspace";
 export const ONBOARDED_KEY = "fieldnote-onboarded";
 
 const TOTAL_STEPS = 3;
-const WIZARD_PROFILES: AgentProfileId[] = ["graduate-admissions", "local-operator"];
+const WIZARD_PROFILES: AgentProfileId[] = ["local-operator"];
 
 const SAMPLE_PROMPTS: Record<string, Array<[MessageKey, MessageKey]>> = {
-  "graduate-admissions": [
-    ["promptProfile", "promptProfileHint"],
-    ["promptPlan", "promptPlanHint"],
-    ["promptReview", "promptReviewHint"]
-  ],
   "local-operator": [
     ["promptIdeas", "promptIdeasHint"],
     ["promptFiles", "promptFilesHint"],
@@ -51,7 +46,7 @@ export function OnboardingWizard({
   const [provider, setProvider] = useState<ModelProviderId>("anthropic");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ tone: "ok" | "error"; message: string }>();
-  const [profileId, setProfileId] = useState<AgentProfileId>("graduate-admissions");
+  const [profileId, setProfileId] = useState<AgentProfileId>("local-operator");
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState("");
 
@@ -172,7 +167,7 @@ export function OnboardingWizard({
   }
 
   const detectedAvailable = Boolean(status && status.authSource !== "none");
-  const prompts = SAMPLE_PROMPTS[profileId] ?? SAMPLE_PROMPTS["graduate-admissions"];
+  const prompts = SAMPLE_PROMPTS[profileId] ?? SAMPLE_PROMPTS["local-operator"];
 
   return (
     <AnimatePresence>
@@ -463,7 +458,7 @@ export function OnboardingWizard({
                           onClick={() => setProfileId(id)}
                         >
                           <span className="onboarding-card-icon">
-                            <Icon name={id === "graduate-admissions" ? "learning" : "workspace"} size={17} />
+                            <Icon name="workspace" size={17} />
                           </span>
                           <span>
                             <b>{copy.name}</b>

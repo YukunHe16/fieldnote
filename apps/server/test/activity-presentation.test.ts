@@ -34,17 +34,35 @@ describe("activityPresentation", () => {
     expect(activityPresentation("Grep", {})).toEqual({ activityKind: "workspace", displayName: "搜索文件内容" });
   });
 
-  it("uses friendly labels for skills, MCP services, schedules, and delegates", () => {
-    expect(activityPresentation("Skill", { skill: "program-comparison" }).displayName).toBe("Skills · 项目比较");
+  it("uses friendly labels for skills, MCP services, and delegates", () => {
     expect(activityPresentation("Skill", { skill: "pdf" }).displayName).toBe("Skills · PDF");
     expect(activityPresentation("Skill", { skill: "docx" }).displayName).toBe("Skills · Word");
+    expect(activityPresentation("Skill", { skill: "xlsx" }).displayName).toBe("Skills · Excel");
     expect(activityPresentation("Skill", { skill: "pdf-creator" }).displayName).toBe("Skills · Markdown 转 PDF");
+    expect(activityPresentation("Skill", { skill: "doc-to-markdown" }).displayName).toBe("Skills · 文档转 Markdown");
+    expect(activityPresentation("Skill", { skill: "docx-creator" }).displayName).toBe("Skills · Word 排版");
     expect(activityPresentation("Skill", { skill: "humanizer-zh" }).displayName).toBe("Skills · 去 AI 痕迹");
-    expect(activityPresentation("mcp__admissions_evidence__fetch", {}).displayName).toBe("官方资料");
-    expect(activityPresentation("mcp__academic_research__search", {}).displayName).toBe("学术研究");
-    expect(activityPresentation("mcp__admissions_schedule__run", {}).displayName).toBe("计划任务");
-    expect(activityPresentation("mcp__admissions_delegation__delegate_researcher", {}).displayName).toBe("项目研究员");
+    // A skill with no dedicated label still reads as a skill rather than leaking its raw id.
+    expect(activityPresentation("Skill", { skill: "some-evolved-skill" })).toEqual({
+      activityKind: "skill",
+      displayName: "Skills"
+    });
     expect(activityPresentation("mcp__evolution__propose_evolved_capability", {}).displayName).toBe("提交待审能力");
+    expect(activityPresentation("mcp__academic_research__search", {}).displayName).toBe("连接服务");
+  });
+
+  it("presents every delegation tool as one collaborator, including the legacy prefix", () => {
+    expect(activityPresentation("mcp__managed_delegation__delegate_researcher", {})).toEqual({
+      activityKind: "subagent",
+      displayName: "协作助手"
+    });
+    // `admissions_delegation` was the pre-rename server name and is still persisted in historical
+    // `tool_events` rows, so it must keep resolving to the same collaborator presentation.
+    expect(activityPresentation("mcp__admissions_delegation__delegate_researcher", {})).toEqual({
+      activityKind: "subagent",
+      displayName: "协作助手"
+    });
+    expect(activityPresentation("Task", {})).toEqual({ activityKind: "subagent", displayName: "协作助手" });
   });
 
   it("reads thinking tokens from stream deltas and assistant thinking blocks", () => {

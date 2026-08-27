@@ -13,18 +13,13 @@ import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { backgroundModelName, composeClaudeChildEnvironment, type AppConfig } from "./config.js";
-import { getAgentProfile, GRADUATE_ADMISSIONS_PLUGIN_PATH, type AgentProfileId } from "./agent-profiles.js";
+import { getAgentProfile, type AgentProfileId } from "./agent-profiles.js";
 import { containsSensitiveContent, type MemoryStore } from "./memory-store.js";
 import type { SqliteSessionStore } from "./session-store.js";
 import type { StoredAttachment } from "./store.js";
-import type { AdmissionsStore } from "./admissions-store.js";
-import { createAdmissionsMcpServers } from "./admissions-tools.js";
-import type { SchedulerStore } from "./scheduler-store.js";
-import type { ScheduledJobRunner } from "./scheduler.js";
 import type { EvolutionStore } from "./evolution-store.js";
 import type { EvolutionCoordinator } from "./evolution-coordinator.js";
 import { parseAskUserQuestionInput } from "./ask-user-question.js";
-import { buildDomainCard } from "./domain-card.js";
 import { uiLocaleInstruction } from "./locale.js";
 import { formatOverlayContext, selectRelevantPlaybooks } from "./overlay-context.js";
 import { prepareExternalSkillPlugins } from "./document-skills.js";
@@ -246,7 +241,7 @@ export interface RuntimeInput {
   assistantMessageId?: string;
   conversationTitle?: string;
   memoryEnabled?: boolean;
-  /** False for non-default participants: no owner playbooks, domain card, or artifacts. */
+  /** False for non-default participants: no owner playbooks or artifacts. */
   evolutionEnabled?: boolean;
   profileId: AgentProfileId;
   prompt: string;
@@ -403,9 +398,6 @@ export class ConfigurableAgentRuntime implements AgentRuntime {
     private readonly config: AppConfig,
     private readonly sessionStore: SqliteSessionStore,
     private readonly memoryStore?: MemoryStore,
-    private readonly admissionsStore?: AdmissionsStore,
-    private readonly schedulerStore?: SchedulerStore,
-    private readonly schedulerRunner?: Pick<ScheduledJobRunner, "runNow">,
     private readonly evolutionStore?: EvolutionStore,
     private readonly evolutionCoordinator?: EvolutionCoordinator,
     private readonly services?: RuntimeServices
@@ -414,9 +406,6 @@ export class ConfigurableAgentRuntime implements AgentRuntime {
       config,
       sessionStore,
       memoryStore,
-      admissionsStore,
-      schedulerStore,
-      schedulerRunner,
       evolutionStore,
       evolutionCoordinator,
       services
@@ -455,9 +444,6 @@ export class ConfigurableAgentRuntime implements AgentRuntime {
       this.config,
       this.sessionStore,
       this.memoryStore,
-      this.admissionsStore,
-      this.schedulerStore,
-      this.schedulerRunner,
       this.evolutionStore,
       this.evolutionCoordinator,
       this.services
@@ -561,11 +547,7 @@ export class DemoAgentRuntime implements AgentRuntime {
         ? ` I also received ${supplements.length} supplement(s): ${supplements.map((item) => item.prompt).join("; ")}`
         : ` 我也收到了 ${supplements.length} 条补充信息：${supplements.map((item) => item.prompt).join("；")}`
       : "";
-    const profileName = english
-      ? input.profileId === "local-operator"
-        ? "Local assistant"
-        : "Admissions assistant"
-      : getAgentProfile(input.profileId).name;
+    const profileName = english ? "Local assistant" : getAgentProfile(input.profileId).name;
     const response = english
       ? input.attachments.length > 0
         ? `${profileName} received your message and ${input.attachments.length} attachment(s). This is demo runtime; after Claude authentication is configured, the Agent SDK will read workspace files, use tools, and complete the task.`
@@ -599,9 +581,6 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     private readonly config: AppConfig,
     private readonly sessionStore: SqliteSessionStore,
     private readonly memoryStore?: MemoryStore,
-    private readonly admissionsStore?: AdmissionsStore,
-    private readonly schedulerStore?: SchedulerStore,
-    private readonly schedulerRunner?: Pick<ScheduledJobRunner, "runNow">,
     private readonly evolutionStore?: EvolutionStore,
     private readonly evolutionCoordinator?: EvolutionCoordinator,
     private readonly services?: RuntimeServices
@@ -614,7 +593,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     const hookEvents: RuntimeEvent[] = [];
     const workspace = path.resolve(input.workspacePath);
     const inputAttachmentRoot = path.join(workspace, "attachments");
-    const documentSkills = input.profileId === "graduate-admissions" ? await prepareExternalSkillPlugins() : [];
+    const documentSkills = await prepareExternalSkillPlugins();
     const protectWorkspace = createWorkspaceGuard(
       workspace,
       (reason) => this.denyTool(reason),
@@ -680,16 +659,6 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     const profile = getAgentProfile(input.profileId);
     const costLedger = new RunCostLedger();
     const delegationServer = this.createDelegationServer(input, delegatedEvents, costLedger);
-    const admissionsServers =
-      profile.id === "graduate-admissions" && this.admissionsStore
-        ? createAdmissionsMcpServers({
-            store: this.admissionsStore,
-            config: this.config,
-            workspacePath: workspace,
-            ...(this.schedulerStore ? { schedulerStore: this.schedulerStore } : {}),
-            ...(this.schedulerRunner ? { schedulerRunner: this.schedulerRunner } : {})
-          })
-        : {};
     const memoryContext = this.memoryContext(input);
     const learningContext = this.learningContext(input);
     const progressPrompt =
@@ -774,14 +743,13 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       sessionStoreFlush: "eager",
       env: childEnvironment
     };
-    if (profile.id === "graduate-admissions") {
-      options.plugins = [
-        { type: "local", path: GRADUATE_ADMISSIONS_PLUGIN_PATH, skipMcpDiscovery: true },
-        ...documentSkills.map((item) => ({ type: "local", path: item.pluginPath, skipMcpDiscovery: true }))
-      ];
+    if (documentSkills.length > 0) {
+      options.plugins = documentSkills.map((item) => ({
+        type: "local",
+        path: item.pluginPath,
+        skipMcpDiscovery: true
+      }));
       options.skills = [...profile.skills, ...documentSkills.flatMap((item) => item.skillNames)];
-      options.strictMcpConfig = true;
-      options.tools = ["Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch", "AskUserQuestion", "Bash"];
     }
     const evolved = this.resolveEvolvedArtifacts(input);
     const evolvedSkills = evolved.filter((item) => item.kind === "skill");
@@ -808,8 +776,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     if (inputFilesServer) mcpServers.input_files = inputFilesServer;
     if (evolutionServer) mcpServers.evolution = evolutionServer;
     if (learningServer) mcpServers.learning = learningServer;
-    if (delegationServer) mcpServers.admissions_delegation = delegationServer;
-    Object.assign(mcpServers, admissionsServers);
+    if (delegationServer) mcpServers.managed_delegation = delegationServer;
     if (Object.keys(mcpServers).length > 0) options.mcpServers = mcpServers;
     if (input.branch.sdkSessionId) {
       options.resume = input.branch.sdkSessionId;
@@ -1330,13 +1297,9 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     const memories = pinned?.memories !== undefined ? pinned.memories : liveMemories;
     const livePlaybooks = evolutionEnabled ? (this.evolutionStore?.listPlaybooks(input.profileId) ?? []) : [];
     const playbooks = pinnedPlaybooks(pinned, livePlaybooks) ?? selectRelevantPlaybooks(livePlaybooks, input.prompt, 4);
-    const card = pinned
-      ? pinned.card
-        ? { profileId: input.profileId, title: pinned.card.title, lines: pinned.card.lines }
-        : null
-      : this.evolutionStore && evolutionEnabled
-        ? buildDomainCard(input.profileId, liveMemories, this.admissionsStore)
-        : null;
+    // Replayed overlays keep whatever card their run recorded so a frozen snapshot
+    // still round-trips; live runs no longer build one.
+    const card = pinned?.card ?? null;
     const artifactIds = pinned
       ? pinned.artifactIds
       : evolutionEnabled
@@ -1352,7 +1315,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         card
       });
     }
-    return uiLocaleInstruction(input.locale) + formatOverlayContext({ card, playbooks, memories });
+    return uiLocaleInstruction(input.locale) + formatOverlayContext({ playbooks, memories });
   }
 
   private learningContext(input: RuntimeInput): string {
@@ -2209,11 +2172,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
                   handoff: handoff as unknown as Record<string, unknown>
                 });
             }
-            const documentSkills =
-              input.profileId === "graduate-admissions" &&
-              (delegate.id === "admissions-writer" || delegate.id === "admissions-evaluator")
-                ? await prepareExternalSkillPlugins()
-                : [];
+            const documentSkills = await prepareExternalSkillPlugins();
             const protectWorkspace = createWorkspaceGuard(
               workspace,
               (reason) => this.denyTool(reason),
@@ -2262,26 +2221,14 @@ export class ClaudeAgentRuntime implements AgentRuntime {
                 allowDangerouslySkipPermissions: true,
                 persistSession: false,
                 systemPrompt: `${delegate.systemPrompt} Submit the concise user-visible result with submit_specialist_result before finishing. Do not include private reasoning or raw tool output.`,
-                plugins: [
-                  { type: "local", path: GRADUATE_ADMISSIONS_PLUGIN_PATH, skipMcpDiscovery: true },
-                  ...documentSkills.map((item) => ({ type: "local", path: item.pluginPath, skipMcpDiscovery: true }))
-                ],
+                plugins: documentSkills.map((item) => ({
+                  type: "local",
+                  path: item.pluginPath,
+                  skipMcpDiscovery: true
+                })),
                 skills: [...delegate.skills, ...documentSkills.flatMap((item) => item.skillNames)],
                 strictMcpConfig: true,
                 mcpServers: {
-                  ...(this.admissionsStore
-                    ? Object.fromEntries(
-                        Object.entries(
-                          createAdmissionsMcpServers({
-                            store: this.admissionsStore,
-                            config: this.config,
-                            workspacePath: workspace,
-                            ...(this.schedulerStore ? { schedulerStore: this.schedulerStore } : {}),
-                            ...(this.schedulerRunner ? { schedulerRunner: this.schedulerRunner } : {})
-                          })
-                        ).filter(([name]) => delegate.mcpFactories.includes(name))
-                      )
-                    : {}),
                   specialist_result: specialistResultServer
                 },
                 tools: [...delegateToolsFor(delegate.id), "Bash"],
@@ -2513,7 +2460,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       )
     );
     return createSdkMcpServer({
-      name: "admissions_delegation",
+      name: "managed_delegation",
       version: "1.0.0",
       instructions:
         "Delegate only bounded specialist work. Specialists are visible to the user and return their result to the main agent. Start another bounded specialist task when a real follow-up is needed.",
@@ -2568,9 +2515,6 @@ export function createAgentRuntime(
   config: AppConfig,
   sessionStore: SqliteSessionStore,
   memoryStore?: MemoryStore,
-  admissionsStore?: AdmissionsStore,
-  schedulerStore?: SchedulerStore,
-  schedulerRunner?: Pick<ScheduledJobRunner, "runNow">,
   evolutionStore?: EvolutionStore,
   evolutionCoordinator?: EvolutionCoordinator,
   services?: RuntimeServices
@@ -2580,17 +2524,7 @@ export function createAgentRuntime(
     if (!config.claudeAuthConfigured) {
       throw new Error("AGENT_RUNTIME=claude requires process authentication or inherited Claude user settings");
     }
-    return new ClaudeAgentRuntime(
-      config,
-      sessionStore,
-      memoryStore,
-      admissionsStore,
-      schedulerStore,
-      schedulerRunner,
-      evolutionStore,
-      evolutionCoordinator,
-      services
-    );
+    return new ClaudeAgentRuntime(config, sessionStore, memoryStore, evolutionStore, evolutionCoordinator, services);
   }
   return new DemoAgentRuntime(services?.learning);
 }
@@ -2747,8 +2681,15 @@ function isSpecialistResultToolName(value: unknown): boolean {
   return typeof value === "string" && value === "mcp__specialist_result__submit_specialist_result";
 }
 
+/**
+ * `admissions_delegation` was this server's name before the delegation machinery
+ * was generalised; historical runs persisted tool names under it, so both prefixes
+ * stay recognised.
+ */
+const DELEGATION_TOOL_PREFIXES = ["mcp__managed_delegation__", "mcp__admissions_delegation__"] as const;
+
 function isManagedDelegationToolName(value: unknown): boolean {
-  return typeof value === "string" && value.startsWith("mcp__admissions_delegation__delegate_");
+  return typeof value === "string" && DELEGATION_TOOL_PREFIXES.some((prefix) => value.startsWith(`${prefix}delegate_`));
 }
 
 export function activityPresentation(
@@ -2766,27 +2707,8 @@ export function activityPresentation(
   if (toolName === "Agent" || toolName === "Task") {
     return { activityKind: "subagent", displayName: "协作助手" };
   }
-  if (toolName.startsWith("mcp__admissions_delegation__")) {
-    const delegate = toolName.split("__").at(-1) ?? "";
-    const names: Record<string, string> = {
-      delegate_researcher: "项目研究员",
-      delegate_source_verifier: "资料核验员",
-      delegate_writer: "文书写作",
-      delegate_evaluator: "文书审校"
-    };
-    return { activityKind: "subagent", displayName: names[delegate] ?? "协作助手" };
-  }
-  if (toolName.startsWith("mcp__admissions_schedule__")) {
-    return { activityKind: "cron", displayName: "计划任务" };
-  }
-  if (toolName.startsWith("mcp__admissions_evidence__")) {
-    return { activityKind: "mcp", displayName: "官方资料" };
-  }
-  if (toolName.startsWith("mcp__academic_research__")) {
-    return { activityKind: "mcp", displayName: "学术研究" };
-  }
-  if (toolName.startsWith("mcp__application_tracker__")) {
-    return { activityKind: "mcp", displayName: "申请进度" };
+  if (DELEGATION_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
+    return { activityKind: "subagent", displayName: "协作助手" };
   }
   if (toolName.startsWith("mcp__workspace_files__")) {
     return { activityKind: "workspace", displayName: "分享文件" };
@@ -2954,15 +2876,6 @@ export function mimeFromFileName(fileName: string): string {
 
 function skillDisplayName(skill: string): string {
   const names: Record<string, string> = {
-    "official-source-research": "Skills · 项目调研",
-    "program-comparison": "Skills · 项目比较",
-    "faculty-fit": "Skills · 导师匹配",
-    "application-strategy": "Skills · 申请策略",
-    "cv-resume-writing": "Skills · CV 写作",
-    "statement-writing": "Skills · 文书写作",
-    "evidence-consistency-review": "Skills · 事实审校",
-    "outreach-and-interview": "Skills · 套磁与面试",
-    "application-tracker": "Skills · 申请进度",
     pdf: "Skills · PDF",
     docx: "Skills · Word",
     xlsx: "Skills · Excel",
@@ -2976,11 +2889,7 @@ function skillDisplayName(skill: string): string {
 }
 
 function delegateToolsFor(delegateId: string): string[] {
-  if (delegateId === "admissions-researcher") {
-    return ["Read", "Glob", "Grep", "WebSearch", "WebFetch"];
-  }
   if (delegateId === "source-verifier") return ["Read", "WebSearch", "WebFetch"];
-  if (delegateId === "admissions-writer") return ["Read", "Write", "Edit"];
   return ["Read"];
 }
 

@@ -9,7 +9,7 @@ describe("EvolutionStore", () => {
     const database = openDatabase(":memory:");
     const store = new AgentStore(database);
     const evolution = new EvolutionStore(database);
-    const conversation = store.createConversation("web", "新对话", { profileId: "graduate-admissions" });
+    const conversation = store.createConversation("web", "新对话", { profileId: "local-operator" });
     const run = store.createRun(conversation.id, "比较这两个项目", "normal");
     store.appendMessageText(run.assistantMessageId, "先看截止日期。");
     store.setMessageStatus(run.assistantMessageId, "completed");
@@ -53,10 +53,10 @@ describe("EvolutionStore", () => {
       polarity: "do",
       origin: "user",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
     expect(playbook.instruction).toBe("and 先核截止日期");
-    expect(evolution.activePlaybooks("graduate-admissions")).toHaveLength(1);
+    expect(evolution.activePlaybooks("local-operator")).toHaveLength(1);
     database.close();
   });
 
@@ -64,7 +64,7 @@ describe("EvolutionStore", () => {
     const database = openDatabase(":memory:");
     const evolution = new EvolutionStore(database);
     evolution.createArtifact({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: "evolved-personal-method",
       name: "个人工作方法",
@@ -73,7 +73,7 @@ describe("EvolutionStore", () => {
       origin: "distilled",
       status: "enabled"
     });
-    expect(evolution.nextAvailableSlug("graduate-admissions", "skill", "evolved-personal-method")).toBe(
+    expect(evolution.nextAvailableSlug("local-operator", "skill", "evolved-personal-method")).toBe(
       "evolved-personal-method-2"
     );
     database.close();
@@ -83,7 +83,7 @@ describe("EvolutionStore", () => {
     const database = openDatabase(":memory:");
     const evolution = new EvolutionStore(database);
     const artifact = evolution.createArtifact({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: "frozen-resume-method",
       name: "简历方法",
@@ -94,13 +94,13 @@ describe("EvolutionStore", () => {
     });
     evolution.createOverlayRevision({
       runId: "run-frozen-overlay",
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       playbooks: [],
       artifactIds: [artifact.id],
       memories: [{ id: "memory-1", category: "preference", title: "回答语言", content: "简洁中文" }]
     });
     evolution.createArtifact({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       slug: artifact.slug,
       name: artifact.name,
@@ -120,7 +120,7 @@ describe("EvolutionStore", () => {
     const database = openDatabase(":memory:");
     const store = new AgentStore(database);
     const evolution = new EvolutionStore(database);
-    const conversation = store.createConversation("web", "新对话", { profileId: "graduate-admissions" });
+    const conversation = store.createConversation("web", "新对话", { profileId: "local-operator" });
     const first = store.createRun(conversation.id, "比较这两个项目", "normal");
     const second = store.createRun(conversation.id, "再问一句无关的", "normal");
     evolution.createSignal({

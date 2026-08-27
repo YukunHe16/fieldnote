@@ -14,14 +14,14 @@ describe("delivery shelf", () => {
     fs.writeFileSync(path.join(source, "resume.pdf"), "pdf");
     const shelf = new DeliveryShelf(openDatabase(":memory:"));
     const item = shelf.put({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       conversationId: "c1",
       fileName: "resume.pdf",
       mimeType: "application/pdf",
       relativePath: "resume.pdf",
       sourceWorkspace: source
     });
-    expect(shelf.search("graduate-admissions", "resume")[0]?.id).toBe(item.id);
+    expect(shelf.search("local-operator", "resume")[0]?.id).toBe(item.id);
     expect(shelf.citeIntoWorkspace(item, target)).toBe(path.join("shelf", "resume.pdf"));
     expect(fs.readFileSync(path.join(target, "shelf", "resume.pdf"), "utf8")).toBe("pdf");
     expect(shelf.fileAbsolutePath(item, root)).toBe(path.join(source, "resume.pdf"));

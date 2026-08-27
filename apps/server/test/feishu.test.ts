@@ -6,7 +6,6 @@ import {
   buildFeishuEvolutionCard,
   buildFeishuLearningOutcomeCard,
   buildFeishuProfilePickerCard,
-  buildFeishuScheduledReportCard,
   buildFeishuThinkingCard,
   FeishuChannel,
   parseCardActionValue,
@@ -39,7 +38,7 @@ describe("Feishu commands", () => {
   it("parses control commands without swallowing normal messages", () => {
     expect(parseCommand("/new").name).toBe("new");
     expect(parseCommand("/clear").name).toBe("new");
-    expect(parseCommand("/agent 申学")).toEqual({ name: "agent", argument: "申学" });
+    expect(parseCommand("/agent 本地")).toEqual({ name: "agent", argument: "本地" });
     expect(parseCommand("/guide 先检查测试")).toEqual({ name: "guide", argument: "先检查测试" });
     expect(parseCommand("解释这个模块")).toEqual({ name: "message", argument: "解释这个模块" });
   });
@@ -241,7 +240,7 @@ describe("Feishu commands", () => {
     store.setChannelBinding("feishu", "p2p:ou_me", conversation.id, { chatId: "oc_chat", group: false });
     const artifact = {
       id: "artifact-1",
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       kind: "skill",
       name: "简历改写与 PDF/Word 导出",
       description: "改简历并导出",
@@ -335,33 +334,13 @@ describe("Feishu commands", () => {
       "conversation=conversation-1"
     );
     const picker = buildFeishuProfilePickerCard("conversation-1") as any;
-    expect(picker.body.elements[1].columns.map((column: any) => column.elements[0].text.content)).toEqual([
-      "申学助手",
-      "本地助手"
-    ]);
+    expect(picker.body.elements[1].columns.map((column: any) => column.elements[0].text.content)).toEqual(["本地助手"]);
     expect(parseCardActionValue(picker.body.elements[1].columns[0].elements[0].behaviors[0].value)).toMatchObject({
       action: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
-    const activity = buildFeishuActivityCard("项目研究员", "正在读取两个项目", context) as any;
-    expect(activity.body.elements[0].content).toContain("项目研究员");
-    const report = buildFeishuScheduledReportCard(
-      "本周申学进度",
-      "完成 SOP 初稿",
-      "schedule-run",
-      context.webAppUrl
-    ) as any;
-    expect(report.body.elements[0].content).toContain("本周申学进度");
-    expect(report.body.elements[1].columns[0].elements[0].text.content).toBe("去往网页端");
-    const publicReport = buildFeishuScheduledReportCard(
-      "本周申学进度",
-      "完成 SOP 初稿",
-      "schedule-run",
-      "https://agent.example.com"
-    ) as any;
-    const reportButton = publicReport.body.elements[1].columns[0].elements[0];
-    expect(reportButton.text.content).toBe("去往网页端");
-    expect(reportButton.behaviors[0].default_url).toContain("scheduledRun=schedule-run");
+    const activity = buildFeishuActivityCard("协作助手", "正在读取两个项目", context) as any;
+    expect(activity.body.elements[0].content).toContain("协作助手");
     expect(parseCardActionValue({ action: "copy", conversationId: "conversation-1" })).toBeNull();
     expect(parseCardActionValue({ action: "unknown", conversationId: "conversation-1" })).toBeNull();
     expect(parseCardActionValue({ action: "evolution_approve", artifactId: "artifact-1" })).toMatchObject({
@@ -373,7 +352,7 @@ describe("Feishu commands", () => {
     const pending = buildFeishuEvolutionCard({
       artifact: {
         id: "artifact-1",
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         kind: "skill",
         name: "简历改写与 PDF/Word 导出",
         description: "改简历并导出"
@@ -386,7 +365,7 @@ describe("Feishu commands", () => {
     const publicPending = buildFeishuEvolutionCard({
       artifact: {
         id: "artifact-1",
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         kind: "skill",
         name: "简历改写与 PDF/Word 导出",
         description: "改简历并导出"
@@ -401,7 +380,7 @@ describe("Feishu commands", () => {
     const passed = buildFeishuEvolutionCard({
       artifact: {
         id: "artifact-1",
-        profileId: "graduate-admissions",
+        profileId: "local-operator",
         kind: "skill",
         name: "简历改写与 PDF/Word 导出",
         description: "改简历并导出"
@@ -1138,7 +1117,7 @@ describe("Feishu commands", () => {
       async review(_id: string, verdict: string) {
         return {
           id: "artifact-1",
-          profileId: "graduate-admissions",
+          profileId: "local-operator",
           kind: "skill",
           name: "简历改写与 PDF/Word 导出",
           description: "改简历并导出",

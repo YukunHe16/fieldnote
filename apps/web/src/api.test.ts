@@ -11,8 +11,7 @@ import {
   normalizeLearningPolicy,
   normalizeLearningSession,
   normalizeMemory,
-  normalizeMessage,
-  normalizeScheduledJobRun
+  normalizeMessage
 } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -77,9 +76,9 @@ describe("API normalizers", () => {
       source: { conversationId: "c1", sourceDeleted: false }
     });
     expect(
-      normalizeMessage({ id: "m3", role: "assistant", content: "ok", skill_references: ["项目调研", "文书写作"] })
+      normalizeMessage({ id: "m3", role: "assistant", content: "ok", skill_references: ["资料调研", "报告写作"] })
         .skillReferences
-    ).toEqual(["项目调研", "文书写作"]);
+    ).toEqual(["资料调研", "报告写作"]);
   });
 
   it("normalizes collaboration traces without carrying unsafe source URLs", () => {
@@ -153,14 +152,14 @@ describe("API normalizers", () => {
       activity_id: "a1",
       kind: "subagent",
       status: "running",
-      technical_name: "graduate-admissions",
+      technical_name: "local-operator",
       children: [{ block_id: "a2", type: "mcp", status: "completed", duration_ms: 320, output_summary: "已读取项目" }]
     });
     expect(block).toMatchObject({
       id: "a1",
       type: "subagent",
       status: "running",
-      technicalName: "graduate-admissions"
+      technicalName: "local-operator"
     });
     expect(block.children[0]).toMatchObject({ id: "a2", type: "mcp", durationMs: 320, outputSummary: "已读取项目" });
   });
@@ -411,11 +410,11 @@ describe("API normalizers", () => {
             id: "act-1",
             parentActivityId: null,
             kind: "subagent",
-            displayName: "院校研究",
-            technicalName: "admissions-researcher",
+            displayName: "资料研究",
+            technicalName: "delegate_research",
             status: "running",
             content: "检索中",
-            inputSummary: "学校 A",
+            inputSummary: "来源 A",
             outputSummary: "",
             startedAt: "2026-08-18T00:00:00Z",
             completedAt: null
@@ -434,8 +433,8 @@ describe("API normalizers", () => {
             id: "act-2",
             parentActivityId: "act-1",
             kind: "mcp",
-            displayName: "读取官网",
-            technicalName: "admissions_evidence",
+            displayName: "读取网页",
+            technicalName: "WebFetch",
             status: "completed",
             content: "",
             inputSummary: "URL",
@@ -450,8 +449,8 @@ describe("API normalizers", () => {
       id: "parent",
       type: "subagent",
       status: "running",
-      title: "院校研究",
-      technicalName: "admissions-researcher"
+      title: "资料研究",
+      technicalName: "delegate_research"
     });
     expect(message.blocks?.[0]?.children[0]).toMatchObject({
       id: "child",
@@ -467,7 +466,7 @@ describe("API normalizers", () => {
         JSON.stringify({
           id: "c-profile",
           title: "新对话",
-          profileId: "graduate-admissions",
+          profileId: "local-operator",
           temporary: true,
           updatedAt: "2026-08-18T00:00:00Z"
         }),
@@ -475,88 +474,12 @@ describe("API normalizers", () => {
       )
     );
     vi.stubGlobal("fetch", fetchMock);
-    const conversation = await api.createConversation(true, "graduate-admissions");
+    const conversation = await api.createConversation(true, "local-operator");
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       temporary: true
     });
-    expect(conversation).toMatchObject({ id: "c-profile", profileId: "graduate-admissions", temporary: true });
-  });
-
-  it("sends admissions onboarding and inline status updates to the supported endpoints", async () => {
-    const jsonResponse = (body: object) =>
-      new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ id: "cycle-1", name: "2027 秋季 · 人工智能" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "profile-1", cycleId: "cycle-1" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "program-1", status: "submitted" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "requirement-1", status: "ready" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "task-1", completed: true, status: "completed" }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await api.createAdmissionsCycle({
-      name: "2027 秋季 · 人工智能",
-      degree: "硕士",
-      fieldOfStudy: "人工智能",
-      intakeTerm: "2027 秋季",
-      targetRegions: ["新加坡"],
-      active: true
-    });
-    await api.createAdmissionsProfile({
-      cycleId: "cycle-1",
-      targetDegree: "硕士",
-      targetField: "人工智能",
-      targetYear: "2027 秋季"
-    });
-    await api.updateAdmissionsProgram("program-1", { status: "submitted" });
-    await api.updateAdmissionsRequirement("program-1", "requirement-1", { status: "ready" });
-    await api.updateAdmissionsTask("task-1", { completed: true, status: "completed" });
-
-    expect(fetchMock.mock.calls.map(([path, init]) => [path, init?.method, JSON.parse(String(init?.body))])).toEqual([
-      [
-        "/api/admissions/cycles",
-        "POST",
-        {
-          name: "2027 秋季 · 人工智能",
-          degree: "硕士",
-          fieldOfStudy: "人工智能",
-          intakeTerm: "2027 秋季",
-          targetRegions: ["新加坡"],
-          active: true
-        }
-      ],
-      [
-        "/api/admissions/profile",
-        "POST",
-        { cycleId: "cycle-1", targetDegree: "硕士", targetField: "人工智能", targetYear: "2027 秋季" }
-      ],
-      ["/api/admissions/programs", "PATCH", { id: "program-1", status: "submitted" }],
-      ["/api/admissions/programs/program-1/requirements", "PATCH", { id: "requirement-1", status: "ready" }],
-      ["/api/admissions/tasks", "PATCH", { id: "task-1", completed: true, status: "completed" }]
-    ]);
-  });
-
-  it("normalizes scheduled report activity blocks", () => {
-    const run = normalizeScheduledJobRun({
-      id: "run-1",
-      job_id: "job-1",
-      content: "报告",
-      blocks: [
-        {
-          id: "skill-1",
-          kind: "skill",
-          displayName: "Skills · 申请进度",
-          technicalName: "application-tracker",
-          status: "completed",
-          content: "已核对",
-          startedAt: "2026-08-19T00:00:00Z",
-          completedAt: "2026-08-19T00:00:01Z"
-        }
-      ]
-    });
-    expect(run).toMatchObject({ id: "run-1", jobId: "job-1", content: "报告" });
-    expect(run.blocks?.[0]).toMatchObject({ type: "skill", title: "Skills · 申请进度", status: "completed" });
+    expect(conversation).toMatchObject({ id: "c-profile", profileId: "local-operator", temporary: true });
   });
 
   it("flattens nested SSE payloads and safely labels unknown events", () => {
@@ -627,30 +550,5 @@ describe("API normalizers", () => {
       authorized: false,
       lastSeenAt: ""
     });
-  });
-
-  it("sends a time zone change to the scheduled-jobs endpoint", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: "job-1",
-          name: "每日申请计划",
-          timezone: "America/Chicago",
-          enabled: true
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const job = await api.updateScheduledJob("job-1", { timezone: "America/Chicago" });
-
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/scheduled-jobs");
-    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("PATCH");
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
-      id: "job-1",
-      timezone: "America/Chicago"
-    });
-    expect(job.timezone).toBe("America/Chicago");
   });
 });

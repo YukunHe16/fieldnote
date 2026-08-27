@@ -21,7 +21,6 @@ import type { MemoryStore } from "./memory-store.js";
 import { scoreOverlayText } from "./overlay-context.js";
 import type { TurnAnalysis } from "./runtime.js";
 
-const USED_DELEGATE = /项目研究员|资料核验|文书写作|文书审校/;
 const DELEGATED_WORK = /委派|交给子代理|做成子代理|交给研究员|交给审校|delegate_/i;
 
 export interface EvolutionNotifier {
@@ -502,7 +501,8 @@ export class EvolutionCoordinator {
       );
     if (acceptCount < 3 && confirmedSimilar.length < 2) return [];
 
-    const delegated = input.usedSubagents.some((label) => USED_DELEGATE.test(label));
+    // Every remaining subagent label comes from a managed or evolved delegate.
+    const delegated = input.usedSubagents.length > 0;
     const mainAgentFlow = input.usedSkills.length > 0 && input.usedSubagents.length === 0;
     let target = input.evolveTarget;
     if (target === "none" || target === "playbook") {

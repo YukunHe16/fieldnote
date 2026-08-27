@@ -749,7 +749,7 @@ describe("RunOrchestrator", () => {
     const replay = new RunReplayStore(database, path.join(workspaceRoot, ".snapshots"));
     const runtime = new CaptureRuntime();
     const orchestrator = new RunOrchestrator(testConfig(workspaceRoot), store, events, runtime, undefined, { replay });
-    const conversation = store.createConversation("web", "回放", { profileId: "graduate-admissions" });
+    const conversation = store.createConversation("web", "回放", { profileId: "local-operator" });
     await fs.mkdir(path.join(workspaceRoot, conversation.id), { recursive: true });
     await fs.writeFile(
       path.join(workspaceRoot, conversation.id, ".replay.json"),

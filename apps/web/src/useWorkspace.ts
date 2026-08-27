@@ -32,7 +32,6 @@ import type {
 
 const BACKEND_RETRY_MS = 5000;
 const fallbackProfiles: AgentProfileSummary[] = [
-  { id: "graduate-admissions", name: "申学助手", description: "规划项目、材料与关键时间点" },
   { id: "local-operator", name: "本地执行助手", description: "处理文件、研究与日常任务" }
 ];
 
@@ -728,7 +727,7 @@ export function useWorkspace() {
   );
 
   const createConversation = useCallback(
-    async (temporary = false, profileId: AgentProfileId = "graduate-admissions") => {
+    async (temporary = false, profileId: AgentProfileId = "local-operator") => {
       let created: ConversationSummary;
       const profile = agentProfiles.find((item) => item.id === profileId);
       try {

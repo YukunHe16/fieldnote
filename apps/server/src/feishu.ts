@@ -407,7 +407,7 @@ export class FeishuChannel implements ChannelAdapter {
 
   /**
    * The most recent Feishu direct message, i.e. the owner's DM: where every host-initiated card
-   * (evolution review, disable suggestion, escalation handoff, scheduled report) is delivered.
+   * (evolution review, disable suggestion, escalation handoff) is delivered.
    */
   private ownerDirectMessage(): FeishuBindingMetadata | null {
     const binding = this.store.database
@@ -427,16 +427,6 @@ export class FeishuChannel implements ChannelAdapter {
     } catch {
       return false;
     }
-  }
-
-  async sendScheduledReport(input: { runId: string; title: string; content: string }): Promise<string> {
-    if (!this.channel) throw new Error("Feishu channel is not connected");
-    const metadata = this.ownerDirectMessage();
-    if (!metadata) throw new Error("No Feishu direct-message conversation is available for scheduled delivery");
-    const result = await this.channel.send(metadata.chatId, {
-      card: buildFeishuScheduledReportCard(input.title, input.content, input.runId, this.webAppUrl)
-    });
-    return String(result?.messageId ?? result?.message_id ?? input.runId);
   }
 
   isConnected(): boolean {
@@ -1499,29 +1489,11 @@ export function buildFeishuReplyCard(
 
 export function buildFeishuProfilePickerCard(conversationId: string): object {
   return buildFeishuCard("选择接下来要使用的助手", [
-    callbackButton("申学助手", "profile_admissions", {
-      action: "profile",
-      conversationId,
-      profileId: "graduate-admissions"
-    }),
     callbackButton("本地助手", "profile_local", {
       action: "profile",
       conversationId,
       profileId: "local-operator"
     })
-  ]);
-}
-
-export function buildFeishuScheduledReportCard(
-  title: string,
-  content: string,
-  runId: string,
-  webAppUrl: string
-): object {
-  const url = new URL(webAppUrl);
-  url.searchParams.set("scheduledRun", runId);
-  return buildFeishuCard(`## ${title}\n\n${content}`, [
-    openUrlButton("去往网页端", "open_scheduled_report", url.toString())
   ]);
 }
 
@@ -1857,7 +1829,6 @@ export function parseCommand(content: string): Command {
 
 function parseProfileArgument(value: string): AgentProfileId | null {
   const normalized = value.trim().toLocaleLowerCase();
-  if (["申学", "申学助手", "admissions", "graduate-admissions"].includes(normalized)) return "graduate-admissions";
   if (["通用", "本地", "本地助手", "general", "local", "local-operator"].includes(normalized)) return "local-operator";
   return null;
 }

@@ -504,16 +504,6 @@ CREATE TABLE IF NOT EXISTS agent_mailbox (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_mailbox_run ON agent_mailbox(run_id, created_at);
 
-CREATE TABLE IF NOT EXISTS domain_card_revisions (
-  id TEXT PRIMARY KEY,
-  profile_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  lines_json TEXT NOT NULL,
-  patch TEXT,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_domain_card_revisions_profile ON domain_card_revisions(profile_id, created_at DESC);
-
 CREATE TABLE IF NOT EXISTS run_snapshots (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL UNIQUE,
@@ -537,7 +527,50 @@ CREATE TABLE IF NOT EXISTS replay_marks (
 `);
   migrateAssistantBlockThinkingKind(database);
   migrateEvolutionSignalMethodKind(database);
+  migrateRemovedAdmissionsProfile(database);
   return database;
+}
+
+/**
+ * The `graduate-admissions` profile was removed. Its rows are remapped onto the surviving
+ * profile so historical conversations, memories, and learning sessions stay reachable —
+ * every reader resolves `profile_id` against the code registry and drops unknown ids.
+ *
+ * Nothing is deleted. `UPDATE OR IGNORE` matters: `evolution_review_state` keys by
+ * `profile_id` and `evolved_artifacts` is unique per (profile, kind, slug), so a row that
+ * would collide with an existing local-operator row simply keeps the dead id instead of
+ * aborting startup. Table existence is checked because the learning and evolution stores
+ * create their own tables after `openDatabase` returns.
+ */
+function migrateRemovedAdmissionsProfile(database: SqliteDatabase) {
+  const tables = [
+    "conversations",
+    "memory_items",
+    "evolution_signals",
+    "playbooks",
+    "overlay_revisions",
+    "evolved_artifacts",
+    "evolution_review_state",
+    "delivery_shelf",
+    "run_snapshots",
+    "learning_sessions",
+    "learning_experiences",
+    "learning_strategy_variants",
+    "learning_policy_revisions",
+    "learning_review_tasks"
+  ];
+  const tableExists = database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
+  const hasColumn = (table: string): boolean =>
+    (database.pragma(`table_info(${table})`) as Array<{ name: string }>).some((column) => column.name === "profile_id");
+  const migrate = database.transaction(() => {
+    for (const table of tables) {
+      if (!tableExists.get(table) || !hasColumn(table)) continue;
+      database.exec(
+        `UPDATE OR IGNORE ${table} SET profile_id = 'local-operator' WHERE profile_id = 'graduate-admissions'`
+      );
+    }
+  });
+  migrate();
 }
 
 function migrateAssistantBlockThinkingKind(database: SqliteDatabase) {

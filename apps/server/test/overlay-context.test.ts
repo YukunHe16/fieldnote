@@ -30,25 +30,25 @@ describe("overlay routing helpers", () => {
   it("reads used skill labels from activity blocks", () => {
     expect(
       skillLabelsFromBlocks([
-        { activity: { kind: "skill", displayName: "Skills · 项目调研" } },
-        { type: "skill", title: "Skills · 文书写作", children: [] },
+        { activity: { kind: "skill", displayName: "Skills · Word 排版" } },
+        { type: "skill", title: "Skills · 去 AI 痕迹", children: [] },
         { activity: { kind: "mcp", displayName: "网页搜索" } }
       ])
-    ).toEqual(["项目调研", "文书写作"]);
+    ).toEqual(["Word 排版", "去 AI 痕迹"]);
     expect(
       subagentLabelsFromBlocks([
-        { activity: { kind: "subagent", displayName: "项目研究员" } },
-        { activity: { kind: "skill", displayName: "项目调研" } }
+        { activity: { kind: "subagent", displayName: "协作助手" } },
+        { activity: { kind: "skill", displayName: "Word 排版" } }
       ])
-    ).toEqual(["项目研究员"]);
+    ).toEqual(["协作助手"]);
   });
 
   it("confirms a playbook only when it matches skills used this turn", () => {
-    const research = { title: "先核官方", instruction: "截止日期先核官方页面再写进材料" };
-    const writing = { title: "文书提纲", instruction: "SOP 先列提纲" };
-    expect(playbookMatchesUsedSkills(research, ["项目调研"])).toBe(true);
-    expect(playbookMatchesUsedSkills(writing, ["项目调研"])).toBe(false);
-    expect(playbookMatchesUsedSkills(research, [])).toBe(false);
+    const formatting = { title: "Word 排版统一", instruction: "导出 Word 文档前先统一排版" };
+    const spreadsheet = { title: "表格核对", instruction: "把表格数据核对一遍" };
+    expect(playbookMatchesUsedSkills(formatting, ["Word 排版"])).toBe(true);
+    expect(playbookMatchesUsedSkills(spreadsheet, ["Word 排版"])).toBe(false);
+    expect(playbookMatchesUsedSkills(formatting, [])).toBe(false);
   });
 
   it("builds an evolved skill description from playbook steps", () => {

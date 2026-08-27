@@ -155,6 +155,14 @@ class ApplicationFailureRuntime implements AgentRuntime {
   }
 }
 
+/**
+ * The registry holds one profile, so a second profile's rows cannot be written through
+ * `MemoryStore.create`. Maintenance batching, and every scope-target filter it relies on,
+ * reads `profile_id` as free text straight from SQL — so the other side of the isolation
+ * is planted directly, the way a row left behind by a retired profile looks on disk.
+ */
+const OTHER_PROFILE_ID = "other-profile";
+
 class CrossProfileRefinementRuntime implements AgentRuntime {
   readonly kind = "demo" as const;
   foreignMemoryId = "";
@@ -166,10 +174,10 @@ class CrossProfileRefinementRuntime implements AgentRuntime {
 
   async refineMemories(input: { memories: Array<{ id: string; profileId: string | null }> }) {
     this.batches.push(input.memories.map(({ id, profileId }) => ({ id, profileId })));
-    const isAdmissionsBatch = input.memories.some((memory) => memory.profileId === "graduate-admissions");
+    const isOtherProfileBatch = input.memories.some((memory) => memory.profileId === OTHER_PROFILE_ID);
     return {
       groups: [],
-      updates: isAdmissionsBatch
+      updates: isOtherProfileBatch
         ? [
             {
               memoryId: this.foreignMemoryId,
@@ -180,7 +188,7 @@ class CrossProfileRefinementRuntime implements AgentRuntime {
             }
           ]
         : [],
-      supersedeIds: isAdmissionsBatch ? [this.foreignMemoryId] : []
+      supersedeIds: isOtherProfileBatch ? [this.foreignMemoryId] : []
     };
   }
 }
@@ -317,8 +325,6 @@ describe("casual analyze skip", () => {
       new EventStore(database),
       runtime,
       undefined,
-      undefined,
-      undefined,
       learning
     );
 
@@ -356,8 +362,6 @@ describe("casual analyze skip", () => {
       memories,
       new EventStore(database),
       runtime,
-      undefined,
-      undefined,
       undefined,
       learning
     );
@@ -402,8 +406,6 @@ describe("casual analyze skip", () => {
       memories,
       new EventStore(database),
       runtime,
-      undefined,
-      undefined,
       undefined,
       learning
     );
@@ -457,8 +459,6 @@ describe("casual analyze skip", () => {
       runtime,
       undefined,
       undefined,
-      undefined,
-      undefined,
       replay
     );
 
@@ -486,19 +486,19 @@ describe("casual analyze skip", () => {
       runtime,
       new EvolutionCoordinator(config(root), evolution)
     );
-    const conversation = store.createConversation("web", "新对话", { profileId: "graduate-admissions" });
+    const conversation = store.createConversation("web", "新对话", { profileId: "local-operator" });
     const playbook = evolution.createPlaybook({
       title: "先核官方",
       instruction: "先核官方页面再写进材料",
       polarity: "do",
       origin: "user",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
     const run = store.createRun(conversation.id, "你好", "normal");
     evolution.createOverlayRevision({
       runId: run.id,
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       playbooks: [playbook],
       artifactIds: []
     });
@@ -528,17 +528,7 @@ describe("MemoryCoordinator", () => {
     store.replaceMessageText(run.assistantMessageId, "可以，我们换一个例子来解释。");
     store.setMessageStatus(run.assistantMessageId, "completed");
     store.setRunStatus(run.id, "completed");
-    const coordinator = new MemoryCoordinator(
-      config(root),
-      store,
-      memories,
-      events,
-      runtime,
-      undefined,
-      undefined,
-      undefined,
-      learning
-    );
+    const coordinator = new MemoryCoordinator(config(root), store, memories, events, runtime, undefined, learning);
 
     coordinator.enqueue(run);
     await runtime.waitUntilAnalysisStarts();
@@ -732,14 +722,15 @@ describe("MemoryCoordinator", () => {
       title: "全局偏好",
       content: "这条可作为只读参考"
     }).memory!;
-    const admissions = memories.create({
+    const foreign = memories.create({
       category: "task",
-      title: "申请材料",
-      content: "整理研究生申请材料",
+      title: "另一档案的材料",
+      content: "整理另一个 Profile 的材料",
       sourceKind: "auto",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
+    database.prepare("UPDATE memory_items SET profile_id = ? WHERE id = ?").run(OTHER_PROFILE_ID, foreign.id);
     const local = memories.create({
       category: "task",
       title: "本地发布",
@@ -756,12 +747,12 @@ describe("MemoryCoordinator", () => {
     expect(
       runtime.batches.some(
         (batch) =>
-          batch.some((memory) => memory.profileId === "graduate-admissions") &&
+          batch.some((memory) => memory.profileId === OTHER_PROFILE_ID) &&
           batch.some((memory) => memory.profileId === "local-operator")
       )
     ).toBe(false);
     expect(runtime.batches.every((batch) => batch.some((memory) => memory.id === globalPreference.id))).toBe(true);
-    expect(runtime.batches.some((batch) => batch.some((memory) => memory.id === admissions.id))).toBe(true);
+    expect(runtime.batches.some((batch) => batch.some((memory) => memory.id === foreign.id))).toBe(true);
     expect(memories.get(local.id)).toMatchObject({
       content: "整理本地发布检查项",
       status: "active"
@@ -775,13 +766,13 @@ describe("MemoryCoordinator", () => {
           keywords: [],
           importance: 1
         },
-        { scope: "profile", profileId: "graduate-admissions" }
+        { scope: "profile", profileId: OTHER_PROFILE_ID }
       )
     ).toBeNull();
     expect(
       memories.supersedeAutomaticMemories([local.id], {
         scope: "profile",
-        profileId: "graduate-admissions"
+        profileId: OTHER_PROFILE_ID
       })
     ).toBe(0);
 
@@ -803,17 +794,7 @@ describe("MemoryCoordinator", () => {
     store.replaceMessageText(run.assistantMessageId, "可以，我们换一个例子来解释。");
     store.setMessageStatus(run.assistantMessageId, "completed");
     store.setRunStatus(run.id, "completed");
-    const coordinator = new MemoryCoordinator(
-      config(root),
-      store,
-      memories,
-      events,
-      runtime,
-      undefined,
-      undefined,
-      undefined,
-      learning
-    );
+    const coordinator = new MemoryCoordinator(config(root), store, memories, events, runtime, undefined, learning);
     coordinator.enqueue(run);
     await waitFor(() => memories.getExtraction(run.id)?.status === "completed");
 
@@ -835,22 +816,12 @@ describe("MemoryCoordinator", () => {
     const events = new EventStore(database);
     const learning = new LearningStore(database);
     const runtime = new AdmissionRuntime();
-    const conversation = store.createConversation("feishu", "飞书学习", { profileId: "graduate-admissions" });
+    const conversation = store.createConversation("feishu", "飞书学习", { profileId: "local-operator" });
     const run = store.createRun(conversation.id, "我还是没理解递归为什么需要出口，请换种讲法教我。", "normal");
     store.replaceMessageText(run.assistantMessageId, "可以，我们换一个例子来解释。");
     store.setMessageStatus(run.assistantMessageId, "completed");
     store.setRunStatus(run.id, "completed");
-    const coordinator = new MemoryCoordinator(
-      config(root),
-      store,
-      memories,
-      events,
-      runtime,
-      undefined,
-      undefined,
-      undefined,
-      learning
-    );
+    const coordinator = new MemoryCoordinator(config(root), store, memories, events, runtime, undefined, learning);
     coordinator.enqueue(run);
     await waitFor(() => memories.getExtraction(run.id)?.status === "completed");
 

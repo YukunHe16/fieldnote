@@ -86,7 +86,7 @@ describe("MemoryStore", () => {
         content: "不允许这样保存",
         sourceKind: "manual",
         scope: "profile",
-        profileId: "graduate-admissions"
+        profileId: "local-operator"
       })
     ).toThrow(/preference memories must use global scope/i);
     expect(() =>
@@ -439,6 +439,14 @@ describe("MemoryStore", () => {
   it("shares global preferences while isolating project and task memories by agent profile", () => {
     const database = openDatabase(":memory:");
     const memories = new MemoryStore(database);
+    // Only `local-operator` is a registered profile, so `create` refuses any other id. The
+    // scoping itself is plain `profile_id` filtering, so a second profile's rows are planted
+    // by re-pointing them afterwards — the same shape a row left behind by a retired profile
+    // has on disk. `profile_id` is not part of the FTS trigger, so search still sees them.
+    const otherProfileId = "other-profile";
+    const repointToOtherProfile = (memoryId: string) =>
+      database.prepare("UPDATE memory_items SET profile_id = ? WHERE id = ?").run(otherProfileId, memoryId);
+
     const preference = memories.create({
       category: "preference",
       title: "回答语言",
@@ -446,14 +454,15 @@ describe("MemoryStore", () => {
       sourceKind: "auto",
       scope: "global"
     });
-    const admissions = memories.create({
+    const otherProject = memories.create({
       category: "project",
-      title: "2027 申请",
-      content: "申请美国和加拿大的计算机博士",
+      title: "2027 计划",
+      content: "推进另一个档案下的长期项目",
       sourceKind: "auto",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
+    repointToOtherProfile(otherProject.id);
     const local = memories.create({
       category: "project",
       title: "本地项目",
@@ -462,14 +471,16 @@ describe("MemoryStore", () => {
       scope: "profile",
       profileId: "local-operator"
     });
-    const sameAdmissionsTask = memories.create({
+    const sameOtherTask = memories.create({
       category: "task",
       title: "整理资料",
       content: "完成资料整理",
       sourceKind: "auto",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
+    // Re-point before creating the twin, otherwise the identical fingerprint would dedupe.
+    repointToOtherProfile(sameOtherTask.id);
     const sameLocalTask = memories.create({
       category: "task",
       title: "整理资料",
@@ -478,24 +489,25 @@ describe("MemoryStore", () => {
       scope: "profile",
       profileId: "local-operator"
     });
+    expect(sameLocalTask.id).not.toBe(sameOtherTask.id);
 
-    expect(memories.stableContext("graduate-admissions").map((item) => item.id)).toEqual(
-      expect.arrayContaining([preference.id, admissions.id])
+    expect(memories.stableContext(otherProfileId).map((item) => item.id)).toEqual(
+      expect.arrayContaining([preference.id, otherProject.id])
     );
-    expect(memories.stableContext("graduate-admissions").map((item) => item.id)).not.toContain(local.id);
+    expect(memories.stableContext(otherProfileId).map((item) => item.id)).not.toContain(local.id);
+    expect(memories.stableContext("local-operator").map((item) => item.id)).toEqual(
+      expect.arrayContaining([preference.id, local.id])
+    );
+    expect(memories.stableContext("local-operator").map((item) => item.id)).not.toContain(otherProject.id);
     expect(
-      memories
-        .search({ query: "资料整理", categories: ["task"], profileId: "graduate-admissions" })
-        .map((item) => item.id)
-    ).toContain(sameAdmissionsTask.id);
+      memories.search({ query: "资料整理", categories: ["task"], profileId: otherProfileId }).map((item) => item.id)
+    ).toContain(sameOtherTask.id);
     expect(
-      memories
-        .search({ query: "资料整理", categories: ["task"], profileId: "graduate-admissions" })
-        .map((item) => item.id)
+      memories.search({ query: "资料整理", categories: ["task"], profileId: otherProfileId }).map((item) => item.id)
     ).not.toContain(sameLocalTask.id);
     expect(
       memories.mergeTaskMemories({
-        sourceMemoryIds: [sameAdmissionsTask.id, sameLocalTask.id],
+        sourceMemoryIds: [sameOtherTask.id, sameLocalTask.id],
         category: "project",
         title: "错误跨域合并",
         content: "不应合并",

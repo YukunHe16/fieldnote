@@ -48,7 +48,7 @@ function addPlaybook(evolution: EvolutionStore, title: string) {
     polarity: "do",
     origin: "confirmed",
     scope: "profile",
-    profileId: "graduate-admissions"
+    profileId: "local-operator"
   });
 }
 
@@ -63,17 +63,17 @@ describe("evolution review", () => {
       content: "刚核对了官方截止日期",
       sourceKind: "auto",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
     const now = Date.now();
     const status = evolution.getReviewStatus(
-      "graduate-admissions",
-      memories.countAutoTasksSince("graduate-admissions", now),
+      "local-operator",
+      memories.countAutoTasksSince("local-operator", now),
       now
     );
     expect(status.due).toBe(false);
     await coordinator.reviewNow(now);
-    expect(evolution.listArtifacts("graduate-admissions")).toHaveLength(0);
+    expect(evolution.listArtifacts("local-operator")).toHaveLength(0);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -81,7 +81,7 @@ describe("evolution review", () => {
   it("marks a due review complete without proposing when evidence is thin", async () => {
     const { root, database, evolution, memories, coordinator } = await setup();
     const now = Date.now();
-    evolution.markReviewCompleted("graduate-admissions", now - 8 * 24 * 60 * 60_000, now);
+    evolution.markReviewCompleted("local-operator", now - 8 * 24 * 60 * 60_000, now);
     for (let index = 0; index < 15; index += 1) {
       memories.create({
         category: "task",
@@ -89,18 +89,18 @@ describe("evolution review", () => {
         content: `互不相同的一次性任务 ${index}`,
         sourceKind: "auto",
         scope: "profile",
-        profileId: "graduate-admissions"
+        profileId: "local-operator"
       });
     }
     const status = evolution.getReviewStatus(
-      "graduate-admissions",
-      memories.countAutoTasksSince("graduate-admissions", now - 8 * 24 * 60 * 60_000),
+      "local-operator",
+      memories.countAutoTasksSince("local-operator", now - 8 * 24 * 60 * 60_000),
       now
     );
     expect(status.due).toBe(true);
     await coordinator.reviewNow(now);
-    expect(evolution.listArtifacts("graduate-admissions")).toHaveLength(0);
-    expect(evolution.getReviewStatus("graduate-admissions", 0, now).lastRunAt).toBe(now);
+    expect(evolution.listArtifacts("local-operator")).toHaveLength(0);
+    expect(evolution.getReviewStatus("local-operator", 0, now).lastRunAt).toBe(now);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -110,8 +110,8 @@ describe("evolution review", () => {
     addPlaybook(evolution, "先核官方");
     addPlaybook(evolution, "截止日期");
     const now = Date.now();
-    evolution.markReviewCompleted("graduate-admissions", now - 8 * 24 * 60 * 60_000, now);
-    const artifact = await coordinator.proposeFromReview("graduate-admissions");
+    evolution.markReviewCompleted("local-operator", now - 8 * 24 * 60 * 60_000, now);
+    const artifact = await coordinator.proposeFromReview("local-operator");
     expect(artifact).toMatchObject({
       slug: "evolved-reviewed-method",
       kind: "skill",
@@ -121,7 +121,7 @@ describe("evolution review", () => {
     expect(artifact?.description).toContain("先核官方页面再写进材料");
     expect(artifact?.evaluation?.verdict).toBe("needs_human");
     expect(artifact?.evaluation?.reason).toContain("定期回顾提出");
-    expect(evolution.pendingArtifacts("graduate-admissions")).toHaveLength(1);
+    expect(evolution.pendingArtifacts("local-operator")).toHaveLength(1);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -130,11 +130,11 @@ describe("evolution review", () => {
     const { root, database, evolution, coordinator } = await setup();
     addPlaybook(evolution, "先核官方");
     addPlaybook(evolution, "截止日期");
-    const first = await coordinator.proposeFromReview("graduate-admissions");
-    const second = await coordinator.proposeFromReview("graduate-admissions");
+    const first = await coordinator.proposeFromReview("local-operator");
+    const second = await coordinator.proposeFromReview("local-operator");
     expect(first?.status).toBe("pending");
     expect(second).toBeNull();
-    expect(evolution.pendingArtifacts("graduate-admissions")).toHaveLength(1);
+    expect(evolution.pendingArtifacts("local-operator")).toHaveLength(1);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -148,11 +148,11 @@ describe("evolution review", () => {
         content: `第 ${index + 1} 次核对官方截止日期`,
         sourceKind: "auto",
         scope: "profile",
-        profileId: "graduate-admissions"
+        profileId: "local-operator"
       });
     }
-    expect(evolution.countThumbs({ profileId: "graduate-admissions", polarity: "up" })).toBe(0);
-    const artifact = await coordinator.proposeFromReview("graduate-admissions");
+    expect(evolution.countThumbs({ profileId: "local-operator", polarity: "up" })).toBe(0);
+    const artifact = await coordinator.proposeFromReview("local-operator");
     expect(artifact).toMatchObject({
       kind: "skill",
       status: "pending",
@@ -166,11 +166,9 @@ describe("evolution review", () => {
     const { root, database, evolution, coordinator } = await setup();
     addPlaybook(evolution, "文书写作");
     addPlaybook(evolution, "项目研究员");
-    const artifact = await coordinator.proposeFromReview("graduate-admissions");
+    const artifact = await coordinator.proposeFromReview("local-operator");
     expect(artifact?.kind).toBe("skill");
-    expect(evolution.pendingArtifacts("graduate-admissions").filter((item) => item.kind === "subagent")).toHaveLength(
-      0
-    );
+    expect(evolution.pendingArtifacts("local-operator").filter((item) => item.kind === "subagent")).toHaveLength(0);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -184,11 +182,11 @@ describe("evolution review", () => {
       polarity: "do",
       origin: "confirmed",
       scope: "profile",
-      profileId: "graduate-admissions"
+      profileId: "local-operator"
     });
-    const artifact = await coordinator.proposeFromReview("graduate-admissions");
+    const artifact = await coordinator.proposeFromReview("local-operator");
     expect(artifact?.kind).toBe("skill");
-    expect(evolution.pendingArtifacts("graduate-admissions").some((item) => item.kind === "subagent")).toBe(true);
+    expect(evolution.pendingArtifacts("local-operator").some((item) => item.kind === "subagent")).toBe(true);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -197,12 +195,12 @@ describe("evolution review", () => {
     const { root, database, evolution, coordinator } = await setup();
     addPlaybook(evolution, "先核官方");
     const artifact = await coordinator.proposeFromPrompt({
-      profileId: "graduate-admissions",
+      profileId: "local-operator",
       prompt: "做成 skill"
     });
     expect(artifact?.status).toBe("pending");
     expect(artifact?.slug).toBe("evolved-personal-method");
-    expect(evolution.enabledArtifacts("graduate-admissions")).toHaveLength(0);
+    expect(evolution.enabledArtifacts("local-operator")).toHaveLength(0);
     database.close();
     await fs.rm(root, { recursive: true, force: true });
   });

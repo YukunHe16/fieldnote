@@ -30,14 +30,14 @@ describe("i18n", () => {
     applyLocale("en");
     expect(t("appTitle")).toBe("Fieldnote");
     expect(t("memory")).toBe("Memory");
-    expect(t("profileAdmissionsDesc")).toBe("Available now: graduate admissions");
-    expect(t("emptyLocalBody")).toContain("only complete education track");
+    expect(t("profileLocalDesc")).toBe("General files, research, and the learning loop");
+    expect(t("emptyLocalBody")).toContain("learning loop tracks understanding");
     expect(localizedProfile("local-operator", "本地助手").name).toBe("Local");
     applyLocale("zh");
     expect(t("appTitle")).toBe("Fieldnote");
     expect(t("memory")).toBe("记忆");
-    expect(t("profileAdmissionsDesc")).toBe("当前已落地：海外硕博申请");
-    expect(t("emptyLocalBody")).toContain("当前完整教育能力");
+    expect(t("profileLocalDesc")).toBe("通用文件、研究与学习回路");
+    expect(t("emptyLocalBody")).toContain("学习回路会跟踪理解");
   });
 
   it("reads a saved locale from storage", () => {
