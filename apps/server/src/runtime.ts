@@ -657,6 +657,21 @@ export class ClaudeAgentRuntime implements AgentRuntime {
     const inputFilesServer = this.createInputFilesServer(input);
     const evolutionServer = this.createEvolutionServer(input);
     const learningServer = this.createLearningServer(input, hookEvents);
+    // A demo or eval run in agent mode is told, in the prompt, to open the incident before it
+    // writes any prose. If it finishes having called no learning tool at all, the loop did not
+    // run — and nothing else says so: the reply reads normally and the eval just scores the
+    // item `no_incident`. Live sessions are excluded; there, a turn with no incident is normal.
+    const learningLoopRequired = Boolean(
+      learningServer &&
+        (learningSession?.datasetKind === "demo" || learningSession?.datasetKind === "eval") &&
+        learningSession?.executionMode === "agent"
+    );
+    let usedLearningTool = false;
+    let usedToolSearch = false;
+    const noteToolUse = (toolName: unknown) => {
+      if (isLearningToolName(toolName)) usedLearningTool = true;
+      else if (toolName === "ToolSearch") usedToolSearch = true;
+    };
     const delegatedEvents = new RuntimeEventQueue();
     const profile = getAgentProfile(input.profileId);
     const costLedger = new RunCostLedger();
@@ -906,6 +921,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           yield { type: "reasoning.summary.delta", delta: thinking };
         }
         if (event?.type === "content_block_start" && event.content_block?.type === "tool_use") {
+          noteToolUse(event.content_block.name);
           toolInputBuffers.start(event.index, String(event.content_block.id ?? ""));
           const started = startVisibleTool(
             event.content_block,
@@ -949,6 +965,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
             if (thinking) yield { type: "reasoning.summary.delta", delta: thinking };
           }
           if (block?.type === "tool_use") {
+            noteToolUse(block.name);
             trackCreatedFile(String(block.id ?? ""), String(block.name ?? ""), block.input);
             const started = startVisibleTool(
               block,
@@ -1001,6 +1018,16 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           for (const toolUseId of [...pendingCreatedFiles.keys()]) {
             const created = await takeCreatedFile(toolUseId);
             if (created) yield created;
+          }
+          if (learningLoopRequired && !usedLearningTool) {
+            console.warn(
+              `[learning] tutor run finished without calling any learning tool (conversation ${input.conversationId}, ` +
+                `dataset ${learningSession?.datasetKind}); the learning loop did not run` +
+                (usedToolSearch
+                  ? " — the run called ToolSearch, so tool search is on despite Fieldnote pinning it off; " +
+                    "check ENABLE_TOOL_SEARCH in ~/.claude/settings.json"
+                  : "")
+            );
           }
           const totalCostUsd = costLedger.totalWithParent(message.total_cost_usd);
           yield {
@@ -2639,6 +2666,10 @@ function startVisibleTool(
 
 function isMemoryToolName(value: unknown): boolean {
   return typeof value === "string" && value.startsWith("mcp__memory__");
+}
+
+function isLearningToolName(value: unknown): boolean {
+  return typeof value === "string" && value.startsWith("mcp__learning__");
 }
 
 function isSpecialistResultToolName(value: unknown): boolean {

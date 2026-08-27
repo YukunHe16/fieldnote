@@ -159,6 +159,7 @@ data/                    本机数据：SQLite、会话工作区、自进化产�
 - **页面打不开**：确认 `pnpm dev` 的两个进程都没退出；检查 `5173` / `8787` 是否被占用；Web 用 `5173`，不要把 API 地址当页面地址。
 - **显示 Demo runtime**：看 doctor 的 `Selected runtime`；已有 Claude CLI 配置时确认 `CLAUDE_SETTINGS_MODE` 不是 `isolated`，或在“个人工作区 → 模型服务”保存认证，下一条消息即切换。
 - **提示“organization has disabled Claude subscription access”或“organization does not have access to Claude”**：本机 `claude login` 的账号被其组织禁用了 Claude Code —— 凭据存在但不可用，原生 `claude` 命令同样会失败。doctor 会直接报 FAIL。改用 Anthropic API Key，或在“个人工作区 → 模型服务”里选一个兼容服务商；你配置的凭据会优先于本机登录。
+- **辅导循环不再触发**（不开 incident，回复看起来却完全正常）：工具检索被打开了，它会把大部分工具藏到一次检索之后。Fieldnote 会为 Agent 子进程固定 `ENABLE_TOOL_SEARCH=false`，但 `inherit-user` 模式下 Claude Code 会用 `~/.claude/settings.json` 自己的 `env` 覆盖它 —— 请从该文件中删除 `ENABLE_TOOL_SEARCH`。doctor 的 `Tool surface` 会报这一项。
 - **MCP 或 plugin 没出现**：确认 doctor 能发现对应名称；本地复用需要 `CLAUDE_SETTINGS_MODE=auto` 或 `inherit-user`。项目不会把 MCP 凭据复制进 SQLite 或前端。
 - **飞书收不到消息**：确认日志出现 `Feishu long connection is ready`；检查应用版本是否已发布最新权限和事件；群聊中必须明确 @机器人。详见 [飞书接入指南](docs/FEISHU_SETUP.md#6-故障排查)。
 
