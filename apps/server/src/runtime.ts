@@ -1454,15 +1454,33 @@ export class ClaudeAgentRuntime implements AgentRuntime {
           "open_learning_incident",
           "Open one evidence-backed learning difficulty when no other incident is active. Use exact evidence IDs only from currentMessageIds; frozenSource is read-only historical context and never contains valid IDs for this replay conversation.",
           {
-            difficultyType: z.enum([
-              "planning_gap",
-              "conceptual_misconception",
-              "procedural_gap",
-              "feedback_uncertainty",
-              "prerequisite_gap",
-              "other"
-            ]),
-            hypothesis: z.string().min(1).max(1_000),
+            difficultyType: z
+              .enum([
+                "planning_gap",
+                "conceptual_misconception",
+                "procedural_gap",
+                "feedback_uncertainty",
+                "prerequisite_gap",
+                "other"
+              ])
+              .describe(
+                "What KIND of difficulty this is. The choice also selects the teaching strategy, so name the difficulty that is actually blocking the learner, not the first error you can see. " +
+                  "planning_gap: they know the individual constructs but cannot assemble them into the right shape for this problem — what is missing is a reusable plan, not a fact. " +
+                  "conceptual_misconception: they hold a wrong belief about how the subject works and reason consistently from it; what is missing is a corrected model. " +
+                  "procedural_gap: the idea is right but the execution is not — a step gets skipped, mis-ordered, or performed wrongly. " +
+                  "feedback_uncertainty: what blocks them is deciding WHICH SOURCE TO BELIEVE — contradictory graders, feedback they suspect is flattery, an autograder against their own reasoning. " +
+                  "Choose this whenever the credibility judgement is the thing they are stuck on, EVEN IF they are also wrong about the subject matter. " +
+                  "A learner who settles such disputes by siding with whoever agrees with them will do it again on every future problem, so filing it as a conceptual_misconception fixes this one question and leaves the real difficulty untouched. " +
+                  "prerequisite_gap: the block comes from an earlier topic this one builds on, not from the current topic. " +
+                  "other: none of the above genuinely fits."
+              ),
+            hypothesis: z
+              .string()
+              .min(1)
+              .max(1_000)
+              .describe(
+                "One or two sentences naming the specific belief or judgement that is blocking this learner, phrased as they would hold it. It must be about the difficulty you just classified: if you chose feedback_uncertainty, name the credibility judgement itself, not the subject-matter error the situation happens to contain."
+              ),
             missingPlan: z
               .string()
               .max(120)
