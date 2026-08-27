@@ -122,15 +122,43 @@ async function loadItems(filter) {
   );
 }
 
+/**
+ * Retries a request that failed for a reason a retry can fix: a dropped connection, a 429,
+ * or a 5xx. A three-hour unattended run touching two providers will hit those, and the
+ * harness used to score the whole item `error` on the first one — a network blip became a
+ * missing data point. Node's `fetch failed` carries the real reason on `cause`, which the
+ * old message threw away, so surface it too.
+ */
+async function withRetry(label, attempt) {
+  let last;
+  for (let i = 0; i < 3; i += 1) {
+    try {
+      return await attempt();
+    } catch (error) {
+      last = error;
+      const detail = String(error?.cause?.message ?? error?.cause ?? "");
+      const message = `${error?.message ?? error} ${detail}`;
+      const retriable =
+        /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|terminated|→ (429|5\d\d):/i.test(message);
+      if (!retriable || i === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 2_000 * 3 ** i));
+    }
+  }
+  const detail = String(last?.cause?.message ?? last?.cause ?? "");
+  throw new Error(`${label}: ${last?.message ?? last}${detail ? ` (${detail})` : ""}`);
+}
+
 async function api(base, method, route, body) {
-  const response = await fetch(`${base}${route}`, {
-    method,
-    headers: { "content-type": "application/json", "accept-language": "en" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  return withRetry(`${method} ${route}`, async () => {
+    const response = await fetch(`${base}${route}`, {
+      method,
+      headers: { "content-type": "application/json", "accept-language": "en" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+    if (!response.ok)
+      throw new Error(`${method} ${route} → ${response.status}: ${(await response.text()).slice(0, 300)}`);
+    return response.status === 204 ? null : response.json();
   });
-  if (!response.ok)
-    throw new Error(`${method} ${route} → ${response.status}: ${(await response.text()).slice(0, 300)}`);
-  return response.status === 204 ? null : response.json();
 }
 
 async function waitForIdle(base, conversationId, idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS) {
@@ -221,24 +249,26 @@ async function learnerReply(cfg, item, messages, extraQuestion, state) {
   // Reasoning models spend output tokens on thinking blocks before any text arrives,
   // so the budget is deliberately loose and one retry doubles it.
   for (const maxTokens of [8_000, 16_000]) {
-    const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": cfg.learnerKey,
-        authorization: `Bearer ${cfg.learnerKey}`,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: cfg.learnerModel,
-        max_tokens: maxTokens,
-        system: personaSystem(item, cfg.tier, state),
-        messages: transcript
-      })
+    const data = await withRetry("Learner model call", async () => {
+      const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": cfg.learnerKey,
+          authorization: `Bearer ${cfg.learnerKey}`,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: cfg.learnerModel,
+          max_tokens: maxTokens,
+          system: personaSystem(item, cfg.tier, state),
+          messages: transcript
+        })
+      });
+      if (!response.ok)
+        throw new Error(`Learner model call failed → ${response.status}: ${(await response.text()).slice(0, 300)}`);
+      return response.json();
     });
-    if (!response.ok)
-      throw new Error(`Learner model call failed: ${response.status} ${(await response.text()).slice(0, 300)}`);
-    const data = await response.json();
     const text = (data.content ?? [])
       .filter((block) => block.type === "text")
       .map((block) => block.text)
@@ -297,24 +327,27 @@ async function judgeGrade(cfg, item, text) {
     `\nConcept checklist:\n${checklist}`,
     `\nStudent's answer:\n${text}`
   ].join("\n");
-  const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": cfg.learnerKey,
-      authorization: `Bearer ${cfg.learnerKey}`,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model: cfg.judgeModel,
-      max_tokens: 4_000,
-      temperature: 0,
-      system: JUDGE_SYSTEM,
-      messages: [{ role: "user", content: prompt }]
-    })
+  const data = await withRetry("Judge call", async () => {
+    const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": cfg.learnerKey,
+        authorization: `Bearer ${cfg.learnerKey}`,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: cfg.judgeModel,
+        max_tokens: 4_000,
+        temperature: 0,
+        system: JUDGE_SYSTEM,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    if (!response.ok)
+      throw new Error(`Judge call failed → ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    return response.json();
   });
-  if (!response.ok) throw new Error(`Judge call failed: ${response.status} ${(await response.text()).slice(0, 200)}`);
-  const data = await response.json();
   const raw = (data.content ?? [])
     .filter((block) => block.type === "text")
     .map((block) => block.text)
@@ -684,10 +717,15 @@ ${trustRows.join("\n")}
 > real students, and sample sizes are small — read them descriptively, not statistically.
 
 - Server: ${meta.base} · items: ${meta.itemCount} · conditions: ${meta.conditions.join(", ")} · learner tier: **${meta.tier}**
+- **Tutor under test: \`${meta.tutorModel}\`** at ${meta.tutorBase} — this is the model the
+  numbers below are about
 - Learner simulator: \`${meta.learnerModel}\` at ${meta.learnerBase}
 - Post-test grader: \`${meta.judgeModel}\` judging each answer against the checklist (temperature 0),
-  with the literal-pattern checklist recorded alongside as a second opinion
-- Tutor: whatever model the running Fieldnote server is configured with
+  with the literal-pattern checklist recorded alongside as a second opinion${
+    meta.learnerBase === meta.tutorBase
+      ? ""
+      : "\n- The learner and grader run on a **different provider from the tutor** on purpose: they are\n  instruments, and holding them fixed is what makes two tutor models comparable."
+  }
 - Grader agreement: judge and literal patterns agreed on ${judged.length - disagreed.length}/${judged.length} gradings${fellBack ? ` · ${fellBack} grading(s) fell back to patterns after a judge error` : ""}
 - Two readings of every run are reported: **last** scores the final post-test answer, **best**
   scores the strongest answer the learner gave. Only on-call answers the post-test more than
@@ -739,16 +777,27 @@ async function main() {
   const env = { ...process.env, ...(await loadEnvFile(path.join(repo, ".env"))) };
   const items = await loadItems(args);
   if (items.length === 0) throw new Error("No eval items matched the filter");
+  // LEARNER_* wins over ANTHROPIC_*: the simulated learner and the grader are instruments,
+  // and an instrument that changes whenever the tutor's provider changes cannot be used to
+  // compare two tutors. Keeping them on a separate credential also keeps them out of the
+  // tutor provider's concurrency and request quota.
   const configuredModel =
     args.learnerModel ??
+    env.LEARNER_MODEL ??
     env.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
     env.ANTHROPIC_DEFAULT_SONNET_MODEL ??
     env.ANTHROPIC_MODEL ??
     "claude-haiku-4-5-20251001";
   const cfg = {
     base: args.base.replace(/\/$/, ""),
-    learnerBase: (args.learnerBase ?? env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, ""),
-    learnerKey: args.learnerKey ?? env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "",
+    learnerBase: (
+      args.learnerBase ??
+      env.LEARNER_ANTHROPIC_BASE_URL ??
+      env.ANTHROPIC_BASE_URL ??
+      "https://api.anthropic.com"
+    ).replace(/\/$/, ""),
+    learnerKey:
+      args.learnerKey ?? env.LEARNER_ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "",
     tier: args.tier,
     idleTimeoutMs: args.settleTimeout ? args.settleTimeout * 1_000 : DEFAULT_IDLE_TIMEOUT_MS,
     learnerModel: bareModelId(configuredModel)
@@ -780,6 +829,13 @@ async function main() {
   await api(cfg.base, "GET", "/api/health").catch(() => {
     throw new Error(`Fieldnote server is not reachable at ${cfg.base} — start it first`);
   });
+  // The tutor's model IS the treatment, so the report has to name it. Reading it from the
+  // server beats trusting the local .env, which describes what the server was started with
+  // rather than what it is running now.
+  const runtime = await api(cfg.base, "GET", "/api/runtime/config").catch(() => null);
+  cfg.tutorModel = runtime?.model ?? "unknown";
+  cfg.tutorBase = runtime?.baseUrl ?? "unknown";
+  log(`Tutor under test: ${cfg.tutorModel} @ ${cfg.tutorBase}`);
 
   const startedAt = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir = path.resolve(repo, args.out, startedAt);
@@ -809,7 +865,9 @@ async function main() {
     conditions: args.conditions,
     learnerModel: cfg.learnerModel,
     learnerBase: cfg.learnerBase,
-    judgeModel: cfg.judgeModel
+    judgeModel: cfg.judgeModel,
+    tutorModel: cfg.tutorModel,
+    tutorBase: cfg.tutorBase
   });
   await fs.writeFile(path.join(outDir, "report.md"), report);
   log(`\nWrote ${path.relative(repo, outDir)}/results.json and report.md`);
