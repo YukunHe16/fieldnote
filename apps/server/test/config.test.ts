@@ -4,9 +4,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   applyLocalRuntimeSettings,
+  backgroundModelName,
   composeClaudeChildEnvironment,
+  effectiveModelMappings,
   fieldnoteClaudeHome,
-  loadConfig
+  loadConfig,
+  resolveEffectiveModel
 } from "../src/config.js";
 
 describe("Claude user settings inheritance", () => {
@@ -160,6 +163,24 @@ describe("credential precedence over a local Claude login", () => {
 });
 
 describe("provider model mapping", () => {
+  it("separates the UI display name from the concrete model used by an SDK alias", () => {
+    const processEnv = {
+      NODE_ENV: "test",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "provider-pro",
+      ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: "provider-flash"
+    };
+    const config = loadConfig(
+      { ...processEnv, AGENT_MODEL: "sonnet", CLAUDE_SETTINGS_MODE: "isolated" },
+      process.cwd()
+    );
+    const mappings = effectiveModelMappings(config, processEnv);
+
+    expect(config.modelDisplay).toBe("provider-flash");
+    expect(resolveEffectiveModel(config.model, mappings)).toBe("provider-pro");
+    expect(backgroundModelName(config, processEnv)).toBe("provider-flash");
+    expect(resolveEffectiveModel(backgroundModelName(config, processEnv), mappings)).toBe("provider-flash");
+  });
+
   it("forwards the saved alias mapping to the child and ignores keys outside the allowlist", () => {
     const config = loadConfig({ CLAUDE_SETTINGS_MODE: "isolated", NODE_ENV: "test" }, process.cwd());
     applyLocalRuntimeSettings(config, {

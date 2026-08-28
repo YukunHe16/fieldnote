@@ -11,6 +11,7 @@
  *     [--items pg-sum-nested,...] [--out data/eval-runs] [--dry-run]
  *     [--learner-model <id>] [--learner-base <url>] [--learner-key <key>]
  *     [--judge-model <id>] [--settle-timeout <seconds>]
+ *     [--expected-tutor-model <id>] [--expected-tutor-effort <level>] [--fail-fast]
  *     [--allow-dirty] [--allow-server-mismatch]
  */
 
@@ -37,11 +38,13 @@ const MAX_LEARNER_TURNS = 8;
  */
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 const POLL_MS = 1_500;
-const PROTOCOL_VERSION = "learning-eval/v2";
+const PROTOCOL_VERSION = "learning-eval/v3";
 const ANSWER_FORMAT_STRUCTURED = "structured-v1";
 const ANSWER_FORMAT_LEGACY = "legacy-freeform";
 const JUDGE_CONTRACT_VERSION = "evidence-v2";
 const JUDGE_RETRY_POLICY_VERSION = "judge-v2-default-4k-default-8k-deepseek-none-4k";
+const SETTLE_CLEANUP_TIMEOUT_MS = 30_000;
+const SETTLE_CLEANUP_POLL_MS = 250;
 const STRUCTURED_SECTION_HEADERS = {
   ORIGINAL_CONCLUSION: "original_conclusion",
   ORIGINAL_EVIDENCE: "original_evidence",
@@ -144,6 +147,9 @@ function parseArgs(argv) {
     else if (key === "--learner-base") args.learnerBase = next();
     else if (key === "--learner-key") args.learnerKey = next();
     else if (key === "--settle-timeout") args.settleTimeout = Number(next());
+    else if (key === "--expected-tutor-model") args.expectedTutorModel = next();
+    else if (key === "--expected-tutor-effort") args.expectedTutorEffort = next();
+    else if (key === "--fail-fast") args.failFast = true;
     else if (key === "--dry-run") args.dryRun = true;
     else if (key === "--allow-dirty") args.allowDirty = true;
     else if (key === "--allow-server-mismatch") args.allowServerMismatch = true;
@@ -154,6 +160,9 @@ function parseArgs(argv) {
   }
   args.tier ??= "mild";
   if (!["mild", "stubborn"].includes(args.tier)) throw new Error(`Unknown tier: ${args.tier}`);
+  if (args.settleTimeout !== undefined && (!Number.isFinite(args.settleTimeout) || args.settleTimeout <= 0)) {
+    throw new Error("--settle-timeout must be a positive number of seconds");
+  }
   return args;
 }
 
@@ -250,7 +259,54 @@ async function api(base, method, route, body) {
   });
 }
 
-async function waitForIdle(base, conversationId, idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS) {
+const outstandingRunIds = (detail) => [
+  ...(detail?.activeRunId ? [String(detail.activeRunId)] : []),
+  ...(detail?.queuedRuns ?? []).flatMap((run) => (run?.runId ? [String(run.runId)] : []))
+];
+
+async function interruptTimedOutRuns(
+  base,
+  conversationId,
+  detail,
+  { cleanupTimeoutMs = SETTLE_CLEANUP_TIMEOUT_MS, cleanupPollMs = SETTLE_CLEANUP_POLL_MS } = {}
+) {
+  const runIds = [...new Set(outstandingRunIds(detail))];
+  const interruptErrors = [];
+  for (const runId of runIds) {
+    try {
+      await api(base, "POST", `/api/runs/${runId}/interrupt`);
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      if (!/→ 404:/.test(message)) interruptErrors.push(message.slice(0, 300));
+    }
+  }
+
+  const deadline = Date.now() + cleanupTimeoutMs;
+  let latest = await api(base, "GET", `/api/conversations/${conversationId}`);
+  while (outstandingRunIds(latest).length > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, cleanupPollMs));
+    latest = await api(base, "GET", `/api/conversations/${conversationId}`);
+  }
+  return {
+    runIds,
+    stopped: outstandingRunIds(latest).length === 0,
+    interruptErrors
+  };
+}
+
+function settleTimeoutError(idleTimeoutMs, elapsedMs, cleanup) {
+  const error = new Error(
+    `Run did not settle within ${idleTimeoutMs}ms; ${
+      cleanup.stopped ? "outstanding runs were interrupted" : "outstanding runs did not stop within cleanup grace"
+    }`
+  );
+  error.measurementCategory = "tutor_settle_timeout";
+  error.settleTimeout = { idleTimeoutMs, elapsedMs, ...cleanup };
+  error.evalFatal = !cleanup.stopped;
+  return error;
+}
+
+async function waitForIdle(base, conversationId, idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS, cleanupOptions = {}) {
   const startedAt = Date.now();
   for (;;) {
     const detail = await api(base, "GET", `/api/conversations/${conversationId}`);
@@ -264,7 +320,20 @@ async function waitForIdle(base, conversationId, idleTimeoutMs = DEFAULT_IDLE_TI
     } else if (!detail.activeRunId && (detail.queuedRuns ?? []).length === 0) {
       return detail;
     }
-    if (Date.now() - startedAt > idleTimeoutMs) throw new Error(`Run did not settle within ${idleTimeoutMs}ms`);
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs > idleTimeoutMs) {
+      let cleanup;
+      try {
+        cleanup = await interruptTimedOutRuns(base, conversationId, detail, cleanupOptions);
+      } catch (error) {
+        cleanup = {
+          runIds: outstandingRunIds(detail),
+          stopped: false,
+          interruptErrors: [String(error?.message ?? error).slice(0, 300)]
+        };
+      }
+      throw settleTimeoutError(idleTimeoutMs, elapsedMs, cleanup);
+    }
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 }
@@ -808,6 +877,8 @@ async function runItem(cfg, item, condition, log) {
     sidedWithUnsupported: null,
     status: "completed",
     measurementError: null,
+    settleTimeout: null,
+    fatalError: false,
     judgeAttempts: null,
     durationMs: 0
   };
@@ -954,13 +1025,15 @@ async function runItem(cfg, item, condition, log) {
     record.status = "error";
     record.error = String(error?.message ?? error).slice(0, 500);
     record.measurementError = error?.measurementCategory ?? error?.judgeCategory ?? null;
+    record.settleTimeout = error?.settleTimeout ?? null;
+    record.fatalError = error?.evalFatal === true;
     record.judgeAttempts = error?.judgeAttempts ?? null;
     try {
       const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
       const incident = captureDiagnosis(record, session);
       record.rounds = incident?.interventions.length ?? record.rounds;
       record.incidentStatus = incident?.status ?? record.incidentStatus;
-      if (session && ["active", "paused"].includes(session.status)) {
+      if (!record.fatalError && session && ["active", "paused"].includes(session.status)) {
         await api(cfg.base, "PATCH", `/api/conversations/${conversation.id}/learning-session`, {
           status: "completed"
         });
@@ -980,6 +1053,13 @@ async function runItem(cfg, item, condition, log) {
     } · ${(record.durationMs / 1000).toFixed(0)}s`
   );
   return record;
+}
+
+function shouldStopAfterRecord(record, failFast) {
+  if (record.fatalError) return true;
+  if (!failFast) return false;
+  if (record.diagnosedDifficultyType !== record.family) return true;
+  return Boolean(record.measurementError) || ["error", "stalled", "no_incident"].includes(record.status);
 }
 
 function aggregate(records) {
@@ -1123,8 +1203,14 @@ ${trustRows.join("\n")}
 
 - Server: ${meta.base} · items: ${meta.itemCount} · conditions: ${meta.conditions.join(", ")} · learner tier: **${meta.tier}**
 ${protocolLine}
-- **Tutor under test: \`${meta.tutorModel}\`** at ${meta.tutorBase} — this is the model the
-  numbers below are about
+- Execution: per-turn settle budget ${Math.round((meta.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS) / 1000)}s · cleanup grace ${Math.round(
+    SETTLE_CLEANUP_TIMEOUT_MS / 1000
+  )}s · fail-fast ${meta.failFast ? "on" : "off"}${meta.stoppedEarly ? " · **batch stopped early**" : ""}
+- **Tutor under test: \`${meta.tutorModel}\`** (requested \`${meta.tutorRequestedModel ?? meta.tutorModel}\`; display
+  \`${meta.tutorModelDisplay ?? meta.tutorModel}\`; background \`${meta.tutorBackgroundModel ?? "unknown"}\`; effort
+  \`${meta.tutorEffort ?? "unknown"}\`; server timeout ${
+    meta.tutorRunTimeoutMs == null ? "unknown" : `${Math.round(meta.tutorRunTimeoutMs / 1000)}s`
+  }) at ${meta.tutorBase} — this is the model the numbers below are about
 - Learner simulator: \`${meta.learnerModel}\` at ${meta.learnerBase}
 - Post-test grader: \`${meta.judgeModel}\` judging each answer against the checklist (temperature 0),
   with the literal-pattern checklist recorded alongside as a second opinion${
@@ -1176,6 +1262,40 @@ ${itemRows.join("\n")}
  */
 const bareModelId = (id) => id.replace(/\[[^\]]*\]\s*$/, "").trim() || id;
 
+function resolveTutorRuntime(
+  runtime,
+  { expectedTutorModel = null, expectedTutorEffort = null, idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS } = {}
+) {
+  const resolved = {
+    tutorRequestedModel: runtime?.model ?? "unknown",
+    tutorModelDisplay: runtime?.modelDisplay ?? runtime?.model ?? "unknown",
+    tutorModel: runtime?.effectiveModel ?? "unknown",
+    tutorBackgroundModel: runtime?.effectiveBackgroundModel ?? "unknown",
+    tutorEffectiveModelMappings: runtime?.effectiveModelMappings ?? {},
+    tutorEffort: runtime?.effort ?? "unknown",
+    tutorRunTimeoutMs: Number.isFinite(runtime?.runTimeoutMs) ? runtime.runTimeoutMs : null,
+    tutorBase: runtime?.baseUrl ?? "unknown"
+  };
+  const expectedModel = expectedTutorModel ? bareModelId(expectedTutorModel) : null;
+  if (
+    expectedModel &&
+    (bareModelId(resolved.tutorModel) !== expectedModel || bareModelId(resolved.tutorBackgroundModel) !== expectedModel)
+  ) {
+    throw new Error(
+      `Tutor model mismatch: expected main/background ${expectedModel}, got ${resolved.tutorModel}/${resolved.tutorBackgroundModel}`
+    );
+  }
+  if (expectedTutorEffort && resolved.tutorEffort !== expectedTutorEffort) {
+    throw new Error(`Tutor effort mismatch: expected ${expectedTutorEffort}, got ${resolved.tutorEffort}`);
+  }
+  if (resolved.tutorRunTimeoutMs !== null && resolved.tutorRunTimeoutMs <= idleTimeoutMs + SETTLE_CLEANUP_TIMEOUT_MS) {
+    throw new Error(
+      `Server run timeout ${resolved.tutorRunTimeoutMs}ms must exceed settle budget ${idleTimeoutMs}ms plus cleanup grace ${SETTLE_CLEANUP_TIMEOUT_MS}ms`
+    );
+  }
+  return resolved;
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   // The repo .env wins over inherited shell variables: an IDE/agent host may leak its own
@@ -1207,7 +1327,8 @@ async function main() {
       args.learnerKey ?? env.LEARNER_ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "",
     tier: args.tier,
     idleTimeoutMs: args.settleTimeout ? args.settleTimeout * 1_000 : DEFAULT_IDLE_TIMEOUT_MS,
-    learnerModel: bareModelId(configuredModel)
+    learnerModel: bareModelId(configuredModel),
+    failFast: args.failFast === true
   };
   // The judge grades the post-test; it never sees the persona and never plays the learner.
   cfg.judgeModel = bareModelId(args.judgeModel ?? cfg.learnerModel);
@@ -1232,6 +1353,7 @@ async function main() {
     log(
       `Per-turn settle budget: ${(cfg.idleTimeoutMs / 1000).toFixed(0)}s (default ${DEFAULT_IDLE_TIMEOUT_MS / 1000}s)`
     );
+  if (cfg.failFast) log("Fail-fast gate: enabled");
   if (args.dryRun) {
     for (const item of items) log(`  - ${item.id} (${item.difficultyType}) · ${item.concepts.length} concepts`);
     log("Dry run only; nothing was executed.");
@@ -1254,37 +1376,64 @@ async function main() {
   // server beats trusting the local .env, which describes what the server was started with
   // rather than what it is running now.
   const runtime = await api(cfg.base, "GET", "/api/runtime/config").catch(() => null);
-  cfg.tutorModel = runtime?.model ?? "unknown";
-  cfg.tutorBase = runtime?.baseUrl ?? "unknown";
+  Object.assign(
+    cfg,
+    resolveTutorRuntime(runtime, {
+      expectedTutorModel: args.expectedTutorModel,
+      expectedTutorEffort: args.expectedTutorEffort,
+      idleTimeoutMs: cfg.idleTimeoutMs
+    })
+  );
   protocol.runFingerprint = sha256(
     JSON.stringify({
       instrumentFingerprint: protocol.fingerprint,
       conditions: args.conditions,
       tier: cfg.tier,
       idleTimeoutMs: cfg.idleTimeoutMs,
+      settleCleanupTimeoutMs: SETTLE_CLEANUP_TIMEOUT_MS,
+      failFast: cfg.failFast,
       learnerModel: cfg.learnerModel,
       learnerBase: cfg.learnerBase,
       judgeModel: cfg.judgeModel,
+      tutorRequestedModel: cfg.tutorRequestedModel,
+      tutorModelDisplay: cfg.tutorModelDisplay,
       tutorModel: cfg.tutorModel,
+      tutorBackgroundModel: cfg.tutorBackgroundModel,
+      tutorEffectiveModelMappings: cfg.tutorEffectiveModelMappings,
+      tutorEffort: cfg.tutorEffort,
+      tutorRunTimeoutMs: cfg.tutorRunTimeoutMs,
       tutorBase: cfg.tutorBase,
       serverBuild: protocol.serverBuild,
       serverBuildVerified: protocol.serverBuildVerified
     })
   );
-  log(`Tutor under test: ${cfg.tutorModel} @ ${cfg.tutorBase}`);
+  log(
+    `Tutor under test: ${cfg.tutorModel} (requested ${cfg.tutorRequestedModel}; display ${cfg.tutorModelDisplay}; background ${cfg.tutorBackgroundModel}; effort ${cfg.tutorEffort}) @ ${cfg.tutorBase}`
+  );
 
   const startedAt = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir = path.resolve(repo, args.out, startedAt);
   await fs.mkdir(outDir, { recursive: true });
   const records = [];
   const resultConfig = () => ({ ...cfg, learnerKey: "[redacted]" });
-  for (const item of items) {
+  let stoppedEarly = false;
+  runLoop: for (const item of items) {
     for (const condition of args.conditions) {
-      records.push(await runItem(cfg, item, condition, log));
+      const record = await runItem(cfg, item, condition, log);
+      records.push(record);
       await fs.writeFile(
         path.join(outDir, "results.json"),
         JSON.stringify({ startedAt, protocol, config: resultConfig(), records }, null, 2)
       );
+      if (shouldStopAfterRecord(record, cfg.failFast)) {
+        stoppedEarly = true;
+        const reason =
+          record.diagnosedDifficultyType !== record.family
+            ? `classification ${record.diagnosedDifficultyType ?? "missing"} != ${record.family}`
+            : (record.measurementError ?? record.status);
+        log(`Fail-fast stopped the batch after ${item.id} [${condition}] (${reason}).`);
+        break runLoop;
+      }
     }
   }
   let serverMetrics = null;
@@ -1295,7 +1444,7 @@ async function main() {
   }
   await fs.writeFile(
     path.join(outDir, "results.json"),
-    JSON.stringify({ startedAt, protocol, config: resultConfig(), records, serverMetrics }, null, 2)
+    JSON.stringify({ startedAt, protocol, config: resultConfig(), records, stoppedEarly, serverMetrics }, null, 2)
   );
   const report = renderReport(records, aggregate(records), {
     startedAt,
@@ -1307,11 +1456,21 @@ async function main() {
     learnerBase: cfg.learnerBase,
     judgeModel: cfg.judgeModel,
     tutorModel: cfg.tutorModel,
+    tutorRequestedModel: cfg.tutorRequestedModel,
+    tutorModelDisplay: cfg.tutorModelDisplay,
+    tutorBackgroundModel: cfg.tutorBackgroundModel,
+    tutorEffectiveModelMappings: cfg.tutorEffectiveModelMappings,
+    tutorEffort: cfg.tutorEffort,
+    tutorRunTimeoutMs: cfg.tutorRunTimeoutMs,
     tutorBase: cfg.tutorBase,
+    idleTimeoutMs: cfg.idleTimeoutMs,
+    failFast: cfg.failFast,
+    stoppedEarly,
     protocol
   });
   await fs.writeFile(path.join(outDir, "report.md"), report);
   log(`\nWrote ${path.relative(repo, outDir)}/results.json and report.md`);
+  if (stoppedEarly) process.exitCode = 1;
 }
 
 // Exported so the grader can be exercised on archived answers without launching a run;
@@ -1332,6 +1491,9 @@ export {
   verifyServerBuild,
   initialDiagnosisRecordFields,
   captureDiagnosis,
+  waitForIdle,
+  shouldStopAfterRecord,
+  resolveTutorRuntime,
   parseStructuredAnswer,
   validateConceptEvidence,
   ANSWER_FORMAT_STRUCTURED,

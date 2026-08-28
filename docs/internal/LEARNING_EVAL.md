@@ -39,12 +39,35 @@ node scripts/learning-eval.mjs --items pg-sum-nested --conditions on-call
 正式评测不要复用日常数据库。先在一个终端用独立 data root 启动服务，再从另一个终端指向它：
 
 ```bash
-FIELDNOTE_HOME=data/eval-runtime pnpm run:local -- --api-port 8790
-node scripts/learning-eval.mjs --base http://127.0.0.1:8790
+FIELDNOTE_HOME=data/eval-runtime \
+AGENT_MODEL=deepseek-v4-flash-vision-exp \
+ANTHROPIC_MODEL='deepseek-v4-flash-vision-exp[1M]' \
+ANTHROPIC_DEFAULT_SONNET_MODEL='deepseek-v4-flash-vision-exp[1M]' \
+ANTHROPIC_DEFAULT_SONNET_MODEL_NAME=deepseek-v4-flash-vision-exp \
+ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash-vision-exp \
+ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME=deepseek-v4-flash-vision-exp \
+ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-flash-vision-exp \
+ANTHROPIC_DEFAULT_OPUS_MODEL_NAME=deepseek-v4-flash-vision-exp \
+ANTHROPIC_DEFAULT_FABLE_MODEL=deepseek-v4-flash-vision-exp \
+ANTHROPIC_DEFAULT_FABLE_MODEL_NAME=deepseek-v4-flash-vision-exp \
+CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash-vision-exp \
+CLAUDE_CODE_EFFORT_LEVEL=high \
+pnpm run:local -- --api-port 8790
+
+node scripts/learning-eval.mjs --base http://127.0.0.1:8790 \
+  --settle-timeout 900 --fail-fast \
+  --expected-tutor-model deepseek-v4-flash-vision-exp \
+  --expected-tutor-effort high
 ```
 
 这样 token delta、合成会话和校准记录不会继续膨胀日常 `data/agent.db`；不同冻结协议需要完全隔离时，
 给 `FIELDNOTE_HOME` 换一个新目录。
+
+正式运行不能只看 runtime 返回的别名（例如 `sonnet`）。runner 会在创建第一条会话前核对服务端报告的
+concrete main/background model、effort 和 server timeout；宿主 shell 偷偷覆盖项目 `.env` 时直接拒绝。
+当前 DeepSeek smoke 的每轮 settle budget 预注册为 900 秒，低于服务端 1200 秒 timeout，并保留 30 秒
+清理余量。若仍超时，runner 先 interrupt active/queued runs、确认 conversation 已空闲，再清理学习会话；
+`--fail-fast` 随后停止整个 batch 并返回非零，不会让上一题和下一题并发。
 
 ### Post-test judge 稳定性门
 

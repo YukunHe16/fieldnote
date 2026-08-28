@@ -184,6 +184,13 @@ export interface RuntimeConfigStatus {
   hasAuthToken: boolean;
   baseUrl: string;
   model: string;
+  modelDisplay: string;
+  backgroundModel: string;
+  effectiveModel: string;
+  effectiveBackgroundModel: string;
+  effectiveModelMappings: Record<string, string>;
+  effort: string;
+  runTimeoutMs: number;
   provider?: string;
   modelMappings?: Record<string, string>;
 }
