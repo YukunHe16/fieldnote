@@ -473,6 +473,22 @@ function latestIncident(session) {
   return incidents.at(-1) ?? null;
 }
 
+function initialDiagnosisRecordFields() {
+  return {
+    incidentId: null,
+    diagnosedDifficultyType: null,
+    diagnosisHypothesis: null
+  };
+}
+
+function captureDiagnosis(record, session) {
+  const incident = latestIncident(session);
+  record.incidentId = incident?.id ?? null;
+  record.diagnosedDifficultyType = incident?.difficultyType ?? null;
+  record.diagnosisHypothesis = incident?.hypothesis ?? null;
+  return incident;
+}
+
 const TERMINAL = new Set(["resolved", "unresolved", "escalated", "abandoned"]);
 
 async function runItem(cfg, item, condition, log) {
@@ -498,6 +514,7 @@ async function runItem(cfg, item, condition, log) {
     bestVerdict: null,
     matchedConcepts: [],
     groundTruth: item.groundTruth ?? null,
+    ...initialDiagnosisRecordFields(),
     // Null unless the item labels the concept that names the supported reading;
     // set after grading, once matchedConcepts is known.
     sidedWithUnsupported: null,
@@ -608,7 +625,7 @@ async function runItem(cfg, item, condition, log) {
     }
 
     const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
-    const incident = latestIncident(session);
+    const incident = captureDiagnosis(record, session);
     record.rounds = incident?.interventions.length ?? 0;
     record.incidentStatus = incident?.status ?? null;
     const finalVerification = (incident?.verifications ?? []).filter((entry) => entry.finalVerdict).at(-1) ?? null;
@@ -645,7 +662,7 @@ async function runItem(cfg, item, condition, log) {
     record.error = String(error?.message ?? error).slice(0, 500);
     try {
       const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
-      const incident = latestIncident(session);
+      const incident = captureDiagnosis(record, session);
       record.rounds = incident?.interventions.length ?? record.rounds;
       record.incidentStatus = incident?.status ?? record.incidentStatus;
       if (session && ["active", "paused"].includes(session.status)) {
@@ -1013,7 +1030,9 @@ export {
   aggregate,
   renderReport,
   buildEvalProvenance,
-  verifyServerBuild
+  verifyServerBuild,
+  initialDiagnosisRecordFields,
+  captureDiagnosis
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
