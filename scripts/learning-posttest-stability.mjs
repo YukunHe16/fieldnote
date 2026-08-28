@@ -105,6 +105,10 @@ function summarizeStability(gradings, itemIds, repeats = DEFAULT_REPEATS) {
     completedGradings: gradings.length,
     successfulGradings: successful.length,
     judgeErrors: gradings.filter((grading) => grading.error).length,
+    retriedGradings: successful.filter((grading) => (grading.judgeAttemptUsed ?? 1) > 1).length,
+    noThinkingRecoveries: successful.filter((grading) =>
+      (grading.judgeAttempts ?? []).some((attempt) => attempt.reasoningMode === "none" && attempt.outcome === "success")
+    ).length,
     completeItems,
     verdictAgreements,
     exactConceptAgreements,
@@ -245,6 +249,8 @@ function renderReport(result) {
 - Verdict agreement: ${summary.verdictAgreements}/${summary.itemCount} (${status(gate.verdictGate)}; requires at least ${gate.thresholds.minimumVerdictAgreements})
 - Exact concept-set agreement: ${summary.exactConceptAgreements}/${summary.itemCount} (${status(gate.exactConceptGate)}; requires at least ${gate.thresholds.minimumExactConceptAgreements})
 - Judge/regex second-opinion agreement: ${summary.regexAgreements}/${summary.regexComparable} successful comparable gradings (reported only; not a gate)
+- Successful gradings that needed a larger-budget retry: ${summary.retriedGradings}
+- Successful DeepSeek no-thinking recoveries: ${summary.noThinkingRecoveries}
 
 ## Instrument
 
@@ -253,6 +259,7 @@ function renderReport(result) {
 - Build SHA: \`${result.protocol.buildIdentity.gitSha}\`${result.protocol.buildIdentity.gitDirty ? " (dirty build)" : ""}
 - Item-bank SHA-256: \`${result.protocol.itemBankSha256}\`
 - Judge-prompt SHA-256: \`${result.protocol.judgePromptSha256}\`
+- Judge retry policy: \`${result.protocol.judgeRetryPolicy}\`
 - Judge model: \`${result.config.judgeModel}\`
 - Provider endpoint: \`${result.config.learnerBase}\`
 
@@ -370,6 +377,8 @@ async function main() {
         matched: judged.matched,
         coverage: judged.coverage,
         reasons: judged.reasons,
+        judgeAttempts: judged.judgeAttempts,
+        judgeAttemptUsed: judged.judgeAttemptUsed,
         regexMatched: judged.regexMatched,
         regexCoverage: judged.regexCoverage,
         agreed: judged.agreed
@@ -386,6 +395,8 @@ async function main() {
         matched: [],
         coverage: null,
         reasons: {},
+        judgeAttempts: error?.judgeAttempts ?? [],
+        judgeAttemptUsed: null,
         regexMatched: regex.matched,
         regexCoverage: regex.coverage,
         agreed: null

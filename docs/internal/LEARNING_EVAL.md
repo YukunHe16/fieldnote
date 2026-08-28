@@ -21,8 +21,9 @@
   显式传 `--allow-dirty` / `--allow-server-mismatch` 才能覆盖，报告会把该 run 标成不可精确复现。
 - 模拟学习者：一个便宜模型按题目 persona 扮演学生；stubborn 层的"是否已巩固"由运行器
   按剧本条件判定后注入 persona，不留给模型自己推断。
-- 判分：judge（temperature 0）按概念清单评实质，正则清单作为每次判分随行记录的第二意见，
-  报告写明两者一致率；同时报末轮与最优两种覆盖读数。
+- 判分：judge（temperature 0）同时看到原 worked example、exit check 和回答；每个 concept 明确属于
+  原题/一般方法还是 fresh transfer，禁止拿 transfer 证据回填原题 concept。正则清单只作每次判分的
+  随行第二意见，报告写明两者一致率；同时报末轮与最优两种覆盖读数。
 - 产出：`data/eval-runs/<ts>/results.json` + `report.md`；每个结果带协议 fingerprint、runner/server
   Git SHA 与匹配状态、题库与 judge prompt SHA-256、选题清单、模型/provider 及判分失败记录。服务端聚合可看
   `GET /api/learning/metrics?datasetKind=eval`，但它可能包含同 participant 的早先运行，单次报告以自己的
@@ -87,10 +88,12 @@ stubborn 从未运行过。
    结果说明回路在模拟下的行为差异，不能推断真实学习效果。
 2. **post-test 固定，判分器必须单独校准。** 导师每次提出系统判定后，运行器把题目自带的
    **固定 post-test（出口自解释题）**直接问模拟学习者（不进入导师对话）。temperature 0 的
-   judge 按概念清单判实质，正则清单只作为随行第二意见，绝不再充当最终 verdict；judge 遇到空响应、
-   坏 JSON 或缺项时用更大输出预算重试一次，仍失败则整条 run 记 measurement error。两个条件使用
-   同一 post-test 与判分配置，但在人工校准完成前不能把 judge 称为确定性或可信量尺；系统判定与
-   最终判定仍分开保存，供校准分析使用。
+   judge 按概念清单判实质，正则清单只作为随行第二意见，绝不再充当最终 verdict。逻辑尝试固定为
+   4K/default-thinking → 8K/default-thinking；仅当两次都完全没有 text 且 provider 是 DeepSeek Anthropic
+   时，追加一次同模型 4K / `reasoning.effort=none` 恢复。坏 JSON、缺项或其他 provider 不改变判尺；
+   最终失败则整条 run 记 measurement error。每次尝试只保存预算、模式、stop reason、usage、block
+   类型/长度和错误类别，不保存 thinking 内容。两个条件使用同一 post-test 与判分配置，但在人工校准
+   完成前不能把 judge 称为确定性或可信量尺；系统判定与最终判定仍分开保存，供校准分析使用。
 3. **小样本，描述性呈现。** 不做显著性检验。
 4. 题面全部原创；文献只作为误解类别与设计依据（见下）。
 

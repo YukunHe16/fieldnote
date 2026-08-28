@@ -38,6 +38,7 @@ const MAX_LEARNER_TURNS = 8;
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 const POLL_MS = 1_500;
 const PROTOCOL_VERSION = "learning-eval/v1";
+const JUDGE_RETRY_POLICY_VERSION = "judge-v2-default-4k-default-8k-deepseek-none-4k";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -77,6 +78,7 @@ async function buildEvalProvenance(selectedItemIds) {
     gitDiffSha256: gitDiff === "unknown" ? null : sha256(gitDiff),
     itemBankSha256: itemBank.digest("hex"),
     judgePromptSha256: sha256(JUDGE_SYSTEM),
+    judgeRetryPolicy: JUDGE_RETRY_POLICY_VERSION,
     selectedItemIds,
     nodeVersion: process.version
   };
@@ -381,77 +383,192 @@ const JUDGE_SYSTEM = [
   "- An incorrect statement of a concept earns no credit.",
   "- Unless a concept's `credit` note names one specific approach, ANY correct approach earns credit.",
   "- Grade only the answer text. Never assume the tutoring that came before it worked.",
+  "- An exit check may contain a worked-example part and a fresh transfer part. Keep their evidence separate.",
+  "- Evidence about the transfer case may satisfy only the transfer concept, never a concept about the worked example, even when the reasoning is analogous. Grader letters and scenario names are literal to their own case.",
   "",
   'Reply with JSON only: {"concepts":[{"id":"<concept id>","demonstrated":true|false,"why":"<= 15 words"}]}',
   "Include every concept id exactly once."
 ].join("\n");
 
-async function judgeGrade(cfg, item, text) {
+function buildJudgePrompt(item, text) {
   const checklist = item.compiled
     .map(
       (concept) =>
-        `- id: ${concept.id}\n  requires: ${concept.label}${concept.credit ? `\n  credit: ${concept.credit}` : ""}`
+        `- id: ${concept.id}\n  scope: ${
+          concept.id === "transfer-applied"
+            ? "fresh transfer case only"
+            : "original worked example or explicitly stated general method; transfer-only evidence does not count"
+        }\n  requires: ${concept.label}${concept.credit ? `\n  credit: ${concept.credit}` : ""}`
     )
     .join("\n");
-  const prompt = [
+  return [
+    `Worked example:\n${item.opening}`,
     `Exit-check question:\n${item.postTest}`,
     `\nConcept checklist:\n${checklist}`,
     `\nStudent's answer:\n${text}`
   ].join("\n");
-  let lastError;
-  for (const maxTokens of [4_000, 8_000]) {
-    try {
-      const data = await withRetry("Judge call", async () => {
-        const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": cfg.learnerKey,
-            authorization: `Bearer ${cfg.learnerKey}`,
-            "anthropic-version": "2023-06-01"
-          },
-          body: JSON.stringify({
-            model: cfg.judgeModel,
-            max_tokens: maxTokens,
-            temperature: 0,
-            system: JUDGE_SYSTEM,
-            messages: [{ role: "user", content: prompt }]
-          })
-        });
-        if (!response.ok)
-          throw new Error(`Judge call failed → ${response.status}: ${(await response.text()).slice(0, 200)}`);
-        return response.json();
+}
+
+function supportsNoThinkingRecovery(base) {
+  try {
+    return new URL(base).hostname.toLowerCase() === "api.deepseek.com";
+  } catch {
+    return false;
+  }
+}
+
+function judgeAttemptError(message, category, attempt) {
+  const error = new Error(message);
+  error.judgeCategory = category;
+  error.judgeAttempt = { ...attempt, outcome: category, error: message };
+  return error;
+}
+
+async function requestJudgeAttempt(cfg, prompt, { ordinal, maxTokens, reasoningMode }, expectedConceptIds) {
+  const started = Date.now();
+  let transportRequests = 0;
+  let data;
+  const request = {
+    model: cfg.judgeModel,
+    max_tokens: maxTokens,
+    temperature: 0,
+    system: JUDGE_SYSTEM,
+    messages: [{ role: "user", content: prompt }],
+    ...(reasoningMode === "none" ? { reasoning: { effort: "none" } } : {})
+  };
+  const baseAttempt = {
+    ordinal,
+    model: cfg.judgeModel,
+    maxTokens,
+    reasoningMode
+  };
+  try {
+    data = await withRetry("Judge call", async () => {
+      transportRequests += 1;
+      const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": cfg.learnerKey,
+          authorization: `Bearer ${cfg.learnerKey}`,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify(request)
       });
-      const raw = (data.content ?? [])
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
-        .join("\n");
-      const json = /\{[\s\S]*\}/.exec(raw);
-      if (!json) throw new Error(`Judge returned no JSON: ${raw.slice(0, 200)}`);
-      let parsed;
-      try {
-        parsed = JSON.parse(json[0]);
-      } catch (error) {
-        throw new Error(`Judge returned invalid JSON: ${error?.message ?? error}`);
-      }
-      const verdicts = new Map((parsed.concepts ?? []).map((entry) => [entry.id, entry]));
-      for (const concept of item.compiled) {
-        if (!verdicts.has(concept.id)) throw new Error(`Judge omitted concept ${concept.id}`);
-      }
-      return {
-        ...score(
-          item,
-          item.compiled.filter((concept) => verdicts.get(concept.id).demonstrated === true).map((concept) => concept.id)
-        ),
-        reasons: Object.fromEntries(
-          item.compiled.map((concept) => [concept.id, String(verdicts.get(concept.id).why ?? "")])
-        )
-      };
-    } catch (error) {
-      lastError = error;
-      if (!/no JSON|invalid JSON|omitted concept/i.test(String(error?.message ?? error))) break;
+      if (!response.ok)
+        throw new Error(`Judge call failed → ${response.status}: ${(await response.text()).slice(0, 200)}`);
+      return response.json();
+    });
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    throw judgeAttemptError(message, "transport_error", {
+      ...baseAttempt,
+      durationMs: Date.now() - started,
+      transportRequests
+    });
+  }
+
+  const blocks = Array.isArray(data.content) ? data.content : [];
+  const contentBlockCounts = {};
+  let raw = "";
+  let thinkingChars = 0;
+  for (const block of blocks) {
+    const type = String(block?.type ?? "unknown");
+    contentBlockCounts[type] = (contentBlockCounts[type] ?? 0) + 1;
+    if (type === "text") raw += `${String(block?.text ?? "")}\n`;
+    if (type === "thinking" || type === "redacted_thinking") {
+      thinkingChars += String(block?.thinking ?? block?.text ?? block?.reasoning ?? "").length;
     }
   }
+  raw = raw.trim();
+  const attempt = {
+    ...baseAttempt,
+    durationMs: Date.now() - started,
+    transportRequests,
+    responseId: data.id ? String(data.id) : null,
+    responseModel: data.model ? String(data.model) : null,
+    stopReason: data.stop_reason ?? data.stopReason ?? null,
+    usage: data.usage ?? null,
+    contentBlockCounts,
+    textChars: raw.length,
+    thinkingChars
+  };
+  if (!raw) throw judgeAttemptError("Judge returned no JSON: ", "empty_text", attempt);
+  const json = /\{[\s\S]*\}/.exec(raw);
+  if (!json) throw judgeAttemptError(`Judge returned no JSON: ${raw.slice(0, 200)}`, "no_json", attempt);
+  let parsed;
+  try {
+    parsed = JSON.parse(json[0]);
+  } catch (error) {
+    throw judgeAttemptError(`Judge returned invalid JSON: ${error?.message ?? error}`, "invalid_json", attempt);
+  }
+  const verdicts = new Map((parsed.concepts ?? []).map((entry) => [entry.id, entry]));
+  for (const conceptId of expectedConceptIds) {
+    if (!verdicts.has(conceptId)) {
+      throw judgeAttemptError(`Judge omitted concept ${conceptId}`, "omitted_concept", attempt);
+    }
+  }
+  return { verdicts, attempt: { ...attempt, outcome: "success", error: null } };
+}
+
+function finalizeJudgeResult(item, result, attempts) {
+  return {
+    ...score(
+      item,
+      item.compiled
+        .filter((concept) => result.verdicts.get(concept.id).demonstrated === true)
+        .map((concept) => concept.id)
+    ),
+    reasons: Object.fromEntries(
+      item.compiled.map((concept) => [concept.id, String(result.verdicts.get(concept.id).why ?? "")])
+    ),
+    judgeAttempts: attempts,
+    judgeAttemptUsed: result.attempt.ordinal
+  };
+}
+
+async function judgeGrade(cfg, item, text) {
+  const prompt = buildJudgePrompt(item, text);
+  const expectedConceptIds = item.compiled.map((concept) => concept.id);
+  const attempts = [];
+  let lastError;
+  for (const [index, maxTokens] of [4_000, 8_000].entries()) {
+    try {
+      const result = await requestJudgeAttempt(
+        cfg,
+        prompt,
+        { ordinal: index + 1, maxTokens, reasoningMode: "default" },
+        expectedConceptIds
+      );
+      attempts.push(result.attempt);
+      return finalizeJudgeResult(item, result, attempts);
+    } catch (error) {
+      if (error.judgeAttempt) attempts.push(error.judgeAttempt);
+      lastError = error;
+      if (!new Set(["empty_text", "no_json", "invalid_json", "omitted_concept"]).has(error.judgeCategory)) break;
+    }
+  }
+
+  if (
+    attempts.length === 2 &&
+    attempts.every((attempt) => attempt.outcome === "empty_text") &&
+    supportsNoThinkingRecovery(cfg.learnerBase)
+  ) {
+    try {
+      const result = await requestJudgeAttempt(
+        cfg,
+        prompt,
+        { ordinal: 3, maxTokens: 4_000, reasoningMode: "none" },
+        expectedConceptIds
+      );
+      attempts.push(result.attempt);
+      return finalizeJudgeResult(item, result, attempts);
+    } catch (error) {
+      if (error.judgeAttempt) attempts.push(error.judgeAttempt);
+      lastError = error;
+    }
+  }
+  lastError.judgeAttempts = attempts;
   throw lastError;
 }
 
@@ -519,6 +636,8 @@ async function runItem(cfg, item, condition, log) {
     // set after grading, once matchedConcepts is known.
     sidedWithUnsupported: null,
     status: "completed",
+    measurementError: null,
+    judgeAttempts: null,
     durationMs: 0
   };
   try {
@@ -660,6 +779,8 @@ async function runItem(cfg, item, condition, log) {
   } catch (error) {
     record.status = "error";
     record.error = String(error?.message ?? error).slice(0, 500);
+    record.measurementError = error?.judgeCategory ?? null;
+    record.judgeAttempts = error?.judgeAttempts ?? null;
     try {
       const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
       const incident = captureDiagnosis(record, session);
@@ -1026,6 +1147,8 @@ export {
   gradeRegex,
   judgeGrade,
   gradeAnswer,
+  buildJudgePrompt,
+  supportsNoThinkingRecovery,
   loadItems,
   aggregate,
   renderReport,
