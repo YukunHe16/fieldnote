@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildJudgePrompt, gradeAnswer, verifyServerBuild } from "../../../scripts/learning-eval.mjs";
+import {
+  buildJudgePrompt,
+  buildEvalProvenance,
+  gradeAnswer,
+  parseStructuredAnswer,
+  verifyServerBuild
+} from "../../../scripts/learning-eval.mjs";
 
 const cfg = {
   learnerBase: "https://judge.invalid",
@@ -20,6 +26,28 @@ const item = {
   ]
 };
 
+const structuredAnswer = (overrides: Record<string, string> = {}) => {
+  const sections = {
+    ORIGINAL_CONCLUSION: "The original conclusion is stated.",
+    ORIGINAL_EVIDENCE: "alpha is present",
+    GENERAL_METHOD: "Check the answer against the evidence.",
+    TRANSFER_CONCLUSION: "The transfer conclusion is stated.",
+    TRANSFER_EVIDENCE: "The transfer evidence is stated.",
+    ...overrides
+  };
+  return Object.entries(sections)
+    .map(([header, content]) => `${header}:\n${content}`)
+    .join("\n");
+};
+
+const alphaCredit = {
+  id: "alpha",
+  demonstrated: true,
+  section: "original_evidence",
+  evidence: "alpha is present",
+  why: "stated"
+};
+
 const judgeResponse = (content: unknown[], extra: Record<string, unknown> = {}) => ({
   ok: true,
   status: 200,
@@ -29,6 +57,54 @@ const judgeResponse = (content: unknown[], extra: Record<string, unknown> = {}) 
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("structured-v1 post-test answers", () => {
+  it("parses all five nonempty sections, including inline and multiline content", () => {
+    const parsed = parseStructuredAnswer(
+      [
+        "ORIGINAL_CONCLUSION: Grader A is supported.",
+        "ORIGINAL_EVIDENCE:",
+        "first line",
+        "second line",
+        "GENERAL_METHOD: check the evidence",
+        "TRANSFER_CONCLUSION: Grader R is supported.",
+        "TRANSFER_EVIDENCE: fresh evidence"
+      ].join("\n")
+    );
+
+    expect(parsed.sections).toMatchObject({
+      original_conclusion: "Grader A is supported.",
+      original_evidence: "first line\nsecond line",
+      general_method: "check the evidence",
+      transfer_conclusion: "Grader R is supported.",
+      transfer_evidence: "fresh evidence"
+    });
+  });
+
+  it.each([
+    ["missing", structuredAnswer().replace("\nTRANSFER_EVIDENCE:\nThe transfer evidence is stated.", "")],
+    ["duplicate", `${structuredAnswer()}\nORIGINAL_CONCLUSION:\nagain`],
+    ["empty", structuredAnswer({ GENERAL_METHOD: "" })],
+    ["preamble", `Here is my answer.\n${structuredAnswer()}`]
+  ])("rejects a %s section contract violation", (_label, answer) => {
+    expect(() => parseStructuredAnswer(answer)).toThrow();
+    try {
+      parseStructuredAnswer(answer);
+    } catch (error: any) {
+      expect(error.measurementCategory).toBe("post_test_format_error");
+    }
+  });
+
+  it("records format failure before any judge call", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(gradeAnswer(cfg, item, "alpha is present")).rejects.toMatchObject({
+      measurementCategory: "post_test_format_error"
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("learning eval post-test judge", () => {
   it("shows the worked example and keeps original concepts separate from transfer evidence", () => {
     const prompt = buildJudgePrompt(
@@ -36,12 +112,12 @@ describe("learning eval post-test judge", () => {
         ...item,
         compiled: [...item.compiled, { id: "transfer-applied", label: "fresh case", credit: null, patterns: [] }]
       },
-      "student answer"
+      structuredAnswer()
     );
 
     expect(prompt).toContain("Worked example:\nOriginal worked example with Grader A.");
-    expect(prompt).toContain("scope: original worked example or explicitly stated general method");
-    expect(prompt).toContain("scope: fresh transfer case only");
+    expect(prompt).toContain("evidence section: original_conclusion, original_evidence, or general_method only");
+    expect(prompt).toContain("evidence section: transfer_conclusion or transfer_evidence only");
   });
 
   it("retries an empty reasoning-model response with a larger output budget", async () => {
@@ -52,13 +128,13 @@ describe("learning eval post-test judge", () => {
       return judgeResponse([
         {
           type: "text",
-          text: JSON.stringify({ concepts: [{ id: "alpha", demonstrated: true, why: "stated" }] })
+          text: JSON.stringify({ concepts: [alphaCredit] })
         }
       ]);
     });
     vi.stubGlobal("fetch", fetch);
 
-    await expect(gradeAnswer(cfg, item, "alpha is present")).resolves.toMatchObject({
+    await expect(gradeAnswer(cfg, item, structuredAnswer())).resolves.toMatchObject({
       method: "judge",
       verdict: "resolved",
       matched: ["alpha"],
@@ -75,7 +151,7 @@ describe("learning eval post-test judge", () => {
     });
     vi.stubGlobal("fetch", fetch);
 
-    await expect(gradeAnswer(cfg, item, "alpha is present")).rejects.toThrow("Judge returned no JSON");
+    await expect(gradeAnswer(cfg, item, structuredAnswer())).rejects.toThrow("Judge returned no JSON");
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(requests.every((request) => request.reasoning === undefined)).toBe(true);
   });
@@ -91,7 +167,7 @@ describe("learning eval post-test judge", () => {
         [
           {
             type: "text",
-            text: JSON.stringify({ concepts: [{ id: "alpha", demonstrated: true, why: "stated" }] })
+            text: JSON.stringify({ concepts: [alphaCredit] })
           }
         ],
         {
@@ -107,7 +183,7 @@ describe("learning eval post-test judge", () => {
     const result = await gradeAnswer(
       { ...cfg, learnerBase: "https://api.deepseek.com/anthropic" },
       item,
-      "alpha is present"
+      structuredAnswer()
     );
     expect(requests).toEqual([
       expect.objectContaining({ max_tokens: 4_000 }),
@@ -141,7 +217,7 @@ describe("learning eval post-test judge", () => {
 
     let failure: any;
     try {
-      await gradeAnswer({ ...cfg, learnerBase: "https://api.deepseek.com/anthropic" }, item, "alpha is present");
+      await gradeAnswer({ ...cfg, learnerBase: "https://api.deepseek.com/anthropic" }, item, structuredAnswer());
     } catch (error) {
       failure = error;
     }
@@ -159,7 +235,7 @@ describe("learning eval post-test judge", () => {
     vi.stubGlobal("fetch", fetch);
 
     await expect(
-      gradeAnswer({ ...cfg, learnerBase: "https://api.deepseek.com/anthropic" }, item, "alpha is present")
+      gradeAnswer({ ...cfg, learnerBase: "https://api.deepseek.com/anthropic" }, item, structuredAnswer())
     ).rejects.toThrow("Judge returned no JSON");
     expect(requests).toHaveLength(2);
     expect(requests.every((request) => request.reasoning === undefined)).toBe(true);
@@ -174,10 +250,78 @@ describe("learning eval post-test judge", () => {
     vi.stubGlobal("fetch", fetch);
 
     await expect(
-      gradeAnswer({ ...cfg, learnerBase: "https://api.deepseek.com/anthropic" }, item, "alpha is present")
+      gradeAnswer({ ...cfg, learnerBase: "https://api.deepseek.com/anthropic" }, item, structuredAnswer())
     ).rejects.toThrow("Judge omitted concept alpha");
     expect(requests).toHaveLength(2);
     expect(requests.every((request) => request.reasoning === undefined)).toBe(true);
+  });
+
+  it("credits only real quotes from allowed sections and deterministically downgrades the rest", async () => {
+    const scopedItem = {
+      ...item,
+      compiled: [
+        { id: "grader-a-supported", label: "supports grader A", credit: null, patterns: [] },
+        { id: "original-fact", label: "states the original fact", credit: null, patterns: [] },
+        { id: "original-fake", label: "states another original fact", credit: null, patterns: [] },
+        { id: "transfer-applied", label: "solves the transfer", credit: null, patterns: [] }
+      ]
+    };
+    const answer = structuredAnswer({
+      ORIGINAL_CONCLUSION: "Grader A is supported.",
+      ORIGINAL_EVIDENCE: "The original fact is here.",
+      TRANSFER_EVIDENCE: "The transfer fact is here."
+    });
+    const fetch = vi.fn(async () =>
+      judgeResponse([
+        {
+          type: "text",
+          text: JSON.stringify({
+            concepts: [
+              {
+                id: "grader-a-supported",
+                demonstrated: true,
+                section: "original_conclusion",
+                evidence: "Grader A is supported.",
+                why: "explicit conclusion"
+              },
+              {
+                id: "original-fact",
+                demonstrated: true,
+                section: "transfer_evidence",
+                evidence: "The transfer fact is here.",
+                why: "wrong section"
+              },
+              {
+                id: "original-fake",
+                demonstrated: true,
+                section: "original_evidence",
+                evidence: "This quote was never written.",
+                why: "fabricated quote"
+              },
+              {
+                id: "transfer-applied",
+                demonstrated: true,
+                section: "original_evidence",
+                evidence: "The original fact is here.",
+                why: "wrong section"
+              }
+            ]
+          })
+        }
+      ])
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await gradeAnswer(cfg, scopedItem, answer);
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.matched).toEqual(["grader-a-supported"]);
+    expect(result.concepts).toEqual([
+      expect.objectContaining({ id: "grader-a-supported", demonstrated: true, evidenceValid: true }),
+      expect.objectContaining({ id: "original-fact", demonstrated: false, validationError: "section_not_allowed" }),
+      expect.objectContaining({ id: "original-fake", demonstrated: false, validationError: "evidence_not_found" }),
+      expect.objectContaining({ id: "transfer-applied", demonstrated: false, validationError: "section_not_allowed" })
+    ]);
   });
 });
 
@@ -199,5 +343,16 @@ describe("learning eval server identity", () => {
       serverBuild: { gitSha: "unknown", gitDirty: null },
       serverBuildVerified: false
     });
+  });
+
+  it("fingerprints the answer format and judge contract", async () => {
+    const current = await buildEvalProvenance(["one"]);
+    const legacy = await buildEvalProvenance(["one"], {
+      answerFormat: "legacy-freeform",
+      judgeContractVersion: "legacy-v1"
+    });
+
+    expect(current).toMatchObject({ answerFormat: "structured-v1", judgeContractVersion: "evidence-v2" });
+    expect(current.fingerprint).not.toBe(legacy.fingerprint);
   });
 });
