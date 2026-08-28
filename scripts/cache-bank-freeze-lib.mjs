@@ -460,8 +460,13 @@ async function ensureBatch({ checkpoint, blueprint, ordinal, count, generateBatc
     const modelResult = await generateBatch({ blueprint, seed, ordinal, count, request });
     const rawResponse = typeof modelResult === "string" ? modelResult : modelResult.text;
     batch.modelAttempts = typeof modelResult === "string" ? [] : (modelResult.attempts ?? []);
+    batch.rawResponse = rawResponse;
+    batch.rawResponseSha256 = sha256(rawResponse);
+    // Persist the exact private response before strict parsing. A schema failure must remain
+    // fail-closed, but it still needs auditable evidence instead of collapsing to an error string.
+    await persist(checkpoint, saveCheckpoint);
     const scenarios = parseGeneratorResponse(rawResponse, blueprint.id, count);
-    Object.assign(batch, { rawResponse, rawResponseSha256: sha256(rawResponse), status: "completed" });
+    batch.status = "completed";
     for (const [candidateIndex, scenario] of scenarios.entries())
       state.candidates.push({
         setId: blueprint.id,
