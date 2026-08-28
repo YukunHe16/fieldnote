@@ -123,7 +123,7 @@ export async function requestModelText({
           temperature,
           system,
           messages: [{ role: "user", content: JSON.stringify(payload) }],
-          ...(plan.reasoningMode === "none" ? { reasoning: { effort: "none" } } : {})
+          ...(plan.reasoningMode === "default" ? {} : { reasoning: { effort: plan.reasoningMode } })
         })
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);

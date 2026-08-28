@@ -6,6 +6,7 @@ import * as cacheCore from "../src/cache-bank.js";
 import type { CacheScenario } from "../src/cache-bank.js";
 import {
   EVALUATOR_CHECKS,
+  GENERATOR_ATTEMPT_PLAN,
   PUBLIC_BLUEPRINT,
   assertCacheCore,
   assertDistinctModelIds,
@@ -563,6 +564,23 @@ describe("cache bank CLI gates", () => {
       text: "{}",
       attempts: [expect.objectContaining({ outcome: "success", responseModel: "deepseek-v4-pro" })]
     });
+    let highRequest: { max_tokens?: number; reasoning?: { effort?: string } } = {};
+    await requestModelText({
+      baseUrl: "https://model.invalid",
+      key: "test",
+      model: "deepseek-v4-pro",
+      system: "json",
+      payload: {},
+      temperature: 0,
+      timeoutMs: 100,
+      attemptPlan: GENERATOR_ATTEMPT_PLAN,
+      fetchImpl: async (_url: string, init: { body: string }) => {
+        highRequest = JSON.parse(init.body);
+        return responseFor("deepseek-v4-pro")();
+      }
+    });
+    expect(GENERATOR_ATTEMPT_PLAN).toEqual([{ maxTokens: 20_000, reasoningMode: "high" }]);
+    expect(highRequest).toMatchObject({ max_tokens: 20_000, reasoning: { effort: "high" } });
     await expect(
       requestModelText({
         baseUrl: "https://model.invalid",
