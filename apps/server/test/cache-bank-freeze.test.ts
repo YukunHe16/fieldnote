@@ -142,9 +142,7 @@ const generator = async ({
   count: number;
 }) => {
   const start = ordinal === 1 ? 0 : 8;
-  return JSON.stringify({
-    candidates: Array.from({ length: count }, (_, index) => scenarioFor(blueprint.id, start + index))
-  });
+  return JSON.stringify(Array.from({ length: count }, (_, index) => scenarioFor(blueprint.id, start + index)));
 };
 
 describe("cache bank freeze protocol", () => {
@@ -285,7 +283,7 @@ describe("cache bank freeze protocol", () => {
       generateBatch: async (input: { blueprint: { id: string }; ordinal: number; count: number }) => {
         const parsed = JSON.parse(await generator(input));
         if (input.blueprint.id === target && input.ordinal === 1)
-          parsed.candidates[1].primary = structuredClone(parsed.candidates[0].primary);
+          parsed[1].primary = structuredClone(parsed[0].primary);
         return JSON.stringify(parsed);
       },
       evaluateCandidate: async () => evaluatorResponse()
@@ -369,7 +367,7 @@ describe("cache bank freeze protocol", () => {
         }),
         evaluateCandidate: async () => evaluatorResponse()
       })
-    ).rejects.toThrow("only a candidates array");
+    ).rejects.toThrow("top-level JSON array");
 
     const saved = checkpoint as {
       sets: Record<
@@ -548,7 +546,7 @@ describe("cache bank CLI gates", () => {
           content:
             requests.length === 1
               ? [{ type: "thinking", thinking: "reasoning without final JSON" }]
-              : [{ type: "text", text: '{"candidates":[]}' }]
+              : [{ type: "text", text: "[]" }]
         })
       } as Response;
     };
@@ -568,7 +566,7 @@ describe("cache bank CLI gates", () => {
         fetchImpl: thinkingThenText
       })
     ).resolves.toMatchObject({
-      text: '{"candidates":[]}',
+      text: "[]",
       attempts: [
         expect.objectContaining({ outcome: "empty_text", thinkingChars: expect.any(Number) }),
         expect.objectContaining({ outcome: "success", reasoningMode: "none" })
