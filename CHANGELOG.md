@@ -4,6 +4,86 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/). Public interfaces may still change during 0.x.
 
+## [0.2.0](https://github.com/YukunHe16/fieldnote/compare/v0.1.0...v0.2.0) (2026-08-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove the graduate-admissions feature line
+
+### Features
+
+* **eval:** add a continued-conversation baseline and an opt-in evolving eval ([b36e034](https://github.com/YukunHe16/fieldnote/commit/b36e034db068ef89d6116798a202be297640b6d7))
+* **eval:** batch replay evaluation with baseline and candidate arms ([ab400b7](https://github.com/YukunHe16/fieldnote/commit/ab400b7bbd1c8c647b405a13786c99bf9aeb1271))
+* **eval:** fill the feedback factorial and pin the item bank in CI ([4b4cbd5](https://github.com/YukunHe16/fieldnote/commit/4b4cbd5c6ec38188aa3be4316e06a8812285e172))
+* **eval:** learner-stubbornness tier so adaptivity is a variable, not an assumption ([1557705](https://github.com/YukunHe16/fieldnote/commit/1557705710df2397ca6d835f9b838e0acb7ae39f))
+* **eval:** literature-grounded learning-loop evaluation set and simulated-learner runner ([009330f](https://github.com/YukunHe16/fieldnote/commit/009330f8d5536e1e9e62873527a8650363a4a057))
+* **eval:** make the exit check a transfer task and the stubborn tier bite ([f6432a4](https://github.com/YukunHe16/fieldnote/commit/f6432a467516d9553aad826b2e757544cd3e9acf))
+* **eval:** measure whether the learner accepts wrong feedback ([11c7be1](https://github.com/YukunHe16/fieldnote/commit/11c7be15189ebab62c04442e734efa025559f1ea))
+* **eval:** pin the learner and grader to their own provider ([dd30a7b](https://github.com/YukunHe16/fieldnote/commit/dd30a7b97c3d84c6fa833255a1bf96bbb17561fe))
+* **evolution:** track capability usage and suggest disabling weak ones ([dbff1c8](https://github.com/YukunHe16/fieldnote/commit/dbff1c8f8f9e41f1af0ea8d493671233c41e3b00))
+* **feishu:** learning loop on Feishu with /learn and outcome cards ([981a53b](https://github.com/YukunHe16/fieldnote/commit/981a53b8ea6e74037b64e650fcb0caaa06da2df7))
+* **learning:** anchor spaced revisits on the missing plan ([1cdde41](https://github.com/YukunHe16/fieldnote/commit/1cdde41d70b097eb9ff6177524e8bf6137a9be0f))
+* **learning:** escalation handoff reports with owner paging ([56e43d2](https://github.com/YukunHe16/fieldnote/commit/56e43d25da8ad214bf358f87462e072b62970fa9))
+* **learning:** in-loop practice generation with three-tier host review ([86a2f93](https://github.com/YukunHe16/fieldnote/commit/86a2f931acc5391824b1a79e091260b4225da5ae))
+* **learning:** invent teaching approaches from winning rounds ([b50c080](https://github.com/YukunHe16/fieldnote/commit/b50c080295d1f6183faa7093f0451a7922b712e7))
+* **learning:** one-shot baseline condition, eval dataset, metrics and anonymized export ([17cbe42](https://github.com/YukunHe16/fieldnote/commit/17cbe42092d1b4b60edcac9075436f3c5698317d))
+* **learning:** practice-item calibration protocol script ([0faa350](https://github.com/YukunHe16/fieldnote/commit/0faa3507a3e8399b615536dbc33aee89d60fd27a))
+* **learning:** say when a loop is a revisit of an earlier one ([cec4cdc](https://github.com/YukunHe16/fieldnote/commit/cec4cdc731827fff14d2bcae2008a85cd46f0617))
+* **learning:** seeded permuted-block randomization for research conditions ([9b0d198](https://github.com/YukunHe16/fieldnote/commit/9b0d198ecb692bf70febfababbab0a216d8afd72))
+* **learning:** spaced reviews and a host-resolved scheduler time zone ([0511454](https://github.com/YukunHe16/fieldnote/commit/0511454d556c57e6be91828a3d8a4a4b4ff45275))
+* **learning:** stall watchdog and session-denominator reliability metrics ([8e72cdd](https://github.com/YukunHe16/fieldnote/commit/8e72cdd7915ef2e80bb343a10774835de6695a86))
+* **learning:** tell the tutor what the six difficulty types mean ([9e8a75f](https://github.com/YukunHe16/fieldnote/commit/9e8a75f1f878f0313e0a6843098e34f5ba8b2840))
+* **learning:** voice the spaced-review revisit in the UI language ([1c9d8ac](https://github.com/YukunHe16/fieldnote/commit/1c9d8ac459d594bbcd8ce72b7314773a1a0db768))
+* **research:** human-readable HTML export view; configurable review delays for local testing ([0d1a280](https://github.com/YukunHe16/fieldnote/commit/0d1a280f5b11c1b697a1891d37f766b321eec1b0))
+* **research:** loop-first corpus browser and a per-loop learning report ([e7547a6](https://github.com/YukunHe16/fieldnote/commit/e7547a621253820b53899a5d2c397d2dfca5b5c3))
+* **research:** say it in the learner's words, and give the charts room ([e3625c4](https://github.com/YukunHe16/fieldnote/commit/e3625c4714b23a6c8a78b1f5f8a1ce8130f3298a))
+* **runtime:** one-click provider presets for compatible endpoints ([7b7f36d](https://github.com/YukunHe16/fieldnote/commit/7b7f36df852cb38a7781077c562b89c7ddf8b9ef))
+* **web:** lead the interface with the learning loop ([54e1711](https://github.com/YukunHe16/fieldnote/commit/54e1711afba9055dc666a261037987c570825d43))
+* **workbench:** first-class participant axis with two-way owner isolation ([20974b2](https://github.com/YukunHe16/fieldnote/commit/20974b2ffdd58673b284422226116c592695c5db))
+
+
+### Bug Fixes
+
+* **eval:** drop the context-tier suffix before calling the model directly ([fef3ae3](https://github.com/YukunHe16/fieldnote/commit/fef3ae3b4532e10f746f53048f80f36f3179a091))
+* **eval:** grade post-tests on substance, and report both coverage readings ([67f2007](https://github.com/YukunHe16/fieldnote/commit/67f2007c0585cf6646c8949b94c6d7070f5d0e44))
+* **eval:** let the per-turn wait budget follow the provider ([64eccbe](https://github.com/YukunHe16/fieldnote/commit/64eccbe7ca531d0e84e9199f9108094ff5aaa5b9))
+* **eval:** make measurements reproducible and release-safe ([008a25c](https://github.com/YukunHe16/fieldnote/commit/008a25cbc526194465006aab023038c289bddcf8))
+* **eval:** make measurements versioned and fail closed ([db1ec1b](https://github.com/YukunHe16/fieldnote/commit/db1ec1b7545f44aba28a0d213757ee7425474285))
+* **eval:** make the replay baseline arm artifact-free and batch-resilient ([750d126](https://github.com/YukunHe16/fieldnote/commit/750d126355da4d6041db1cd92eb78c98518e2a63))
+* **eval:** phase-matched recovery nudges in the runner; record stall-fix verification ([9bf23cf](https://github.com/YukunHe16/fieldnote/commit/9bf23cfaf56337a06016316037b3e4d688e58b19))
+* **eval:** stop the control half reading as its own opposite ([69524d5](https://github.com/YukunHe16/fieldnote/commit/69524d53bef06ec496049542ad06f0304d222a05))
+* **eval:** verify the running server build ([1c25bdb](https://github.com/YukunHe16/fieldnote/commit/1c25bdb3dfcfbcdc96acf6fb9bd3cc7aaaee58a1))
+* **evolution:** unbias the disable baseline and blame the rejected run ([581eb92](https://github.com/YukunHe16/fieldnote/commit/581eb92578f62dd6a90cd11cd3aa179635d9a463))
+* **export:** shield UUID join keys from redaction; give the evaluator time to answer ([72ddda3](https://github.com/YukunHe16/fieldnote/commit/72ddda339b717cb0785f2b79087fd2e3b74a0df9))
+* **export:** stop the redactor from eating the research export's time axis ([49f008c](https://github.com/YukunHe16/fieldnote/commit/49f008c98710fd0cdd1bcaabc6f8f45b3c996507))
+* **feishu:** distill on card confirms, dedupe outcome cards, honest errors ([df34030](https://github.com/YukunHe16/fieldnote/commit/df340309faad4c59ac9b77bf638eb190cd94e2e8))
+* **learning:** a partial confirmation owes another round too ([070d6ed](https://github.com/YukunHe16/fieldnote/commit/070d6ed8541becfa207d19df05608f5508ee9e9f))
+* **learning:** background model budgets that a thinking model can meet ([805a81c](https://github.com/YukunHe16/fieldnote/commit/805a81ce40ebc0008ce1f7424fc58bd7b26217b8))
+* **learning:** classify a revisit's practice items by incident, not run ([53b2036](https://github.com/YukunHe16/fieldnote/commit/53b2036b36cd82fc55142994e9bebe96efec2792))
+* **learning:** delivery-verified attribution, review-task linkage, and variant guards ([87ffc09](https://github.com/YukunHe16/fieldnote/commit/87ffc0966a691aa155be3e6a7b44576d87bf9694))
+* **learning:** label the multi-turn condition and keep it out of live statistics ([0714d89](https://github.com/YukunHe16/fieldnote/commit/0714d89efe92c34f74dd46ce4c481423000a57c7))
+* **learning:** read spaced-review delay overrides at scheduling time ([2438aea](https://github.com/YukunHe16/fieldnote/commit/2438aea2f42804e54fbe32569804b5af2fef73ca))
+* **learning:** state-directed next-step instructions and redirecting guard errors ([4040585](https://github.com/YukunHe16/fieldnote/commit/40405852604d9cbabcee8ff460768bd300a36ec8))
+* **learning:** survive the trigger re-parse when rebuilding experiences ([e996a79](https://github.com/YukunHe16/fieldnote/commit/e996a7936445989b4577e3ccde8ad4b1b87a61dc))
+* **metrics:** stop the confidence chart from stretching, and unglue the export links ([f7f381f](https://github.com/YukunHe16/fieldnote/commit/f7f381fca34b0611f746ce9b7aefc4679d872be5))
+* **release:** clean and audit publish artifacts ([1204e6d](https://github.com/YukunHe16/fieldnote/commit/1204e6d6657ebe7dec6e8307a6012b2e3775a82b))
+* **runtime:** keep a host tool-search flag from reshaping the tutor's tools ([0c41fff](https://github.com/YukunHe16/fieldnote/commit/0c41fff148aeea62feca273c89cdfc76b1dc6178))
+* **server:** gate explicit signals, wire runner deps, and add a true replay baseline ([415a79c](https://github.com/YukunHe16/fieldnote/commit/415a79c20222b409f6d3aba14be826ac8333179b))
+* **server:** keep synthetic conversations out of memory and evolution ([2c42305](https://github.com/YukunHe16/fieldnote/commit/2c42305ebe3a348155f012ee7981b563a1297395))
+* **server:** make a configured model credential authoritative ([5a9461f](https://github.com/YukunHe16/fieldnote/commit/5a9461ff559733f66bd4e4848efa510e27d73de3))
+* **storage:** remove the duplicate event sequence index ([5d78f6d](https://github.com/YukunHe16/fieldnote/commit/5d78f6dc56414d52d9f8680aaeda58f3ed27a345))
+* **web:** confirm what a settings save actually did ([c07d649](https://github.com/YukunHe16/fieldnote/commit/c07d64933114e258e7ce5e1d0779b93fb3ef1717))
+* **web:** keep empty topic scopes filtered and stop try-another after escalation ([b2c069e](https://github.com/YukunHe16/fieldnote/commit/b2c069e8fed41098a83c79e8760d2d92d4e051ec))
+* **web:** let the learning sheet fit on screen ([19ed9de](https://github.com/YukunHe16/fieldnote/commit/19ed9ded536a46e9bb8e267cd63f77157b65a118))
+* **web:** line the diagnostics row up with the connections above it ([53e9d44](https://github.com/YukunHe16/fieldnote/commit/53e9d44d0ebc6cffdae897e242d620599fbc3861))
+* **web:** one scroll region per popover, not three ([4daa9ca](https://github.com/YukunHe16/fieldnote/commit/4daa9ca9a7d439632700ca36b2827bd839a2bd4c))
+
+
+### Code Refactoring
+
+* remove the graduate-admissions feature line ([9b7eb01](https://github.com/YukunHe16/fieldnote/commit/9b7eb01305d136463e93b2fe2c03a31c67801731))
+
 ## 0.1.0 — 2026-08-23
 
 首个公开版本。Fieldnote 是一个本地优先的 Claude Agent 教育工作台，全部运行在你自己的机器上。
