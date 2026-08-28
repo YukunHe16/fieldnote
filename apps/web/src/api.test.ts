@@ -174,6 +174,19 @@ describe("API normalizers", () => {
       status: "active",
       dataset_kind: "live",
       execution_mode: "agent",
+      compliance_events: [
+        {
+          id: "compliance-1",
+          session_id: "session-1",
+          incident_id: null,
+          signature: "none:0:0",
+          phase: "none",
+          action: "requested",
+          source_run_id: "run-1",
+          repair_run_id: "run-2",
+          created_at: "2026-08-28T00:00:00.000Z"
+        }
+      ],
       incidents: [
         {
           id: "incident-1",
@@ -214,6 +227,13 @@ describe("API normalizers", () => {
       conversationId: "c1",
       topicKey: "programming",
       executionMode: "agent",
+      complianceEvents: [
+        {
+          action: "requested",
+          incidentId: null,
+          repairRunId: "run-2"
+        }
+      ],
       incidents: [
         {
           difficultyType: "conceptual_misconception",

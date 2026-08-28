@@ -16,7 +16,7 @@ import type { MemoryStore } from "./memory-store.js";
 import type { EvolutionStore } from "./evolution-store.js";
 import type { InputFileManifestService } from "./input-file-manifest.js";
 import type { InputFileManifestItem } from "./input-file-manifest.js";
-import type { LearningStore } from "./learning-store.js";
+import type { LearningComplianceObligation, LearningStore } from "./learning-store.js";
 import type { CollaborationStore } from "./collaboration-store.js";
 
 export type OrchestratorServices = {
@@ -252,6 +252,7 @@ export class RunOrchestrator {
     if (queuedIndex >= 0) this.queue.splice(queuedIndex, 1);
     this.inputQueues.get(runId)?.close();
     this.inputQueues.delete(runId);
+    this.handleEvalComplianceFailure(run);
     if (!this.store.deleteQueuedRun(runId)) return false;
     this.events.append({
       type: "run.interrupted",
@@ -295,6 +296,7 @@ export class RunOrchestrator {
         runId,
         payload: { status: "interrupted", reason: "queued_run_cancelled" }
       });
+      this.handleEvalComplianceFailure(run);
       return true;
     }
     return false;
@@ -419,6 +421,7 @@ export class RunOrchestrator {
   private async processRun(run: RunRecord, controller: AbortController, inputQueue: RuntimeInputQueue): Promise<void> {
     let timeout = setTimeout(() => controller.abort(), this.config.runTimeoutMs);
     const workspacePath = path.join(this.config.workspaceRoot, run.conversationId);
+    const complianceBefore = this.services?.learning?.evalComplianceObligation(run.conversationId, run.id) ?? null;
     try {
       if (this.store.getRun(run.id)?.supersededAt) {
         this.store.setRunStatus(run.id, "interrupted", "Run was superseded by an edited branch");
@@ -430,6 +433,7 @@ export class RunOrchestrator {
           runId: run.id,
           payload: { status: "interrupted", reason: "superseded_by_branch" }
         });
+        this.handleEvalComplianceFailure(run);
         return;
       }
       await fs.mkdir(workspacePath, { recursive: true });
@@ -559,6 +563,7 @@ export class RunOrchestrator {
         runId: run.id,
         payload: { status: "completed", totalCostUsd: totalCostUsd ?? null }
       });
+      this.handleEvalComplianceCompletion(run, complianceBefore);
       this.memoryCoordinator?.enqueue(run);
     } catch (error) {
       this.rejectPendingQuestion(run.id);
@@ -589,8 +594,95 @@ export class RunOrchestrator {
           payload: { status: "failed", error: message }
         });
       }
+      this.handleEvalComplianceFailure(run);
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private handleEvalComplianceCompletion(run: RunRecord, before: LearningComplianceObligation | null): void {
+    const learning = this.services?.learning;
+    if (!learning) return;
+    try {
+      const repairRequest = learning.complianceRequestForRepairRun(run.id);
+      const after = learning.evalComplianceObligation(run.conversationId);
+      if (repairRequest) {
+        const obligation: LearningComplianceObligation = {
+          sessionId: repairRequest.sessionId,
+          conversationId: run.conversationId,
+          incidentId: repairRequest.incidentId,
+          signature: repairRequest.signature,
+          phase: repairRequest.phase
+        };
+        learning.recordComplianceEvent({
+          obligation,
+          action: learning.complianceRepairSatisfied(repairRequest, run.id) ? "recovered" : "gave_up",
+          sourceRunId: repairRequest.sourceRunId,
+          repairRunId: run.id
+        });
+        return;
+      }
+      if (
+        !before ||
+        !after ||
+        before.sessionId !== after.sessionId ||
+        before.incidentId !== after.incidentId ||
+        before.signature !== after.signature ||
+        learning.complianceEvent(before, "requested") ||
+        learning.complianceEvent(before, "gave_up")
+      )
+        return;
+      learning.recordComplianceEvent({
+        obligation: before,
+        action: "compliance_miss",
+        sourceRunId: run.id
+      });
+      const requested = learning.recordComplianceEvent({
+        obligation: before,
+        action: "requested",
+        sourceRunId: run.id
+      });
+      try {
+        const repair = this.submit(
+          run.conversationId,
+          complianceRepairPrompt(before.phase, run.userMessageId),
+          "normal"
+        );
+        learning.attachComplianceRepairRun(requested.id, repair.id);
+      } catch {
+        learning.recordComplianceEvent({
+          obligation: before,
+          action: "gave_up",
+          sourceRunId: run.id
+        });
+      }
+    } catch (error) {
+      console.error(
+        `[learning] failed to record eval compliance recovery: ${String((error as Error)?.message ?? error)}`
+      );
+    }
+  }
+
+  private handleEvalComplianceFailure(run: RunRecord): void {
+    const learning = this.services?.learning;
+    if (!learning) return;
+    try {
+      const request = learning.complianceRequestForRepairRun(run.id);
+      if (!request) return;
+      learning.recordComplianceEvent({
+        obligation: {
+          sessionId: request.sessionId,
+          conversationId: run.conversationId,
+          incidentId: request.incidentId,
+          signature: request.signature,
+          phase: request.phase
+        },
+        action: "gave_up",
+        sourceRunId: request.sourceRunId,
+        repairRunId: run.id
+      });
+    } catch (error) {
+      console.error(`[learning] failed to close eval compliance repair: ${String((error as Error)?.message ?? error)}`);
     }
   }
 
@@ -1054,6 +1146,8 @@ export class RunOrchestrator {
           runId: row.id,
           payload: { status: "interrupted", reason: "server_restarted" }
         });
+        const run = this.store.getRun(row.id);
+        if (run) this.handleEvalComplianceFailure(run);
       }
     })();
     const queued = this.store.database
@@ -1097,6 +1191,21 @@ export class RunOrchestrator {
       ? `Continue from this application-visible conversation context:\n\n${history}\n\nNew user message:\n${prompt}`
       : prompt;
   }
+}
+
+export function complianceRepairPrompt(
+  phase: LearningComplianceObligation["phase"],
+  evidenceMessageId: string
+): string {
+  const prefix =
+    "【学习回路修复】上一轮只写了教学文字，但没有完成当前必须的学习台账步骤。这不是学习者的新回答。不要重复、替换或重新解释上一条可见题面；先完成工具调用，最后只需给一句简短的学生可见确认。";
+  if (phase === "none")
+    return `${prefix} 现在用原学习者消息 ${evidenceMessageId} 作为 evidence，依次调用 open_learning_incident、record_learning_intervention、draft_practice_task 和 request_learning_verification。不得把本修复消息当作学习证据。`;
+  if (phase === "diagnosed")
+    return `${prefix} 现在依次调用 record_learning_intervention、draft_practice_task 和 request_learning_verification；不要新开 incident。`;
+  if (phase === "intervening")
+    return `${prefix} 如果本轮已有 approved practiceItemId，直接用它调用 request_learning_verification；否则把上一条已显示的小任务按原意提交 draft_practice_task，通过后立即 request_learning_verification。`;
+  return `${prefix} 学习者已经回答验证题；现在调用 propose_learning_outcome 记录判断，不要再出一道新题。`;
 }
 
 function replayRuntimeFields(replay: RunReplayStore | undefined, conversationId: string) {

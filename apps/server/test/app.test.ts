@@ -894,6 +894,7 @@ describe("HTTP API", () => {
       payload: { goal: "评测目标", datasetKind: "eval" }
     });
     expect(evalSession.statusCode).toBe(201);
+    expect(evalSession.json().session).toMatchObject({ complianceEvents: [] });
     const ignoredThumb = await app.inject({
       method: "POST",
       url: "/api/signals",

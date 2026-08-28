@@ -38,7 +38,7 @@ const MAX_LEARNER_TURNS = 8;
  */
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 const POLL_MS = 1_500;
-const PROTOCOL_VERSION = "learning-eval/v3";
+const PROTOCOL_VERSION = "learning-eval/v4";
 const ANSWER_FORMAT_STRUCTURED = "structured-v1";
 const ANSWER_FORMAT_LEGACY = "legacy-freeform";
 const JUDGE_CONTRACT_VERSION = "evidence-v2";
@@ -399,9 +399,26 @@ function personaSystem(item, tier, state, answerFormat = ANSWER_FORMAT_LEGACY) {
   ].join("\n");
 }
 
-function learnerView(messages) {
+const complianceRepairRunIds = (session) =>
+  new Set(
+    (session?.complianceEvents ?? []).flatMap((event) =>
+      event?.action === "requested" && event?.repairRunId ? [String(event.repairRunId)] : []
+    )
+  );
+
+function throwIfToolComplianceError(session) {
+  const failure = [...(session?.complianceEvents ?? [])].reverse().find((event) => event?.action === "gave_up");
+  if (!failure) return;
+  const error = new Error(`Eval learning-tool compliance repair gave up for ${failure.signature ?? "unknown state"}`);
+  error.measurementCategory = "tool_compliance_error";
+  error.complianceEventId = failure.id ?? null;
+  throw error;
+}
+
+function learnerView(messages, ignoredRunIds = new Set()) {
   const transcript = [];
   for (const message of messages) {
+    if (message.runId && ignoredRunIds.has(message.runId)) continue;
     const content = (message.content ?? "").trim();
     if (!content || (message.role !== "user" && message.role !== "assistant")) continue;
     // Roles invert: the app's assistant is the learner's interlocutor.
@@ -412,8 +429,15 @@ function learnerView(messages) {
   return clipped;
 }
 
-async function learnerReply(cfg, item, messages, extraQuestion, state, { answerFormat = ANSWER_FORMAT_LEGACY } = {}) {
-  const transcript = learnerView(messages);
+async function learnerReply(
+  cfg,
+  item,
+  messages,
+  extraQuestion,
+  state,
+  { answerFormat = ANSWER_FORMAT_LEGACY, ignoredRunIds = new Set() } = {}
+) {
+  const transcript = learnerView(messages, ignoredRunIds);
   if (extraQuestion) transcript.push({ role: "user", content: extraQuestion });
   // Reasoning models spend output tokens on thinking blocks before any text arrives,
   // so the budget is deliberately loose and one retry doubles it.
@@ -877,6 +901,7 @@ async function runItem(cfg, item, condition, log) {
     sidedWithUnsupported: null,
     status: "completed",
     measurementError: null,
+    complianceEvents: [],
     settleTimeout: null,
     fatalError: false,
     judgeAttempts: null,
@@ -904,6 +929,9 @@ async function runItem(cfg, item, condition, log) {
 
     while (record.learnerTurns < MAX_LEARNER_TURNS) {
       const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
+      record.complianceEvents = session?.complianceEvents ?? record.complianceEvents;
+      throwIfToolComplianceError(session);
+      const ignoredRunIds = complianceRepairRunIds(session);
       const incident = latestIncident(session);
       if (incident && TERMINAL.has(incident.status)) {
         record.incidentStatus = incident.status;
@@ -951,7 +979,8 @@ async function runItem(cfg, item, condition, log) {
         // for both conditions.
         const state = { consolidated: consolidated(incident.interventions.length, answered.size) };
         lastPostAnswer = await learnerReply(cfg, item, detail.messages, item.postTest, state, {
-          answerFormat: ANSWER_FORMAT_STRUCTURED
+          answerFormat: ANSWER_FORMAT_STRUCTURED,
+          ignoredRunIds
         });
         record.finalPostTestAnswer = lastPostAnswer;
         const graded = await gradeAnswer(cfg, item, lastPostAnswer, { answerFormat: ANSWER_FORMAT_STRUCTURED });
@@ -979,7 +1008,15 @@ async function runItem(cfg, item, condition, log) {
       // correct, so it is still a pre-consolidation attempt.
       const state = { consolidated: consolidated(incident.interventions.length, answered.size) };
       answered.add(verification.id);
-      lastAnswer = await learnerReply(cfg, item, detail.messages, undefined, state);
+      const repairedVerification = verification.requestedRunId && ignoredRunIds.has(verification.requestedRunId);
+      lastAnswer = await learnerReply(
+        cfg,
+        item,
+        detail.messages,
+        repairedVerification ? verification.prompt : undefined,
+        state,
+        { ignoredRunIds }
+      );
       await api(cfg.base, "POST", `/api/conversations/${conversation.id}/messages`, {
         content: lastAnswer,
         mode: "normal"
@@ -989,6 +1026,8 @@ async function runItem(cfg, item, condition, log) {
     }
 
     const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
+    record.complianceEvents = session?.complianceEvents ?? record.complianceEvents;
+    throwIfToolComplianceError(session);
     const incident = captureDiagnosis(record, session);
     record.rounds = incident?.interventions.length ?? 0;
     record.incidentStatus = incident?.status ?? null;
@@ -1030,6 +1069,7 @@ async function runItem(cfg, item, condition, log) {
     record.judgeAttempts = error?.judgeAttempts ?? null;
     try {
       const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
+      record.complianceEvents = session?.complianceEvents ?? record.complianceEvents;
       const incident = captureDiagnosis(record, session);
       record.rounds = incident?.interventions.length ?? record.rounds;
       record.incidentStatus = incident?.status ?? record.incidentStatus;
@@ -1494,6 +1534,9 @@ export {
   waitForIdle,
   shouldStopAfterRecord,
   resolveTutorRuntime,
+  complianceRepairRunIds,
+  throwIfToolComplianceError,
+  learnerView,
   parseStructuredAnswer,
   validateConceptEvidence,
   ANSWER_FORMAT_STRUCTURED,

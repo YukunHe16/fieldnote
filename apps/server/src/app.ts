@@ -215,6 +215,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!session) return null;
     return {
       ...session,
+      complianceEvents: learning.listComplianceEvents(session.id),
       incidents: learning.listIncidents(session.id).map((incident) => ({
         ...incident,
         interventions: learning.listInterventions(incident.id),
