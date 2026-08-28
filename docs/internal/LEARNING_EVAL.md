@@ -44,6 +44,23 @@ node scripts/learning-eval.mjs --base http://127.0.0.1:8790
 这样 token delta、合成会话和校准记录不会继续膨胀日常 `data/agent.db`；不同冻结协议需要完全隔离时，
 给 `FIELDNOTE_HOME` 换一个新目录。
 
+### Post-test judge 稳定性门
+
+在重新调用 tutor / learner 之前，先对历史 run 保存的 27 个最终 post-test 答案各判两次：
+
+```bash
+node scripts/learning-posttest-stability.mjs
+# 中断后：
+node scripts/learning-posttest-stability.mjs --resume data/eval-runs/posttest-stability-<ts>/results.json
+```
+
+脚本固定默认并发 4，每条结果完成后原子 checkpoint；resume 按 `(itemId, repeat)` 跳过已经记录的
+成功或失败，不会重复消费模型。正式门槛是 54 次判分 0 error、verdict 至少 26/27 一致、精确概念
+集合至少 24/27 一致。正则只作第二意见。通过只表示**可重复**，不表示 judge 对人类标准是正确的。
+
+新 eval record 同时保存 `incidentId`、`diagnosedDifficultyType`、`diagnosisHypothesis`；因此当前协议的
+诊断审计可只靠 `results.json` 完成。旧记录缺这些字段时，审计脚本仍回退读取原 SQLite。
+
 ## 学习者顽固度分层（tier）
 
 同一批题目跑两层，内容恒定、只动学习者持久性——把"自适应什么时候值得"做成显式实验变量，

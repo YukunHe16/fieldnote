@@ -139,6 +139,25 @@ async function judge(cfg, item, tier, hypothesis) {
   throw lastError;
 }
 
+function embeddedDiagnosis(record) {
+  if (typeof record?.diagnosisHypothesis !== "string" || record.diagnosisHypothesis.trim().length === 0) return null;
+  return {
+    incidentId: typeof record.incidentId === "string" ? record.incidentId : null,
+    diagnosedDifficultyType: typeof record.diagnosedDifficultyType === "string" ? record.diagnosedDifficultyType : null,
+    hypothesis: record.diagnosisHypothesis
+  };
+}
+
+function partitionDiagnosisRecords(records) {
+  const embedded = [];
+  const legacy = [];
+  for (const record of records) {
+    if (embeddedDiagnosis(record)) embedded.push(record);
+    else legacy.push(record);
+  }
+  return { embedded, legacy };
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   const env = { ...process.env, ...(await loadEnvFile(path.join(repo, ".env"))) };
@@ -150,21 +169,11 @@ async function main() {
   if (!cfg.key && !args.dryRun) throw new Error("No judge credential: set ANTHROPIC_AUTH_TOKEN in .env");
   const items = Object.fromEntries((await loadItems({})).map((item) => [item.id, item]));
 
-  const database = new Database(args.db, { readonly: true });
-  const firstIncident = database.prepare(
-    `SELECT inc.hypothesis AS hypothesis
-     FROM learning_incidents inc
-     JOIN learning_sessions s ON s.id = inc.session_id
-     WHERE s.conversation_id = ?
-     ORDER BY inc.created_at ASC
-     LIMIT 1`
-  );
-
   // One row per archived eval session. A repaired report may copy records from a nested run,
   // so conversation ids — not directories — are the identity and duplicates are skipped.
   // Sessions that never opened an incident are counted separately: a run that produced no
   // diagnosis is a loop-reliability failure, not a diagnosis error.
-  const rows = [];
+  const candidates = [];
   let noIncident = 0;
   let duplicates = 0;
   const seenConversations = new Set();
@@ -185,23 +194,51 @@ async function main() {
         continue;
       }
       seenConversations.add(record.conversationId);
-      const incident = firstIncident.get(record.conversationId);
-      if (!incident) {
-        noIncident += 1;
-        continue;
-      }
-      rows.push({
+      candidates.push({
         runDir,
         protocol,
         itemId: record.itemId,
         family: record.family,
         tier: record.tier ?? "mild",
         condition: record.condition,
-        hypothesis: incident.hypothesis
+        conversationId: record.conversationId,
+        incidentId: record.incidentId ?? null,
+        diagnosedDifficultyType: record.diagnosedDifficultyType ?? null,
+        diagnosisHypothesis: record.diagnosisHypothesis ?? null
       });
     }
   }
-  database.close();
+  const { legacy } = partitionDiagnosisRecords(candidates);
+  const legacyHypotheses = new Map();
+  if (legacy.length > 0) {
+    const database = new Database(args.db, { readonly: true });
+    try {
+      const firstIncident = database.prepare(
+        `SELECT inc.hypothesis AS hypothesis
+         FROM learning_incidents inc
+         JOIN learning_sessions s ON s.id = inc.session_id
+         WHERE s.conversation_id = ?
+         ORDER BY inc.created_at ASC
+         LIMIT 1`
+      );
+      for (const record of legacy) {
+        const incident = firstIncident.get(record.conversationId);
+        if (incident) legacyHypotheses.set(record.conversationId, incident.hypothesis);
+      }
+    } finally {
+      database.close();
+    }
+  }
+  const rows = [];
+  for (const record of candidates) {
+    const embedded = embeddedDiagnosis(record);
+    const hypothesis = embedded?.hypothesis ?? legacyHypotheses.get(record.conversationId);
+    if (!hypothesis) {
+      noIncident += 1;
+      continue;
+    }
+    rows.push({ ...record, hypothesis });
+  }
   const protocols = [...new Set(rows.map((row) => row.protocol))].sort();
   if (protocols.length > 1 && !args.allowMixedProtocols) {
     throw new Error(
@@ -297,7 +334,11 @@ ${rows.map((row) => `| ${row.runDir} | ${row.itemId} | ${row.tier} | ${row.condi
   console.log(`Wrote ${path.relative(repo, args.out)}`);
 }
 
-main().catch((error) => {
-  console.error(`diagnosis-accuracy failed: ${error.message ?? error}`);
-  process.exitCode = 1;
-});
+export { embeddedDiagnosis, partitionDiagnosisRecords };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`diagnosis-accuracy failed: ${error.message ?? error}`);
+    process.exitCode = 1;
+  });
+}
