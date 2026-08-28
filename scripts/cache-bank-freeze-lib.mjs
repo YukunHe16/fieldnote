@@ -10,11 +10,7 @@ export const GENERATOR_CANDIDATES = 8;
 export const SUPPLEMENTAL_CANDIDATES = 4;
 export const FROZEN_VARIANTS = 4;
 export const EVALUATOR_CHECKS = ["clarity", "concept", "difficulty", "answerLeakage", "novelty", "equivalence"];
-export const GENERATOR_ATTEMPT_PLAN = Object.freeze([
-  { maxTokens: 12_000, reasoningMode: "default" },
-  { maxTokens: 24_000, reasoningMode: "default" },
-  { maxTokens: 32_000, reasoningMode: "default" }
-]);
+export const GENERATOR_ATTEMPT_PLAN = Object.freeze([{ maxTokens: 20_000, reasoningMode: "high" }]);
 export const EVALUATOR_ATTEMPT_PLAN = Object.freeze([
   { maxTokens: 4_000, reasoningMode: "default" },
   { maxTokens: 8_000, reasoningMode: "default" },
