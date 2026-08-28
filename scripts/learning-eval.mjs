@@ -13,6 +13,8 @@
  *     [--judge-model <id>] [--settle-timeout <seconds>]
  */
 
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +36,54 @@ const MAX_LEARNER_TURNS = 8;
  */
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 const POLL_MS = 1_500;
+const PROTOCOL_VERSION = "learning-eval/v1";
+
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+
+function gitOutput(args) {
+  return execFileSync("git", args, {
+    cwd: repo,
+    encoding: "utf8",
+    maxBuffer: 20 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"]
+  }).trim();
+}
+
+async function buildEvalProvenance(selectedItemIds) {
+  const itemFiles = (await fs.readdir(ITEM_DIR)).filter((name) => name.endsWith(".json")).sort();
+  const itemBank = createHash("sha256");
+  for (const file of itemFiles) {
+    itemBank.update(file);
+    itemBank.update("\0");
+    itemBank.update(await fs.readFile(path.join(ITEM_DIR, file)));
+    itemBank.update("\0");
+  }
+  let gitSha = "unknown";
+  let gitStatus = "unknown";
+  let gitDiff = "unknown";
+  try {
+    gitSha = gitOutput(["rev-parse", "HEAD"]);
+    gitStatus = gitOutput(["status", "--porcelain", "--untracked-files=normal"]);
+    gitDiff = gitOutput(["diff", "--binary", "HEAD", "--"]);
+  } catch {
+    // A source archive can still run the harness, but its result cannot claim a Git identity.
+  }
+  const provenance = {
+    protocolVersion: PROTOCOL_VERSION,
+    gitSha,
+    gitDirty: gitStatus === "unknown" ? null : gitStatus.length > 0,
+    gitStatusSha256: gitStatus === "unknown" ? null : sha256(gitStatus),
+    gitDiffSha256: gitDiff === "unknown" ? null : sha256(gitDiff),
+    itemBankSha256: itemBank.digest("hex"),
+    judgePromptSha256: sha256(JUDGE_SYSTEM),
+    selectedItemIds,
+    nodeVersion: process.version
+  };
+  return {
+    ...provenance,
+    fingerprint: sha256(JSON.stringify(provenance))
+  };
+}
 
 function parseArgs(argv) {
   // The default pair is the one that isolates the loop: on-call against a baseline that gets
@@ -58,6 +108,7 @@ function parseArgs(argv) {
     else if (key === "--learner-key") args.learnerKey = next();
     else if (key === "--settle-timeout") args.settleTimeout = Number(next());
     else if (key === "--dry-run") args.dryRun = true;
+    else if (key === "--allow-dirty") args.allowDirty = true;
     else throw new Error(`Unknown argument: ${key}`);
   }
   for (const condition of args.conditions) {
@@ -327,67 +378,70 @@ async function judgeGrade(cfg, item, text) {
     `\nConcept checklist:\n${checklist}`,
     `\nStudent's answer:\n${text}`
   ].join("\n");
-  const data = await withRetry("Judge call", async () => {
-    const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": cfg.learnerKey,
-        authorization: `Bearer ${cfg.learnerKey}`,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: cfg.judgeModel,
-        max_tokens: 4_000,
-        temperature: 0,
-        system: JUDGE_SYSTEM,
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
-    if (!response.ok)
-      throw new Error(`Judge call failed → ${response.status}: ${(await response.text()).slice(0, 200)}`);
-    return response.json();
-  });
-  const raw = (data.content ?? [])
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
-  const json = /\{[\s\S]*\}/.exec(raw);
-  if (!json) throw new Error(`Judge returned no JSON: ${raw.slice(0, 200)}`);
-  const parsed = JSON.parse(json[0]);
-  const verdicts = new Map((parsed.concepts ?? []).map((entry) => [entry.id, entry]));
-  for (const concept of item.compiled) {
-    if (!verdicts.has(concept.id)) throw new Error(`Judge omitted concept ${concept.id}`);
+  let lastError;
+  for (const maxTokens of [4_000, 8_000]) {
+    try {
+      const data = await withRetry("Judge call", async () => {
+        const response = await fetch(`${cfg.learnerBase}/v1/messages`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": cfg.learnerKey,
+            authorization: `Bearer ${cfg.learnerKey}`,
+            "anthropic-version": "2023-06-01"
+          },
+          body: JSON.stringify({
+            model: cfg.judgeModel,
+            max_tokens: maxTokens,
+            temperature: 0,
+            system: JUDGE_SYSTEM,
+            messages: [{ role: "user", content: prompt }]
+          })
+        });
+        if (!response.ok)
+          throw new Error(`Judge call failed → ${response.status}: ${(await response.text()).slice(0, 200)}`);
+        return response.json();
+      });
+      const raw = (data.content ?? [])
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n");
+      const json = /\{[\s\S]*\}/.exec(raw);
+      if (!json) throw new Error(`Judge returned no JSON: ${raw.slice(0, 200)}`);
+      let parsed;
+      try {
+        parsed = JSON.parse(json[0]);
+      } catch (error) {
+        throw new Error(`Judge returned invalid JSON: ${error?.message ?? error}`);
+      }
+      const verdicts = new Map((parsed.concepts ?? []).map((entry) => [entry.id, entry]));
+      for (const concept of item.compiled) {
+        if (!verdicts.has(concept.id)) throw new Error(`Judge omitted concept ${concept.id}`);
+      }
+      return {
+        ...score(
+          item,
+          item.compiled.filter((concept) => verdicts.get(concept.id).demonstrated === true).map((concept) => concept.id)
+        ),
+        reasons: Object.fromEntries(
+          item.compiled.map((concept) => [concept.id, String(verdicts.get(concept.id).why ?? "")])
+        )
+      };
+    } catch (error) {
+      lastError = error;
+      if (!/no JSON|invalid JSON|omitted concept/i.test(String(error?.message ?? error))) break;
+    }
   }
-  return {
-    ...score(
-      item,
-      item.compiled.filter((concept) => verdicts.get(concept.id).demonstrated === true).map((concept) => concept.id)
-    ),
-    reasons: Object.fromEntries(
-      item.compiled.map((concept) => [concept.id, String(verdicts.get(concept.id).why ?? "")])
-    )
-  };
+  throw lastError;
 }
 
-// The judge is the verdict; the regex checklist rides along as a recorded second opinion.
-// If the judge is unreachable the regex verdict stands, flagged so the report can say so.
+// The judge is the verdict; the regex checklist rides along only as a recorded second opinion.
+// A judge failure makes the run a measurement error rather than switching to a different ruler.
 async function gradeAnswer(cfg, item, text) {
   const regex = gradeRegex(item, text);
-  try {
-    const judged = await judgeGrade(cfg, item, text);
-    const agreed = JSON.stringify([...judged.matched].sort()) === JSON.stringify([...regex.matched].sort());
-    return { ...judged, method: "judge", regexMatched: regex.matched, regexCoverage: regex.coverage, agreed };
-  } catch (error) {
-    return {
-      ...regex,
-      method: "regex-fallback",
-      regexMatched: regex.matched,
-      regexCoverage: regex.coverage,
-      agreed: null,
-      judgeError: String(error && error.message ? error.message : error).slice(0, 200)
-    };
-  }
+  const judged = await judgeGrade(cfg, item, text);
+  const agreed = JSON.stringify([...judged.matched].sort()) === JSON.stringify([...regex.matched].sort());
+  return { ...judged, method: "judge", regexMatched: regex.matched, regexCoverage: regex.coverage, agreed };
 }
 
 const VERDICT_RANK = { resolved: 3, partial: 2, unresolved: 1 };
@@ -568,7 +622,20 @@ async function runItem(cfg, item, condition, log) {
     }
   } catch (error) {
     record.status = "error";
-    record.error = String(error && error.message ? error.message : error).slice(0, 500);
+    record.error = String(error?.message ?? error).slice(0, 500);
+    try {
+      const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
+      const incident = latestIncident(session);
+      record.rounds = incident?.interventions.length ?? record.rounds;
+      record.incidentStatus = incident?.status ?? record.incidentStatus;
+      if (session && ["active", "paused"].includes(session.status)) {
+        await api(cfg.base, "PATCH", `/api/conversations/${conversation.id}/learning-session`, {
+          status: "completed"
+        });
+      }
+    } catch {
+      // Preserve the measurement error that caused the run to fail; cleanup is best effort.
+    }
   }
   record.durationMs = Date.now() - startedAt;
   log(
@@ -641,6 +708,9 @@ function renderReport(records, groups, meta) {
   const judged = gradings.filter((entry) => entry.method === "judge");
   const disagreed = judged.filter((entry) => entry.agreed === false);
   const fellBack = gradings.filter((entry) => entry.method === "regex-fallback").length;
+  const judgeErrors = records.filter(
+    (record) => record.status === "error" && /judge/i.test(String(record.error ?? ""))
+  ).length;
   const conditionRows = [];
   for (const condition of meta.conditions) {
     const overall = groups.get(`all|${condition}`);
@@ -709,6 +779,9 @@ ${trustRows.join("\n")}
         record.conceptCoverage
       )} | ${pct(record.bestCoverage ?? null)} | ${record.incidentStatus ?? "—"} | ${record.status} |`
   );
+  const protocolLine = meta.protocol
+    ? `- Protocol: \`${meta.protocol.protocolVersion}\` · run fingerprint \`${(meta.protocol.runFingerprint ?? meta.protocol.fingerprint).slice(0, 12)}\` · runner Git \`${meta.protocol.gitSha.slice(0, 12)}\`${meta.protocol.gitDirty ? " (**dirty checkout; not exactly reproducible**)" : ""} · item bank \`${meta.protocol.itemBankSha256.slice(0, 12)}\``
+    : "- Protocol: legacy result — code and item-bank versions were not recorded";
   return `# Learning-loop offline evaluation — ${meta.startedAt}
 
 > **Simulated-learner offline evaluation.** Every "learner" below is an LLM playing a scripted
@@ -717,6 +790,7 @@ ${trustRows.join("\n")}
 > real students, and sample sizes are small — read them descriptively, not statistically.
 
 - Server: ${meta.base} · items: ${meta.itemCount} · conditions: ${meta.conditions.join(", ")} · learner tier: **${meta.tier}**
+${protocolLine}
 - **Tutor under test: \`${meta.tutorModel}\`** at ${meta.tutorBase} — this is the model the
   numbers below are about
 - Learner simulator: \`${meta.learnerModel}\` at ${meta.learnerBase}
@@ -726,7 +800,7 @@ ${trustRows.join("\n")}
       ? ""
       : "\n- The learner and grader run on a **different provider from the tutor** on purpose: they are\n  instruments, and holding them fixed is what makes two tutor models comparable."
   }
-- Grader agreement: judge and literal patterns agreed on ${judged.length - disagreed.length}/${judged.length} gradings${fellBack ? ` · ${fellBack} grading(s) fell back to patterns after a judge error` : ""}
+- Grader agreement: judge and literal patterns agreed on ${judged.length - disagreed.length}/${judged.length} gradings. Literal patterns are diagnostic only; a judge failure makes the run an error${judgeErrors ? ` (${judgeErrors} in this report)` : ""}${fellBack ? ` · ${fellBack} imported legacy grading(s) used the retired regex fallback` : ""}.
 - Two readings of every run are reported: **last** scores the final post-test answer, **best**
   scores the strongest answer the learner gave. Only on-call answers the post-test more than
   once, so the last-answer reading gives it extra chances to end on a bad draw.
@@ -777,6 +851,7 @@ async function main() {
   const env = { ...process.env, ...(await loadEnvFile(path.join(repo, ".env"))) };
   const items = await loadItems(args);
   if (items.length === 0) throw new Error("No eval items matched the filter");
+  const protocol = await buildEvalProvenance(items.map((item) => item.id));
   // LEARNER_* wins over ANTHROPIC_*: the simulated learner and the grader are instruments,
   // and an instrument that changes whenever the tutor's provider changes cannot be used to
   // compare two tutors. Keeping them on a separate credential also keeps them out of the
@@ -816,6 +891,9 @@ async function main() {
     }`
   );
   log(`Post-test judge: ${cfg.judgeModel} (literal patterns kept as a second opinion)`);
+  log(
+    `Protocol: ${protocol.protocolVersion} · ${protocol.gitSha.slice(0, 12)}${protocol.gitDirty ? " (dirty)" : ""} · item bank ${protocol.itemBankSha256.slice(0, 12)}`
+  );
   if (cfg.idleTimeoutMs !== DEFAULT_IDLE_TIMEOUT_MS)
     log(
       `Per-turn settle budget: ${(cfg.idleTimeoutMs / 1000).toFixed(0)}s (default ${DEFAULT_IDLE_TIMEOUT_MS / 1000}s)`
@@ -824,6 +902,11 @@ async function main() {
     for (const item of items) log(`  - ${item.id} (${item.difficultyType}) · ${item.concepts.length} concepts`);
     log("Dry run only; nothing was executed.");
     return;
+  }
+  if (protocol.gitDirty && !args.allowDirty) {
+    throw new Error(
+      "Refusing to produce a non-reproducible result from a dirty checkout. Commit/stash tracked changes, or pass --allow-dirty and accept that the run is not exactly reproducible."
+    );
   }
   if (!cfg.learnerKey) throw new Error("No learner credential: set ANTHROPIC_AUTH_TOKEN/--learner-key");
   await api(cfg.base, "GET", "/api/health").catch(() => {
@@ -835,16 +918,33 @@ async function main() {
   const runtime = await api(cfg.base, "GET", "/api/runtime/config").catch(() => null);
   cfg.tutorModel = runtime?.model ?? "unknown";
   cfg.tutorBase = runtime?.baseUrl ?? "unknown";
+  protocol.runFingerprint = sha256(
+    JSON.stringify({
+      instrumentFingerprint: protocol.fingerprint,
+      conditions: args.conditions,
+      tier: cfg.tier,
+      idleTimeoutMs: cfg.idleTimeoutMs,
+      learnerModel: cfg.learnerModel,
+      learnerBase: cfg.learnerBase,
+      judgeModel: cfg.judgeModel,
+      tutorModel: cfg.tutorModel,
+      tutorBase: cfg.tutorBase
+    })
+  );
   log(`Tutor under test: ${cfg.tutorModel} @ ${cfg.tutorBase}`);
 
   const startedAt = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir = path.resolve(repo, args.out, startedAt);
   await fs.mkdir(outDir, { recursive: true });
   const records = [];
+  const resultConfig = () => ({ ...cfg, learnerKey: "[redacted]" });
   for (const item of items) {
     for (const condition of args.conditions) {
       records.push(await runItem(cfg, item, condition, log));
-      await fs.writeFile(path.join(outDir, "results.json"), JSON.stringify({ startedAt, records }, null, 2));
+      await fs.writeFile(
+        path.join(outDir, "results.json"),
+        JSON.stringify({ startedAt, protocol, config: resultConfig(), records }, null, 2)
+      );
     }
   }
   let serverMetrics = null;
@@ -855,7 +955,7 @@ async function main() {
   }
   await fs.writeFile(
     path.join(outDir, "results.json"),
-    JSON.stringify({ startedAt, config: { ...cfg, learnerKey: "[redacted]" }, records, serverMetrics }, null, 2)
+    JSON.stringify({ startedAt, protocol, config: resultConfig(), records, serverMetrics }, null, 2)
   );
   const report = renderReport(records, aggregate(records), {
     startedAt,
@@ -867,7 +967,8 @@ async function main() {
     learnerBase: cfg.learnerBase,
     judgeModel: cfg.judgeModel,
     tutorModel: cfg.tutorModel,
-    tutorBase: cfg.tutorBase
+    tutorBase: cfg.tutorBase,
+    protocol
   });
   await fs.writeFile(path.join(outDir, "report.md"), report);
   log(`\nWrote ${path.relative(repo, outDir)}/results.json and report.md`);
@@ -877,8 +978,8 @@ async function main() {
 // main() stays behind the entry-point guard so importing this file has no side effects.
 // `aggregate` and `renderReport` are exported so a run that lost items to a network blip can
 // be repaired: re-run just those items, merge the records, and re-render one report rather
-// than paying for all 27 again.
-export { gradeRegex, judgeGrade, gradeAnswer, loadItems, aggregate, renderReport };
+// than paying for the whole bank again.
+export { gradeRegex, judgeGrade, gradeAnswer, loadItems, aggregate, renderReport, buildEvalProvenance };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
