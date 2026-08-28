@@ -13,7 +13,7 @@ export const EVALUATOR_CHECKS = ["clarity", "concept", "difficulty", "answerLeak
 export const GENERATOR_ATTEMPT_PLAN = Object.freeze([
   { maxTokens: 12_000, reasoningMode: "default" },
   { maxTokens: 24_000, reasoningMode: "default" },
-  { maxTokens: 12_000, reasoningMode: "none" }
+  { maxTokens: 32_000, reasoningMode: "default" }
 ]);
 export const EVALUATOR_ATTEMPT_PLAN = Object.freeze([
   { maxTokens: 4_000, reasoningMode: "default" },
@@ -258,10 +258,12 @@ export function assertCacheCore(cacheCore) {
   return cacheCore;
 }
 
-export function buildGeneratorRequest(blueprint, seed, batchOrdinal, count) {
+export function buildGeneratorRequest(blueprint, seed, batchOrdinal, slotIndex, slotCount) {
   if (![1, 2].includes(batchOrdinal)) throw new Error("Generator batchOrdinal must be 1 or 2");
-  const expected = batchOrdinal === 1 ? GENERATOR_CANDIDATES : SUPPLEMENTAL_CANDIDATES;
-  if (count !== expected) throw new Error(`Batch ${batchOrdinal} must request exactly ${expected} candidates`);
+  const expectedSlots = batchOrdinal === 1 ? GENERATOR_CANDIDATES : SUPPLEMENTAL_CANDIDATES;
+  if (slotCount !== expectedSlots) throw new Error(`Batch ${batchOrdinal} must contain exactly ${expectedSlots} slots`);
+  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= slotCount)
+    throw new Error(`Batch ${batchOrdinal} slot index is invalid`);
   return {
     system: GENERATOR_SYSTEM_PROMPT,
     payload: {
@@ -269,10 +271,13 @@ export function buildGeneratorRequest(blueprint, seed, batchOrdinal, count) {
       blueprint,
       seed,
       batchOrdinal,
-      candidateCount: count,
+      slotIndex,
+      slotNumber: slotIndex + 1,
+      slotCount,
+      candidateCount: 1,
       responseShape: {
         topLevel: "JSON array; no wrapper object",
-        exactLength: count,
+        exactLength: 1,
         items: `CacheScenario objects with kind ${blueprint.id}`
       }
     }
@@ -372,6 +377,7 @@ export function protocolDescriptor(cacheCore) {
       normalizedModel: models.generator,
       responseModelIdentityRequired: true,
       candidates: GENERATOR_CANDIDATES,
+      generationUnit: "one fixed-seed candidate slot per request, sequential within each set",
       attemptPlan: GENERATOR_ATTEMPT_PLAN
     },
     evaluator: {
@@ -425,7 +431,8 @@ export function validateCheckpoint(checkpoint, { seed, provenance, cacheCore }) 
   return checkpoint;
 }
 
-const batchSeed = (seed, setId, ordinal) => Number.parseInt(sha256(`${seed}\0${setId}\0${ordinal}`).slice(0, 8), 16);
+const generatorSlotSeed = (seed, setId, ordinal, slotIndex) =>
+  Number.parseInt(sha256(`${seed}\0${setId}\0${ordinal}\0${slotIndex}`).slice(0, 8), 16);
 const clone = (value) => structuredClone(value);
 
 async function persist(checkpoint, saveCheckpoint) {
@@ -439,50 +446,78 @@ async function ensureBatch({ checkpoint, blueprint, ordinal, count, generateBatc
   if (existing?.status === "completed") return;
   if (existing?.status === "failed")
     throw new Error(`Generator batch ${blueprint.id}/${ordinal} previously failed: ${existing.error}`);
-  const seed = batchSeed(checkpoint.seed, blueprint.id, ordinal);
-  const request = buildGeneratorRequest(blueprint, seed, ordinal, count);
   const batch = existing ?? {
     ordinal,
     count,
-    seed,
     status: "requested",
-    requestSha256: sha256(canonicalStringify(request.payload)),
-    rawResponse: null,
-    rawResponseSha256: null,
-    modelAttempts: [],
+    slots: [],
     error: null
   };
   if (!existing) state.batches.push(batch);
   await persist(checkpoint, saveCheckpoint);
-  try {
-    const modelResult = await generateBatch({ blueprint, seed, ordinal, count, request });
-    const rawResponse = typeof modelResult === "string" ? modelResult : modelResult.text;
-    batch.modelAttempts = typeof modelResult === "string" ? [] : (modelResult.attempts ?? []);
-    batch.rawResponse = rawResponse;
-    batch.rawResponseSha256 = sha256(rawResponse);
-    // Persist the exact private response before strict parsing. A schema failure must remain
-    // fail-closed, but it still needs auditable evidence instead of collapsing to an error string.
+  for (let slotIndex = 0; slotIndex < count; slotIndex += 1) {
+    const seed = generatorSlotSeed(checkpoint.seed, blueprint.id, ordinal, slotIndex);
+    const request = buildGeneratorRequest(blueprint, seed, ordinal, slotIndex, count);
+    const slot = batch.slots[slotIndex] ?? {
+      slotIndex,
+      seed,
+      status: "requested",
+      requestSha256: sha256(canonicalStringify(request.payload)),
+      rawResponse: null,
+      rawResponseSha256: null,
+      modelAttempts: [],
+      error: null
+    };
+    if (!batch.slots[slotIndex]) batch.slots[slotIndex] = slot;
+    if (slot.status === "failed") {
+      batch.status = "failed";
+      batch.error = `slot ${slotIndex + 1}: ${slot.error}`;
+      await persist(checkpoint, saveCheckpoint);
+      throw new Error(`Generator slot ${blueprint.id}/${ordinal}/${slotIndex + 1} previously failed: ${slot.error}`);
+    }
+    if (slot.status === "completed") continue;
     await persist(checkpoint, saveCheckpoint);
-    const scenarios = parseGeneratorResponse(rawResponse, blueprint.id, count);
-    batch.status = "completed";
-    for (const [candidateIndex, scenario] of scenarios.entries())
+    try {
+      if (typeof slot.rawResponse !== "string") {
+        const modelResult = await generateBatch({
+          blueprint,
+          seed,
+          ordinal,
+          count: 1,
+          slotIndex,
+          slotCount: count,
+          request
+        });
+        slot.rawResponse = typeof modelResult === "string" ? modelResult : modelResult.text;
+        slot.modelAttempts = typeof modelResult === "string" ? [] : (modelResult.attempts ?? []);
+        slot.rawResponseSha256 = sha256(slot.rawResponse);
+        // Preserve the exact private response before strict parsing.
+        await persist(checkpoint, saveCheckpoint);
+      }
+      const [scenario] = parseGeneratorResponse(slot.rawResponse, blueprint.id, 1);
       state.candidates.push({
         setId: blueprint.id,
         batchOrdinal: ordinal,
-        candidateIndex,
+        candidateIndex: slotIndex,
         scenario,
         hardGate: null,
         candidate: null,
         evaluator: null
       });
-    await persist(checkpoint, saveCheckpoint);
-  } catch (error) {
-    batch.status = "failed";
-    batch.error = String(error?.message ?? error).slice(0, 1_000);
-    if (Array.isArray(error?.modelAttempts)) batch.modelAttempts = error.modelAttempts;
-    await persist(checkpoint, saveCheckpoint);
-    throw error;
+      slot.status = "completed";
+      await persist(checkpoint, saveCheckpoint);
+    } catch (error) {
+      slot.status = "failed";
+      slot.error = String(error?.message ?? error).slice(0, 1_000);
+      if (Array.isArray(error?.modelAttempts)) slot.modelAttempts = error.modelAttempts;
+      batch.status = "failed";
+      batch.error = `slot ${slotIndex + 1}: ${slot.error}`;
+      await persist(checkpoint, saveCheckpoint);
+      throw error;
+    }
   }
+  batch.status = "completed";
+  await persist(checkpoint, saveCheckpoint);
 }
 
 async function evaluatePending({ checkpoint, blueprint, cacheCore, evaluateCandidate, saveCheckpoint }) {
@@ -708,17 +743,19 @@ export async function runCacheBankFreeze({
     throw new Error("Frozen bank requires 24 oracle-verified, evaluator-approved selected candidates");
   if (counts.evaluatorErrors || counts.evaluatorUnsure)
     throw new Error("Frozen bank requires zero evaluator errors and zero unsure verdicts");
-  const generatorBatches = PUBLIC_BLUEPRINT.flatMap((blueprint) =>
-    state.sets[blueprint.id].batches.map((batch) => ({
-      setId: blueprint.id,
-      ordinal: batch.ordinal,
-      count: batch.count,
-      seed: batch.seed,
-      status: batch.status,
-      requestSha256: batch.requestSha256,
-      rawResponseSha256: batch.rawResponseSha256,
-      modelAttempts: batch.modelAttempts
-    }))
+  const generatorSlots = PUBLIC_BLUEPRINT.flatMap((blueprint) =>
+    state.sets[blueprint.id].batches.flatMap((batch) =>
+      batch.slots.map((slot) => ({
+        setId: blueprint.id,
+        batchOrdinal: batch.ordinal,
+        slotIndex: slot.slotIndex,
+        seed: slot.seed,
+        status: slot.status,
+        requestSha256: slot.requestSha256,
+        rawResponseSha256: slot.rawResponseSha256,
+        modelAttempts: slot.modelAttempts
+      }))
+    )
   );
   const manifest = {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
@@ -743,7 +780,7 @@ export async function runCacheBankFreeze({
       finalBankSha256
     },
     counts,
-    generatorBatches,
+    generatorSlots,
     candidateVerdicts
   };
   return { checkpoint: state, bank, blueprint: PUBLIC_BLUEPRINT, protocol, manifest };
