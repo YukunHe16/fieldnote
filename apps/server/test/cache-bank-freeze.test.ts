@@ -487,7 +487,10 @@ describe("cache bank CLI gates", () => {
         timeoutMs: 100,
         fetchImpl: responseFor("deepseek-v4-pro")
       })
-    ).resolves.toBe("{}");
+    ).resolves.toMatchObject({
+      text: "{}",
+      attempts: [expect.objectContaining({ outcome: "success", responseModel: "deepseek-v4-pro" })]
+    });
     await expect(
       requestModelText({
         baseUrl: "https://model.invalid",
@@ -500,6 +503,47 @@ describe("cache bank CLI gates", () => {
         fetchImpl: responseFor("deepseek-v4-flash-vision-exp")
       })
     ).rejects.toThrow("identity");
+
+    const requests: Array<{ max_tokens: number; reasoning?: { effort: string } }> = [];
+    const thinkingThenText = async (_url: string, init: { body: string }) => {
+      requests.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({
+          model: "deepseek-v4-pro",
+          content:
+            requests.length === 1
+              ? [{ type: "thinking", thinking: "reasoning without final JSON" }]
+              : [{ type: "text", text: '{"candidates":[]}' }]
+        })
+      } as Response;
+    };
+    await expect(
+      requestModelText({
+        baseUrl: "https://model.invalid",
+        key: "test",
+        model: "deepseek-v4-pro",
+        system: "json",
+        payload: {},
+        temperature: 0,
+        timeoutMs: 100,
+        attemptPlan: [
+          { maxTokens: 12_000, reasoningMode: "default" },
+          { maxTokens: 4_000, reasoningMode: "none" }
+        ],
+        fetchImpl: thinkingThenText
+      })
+    ).resolves.toMatchObject({
+      text: '{"candidates":[]}',
+      attempts: [
+        expect.objectContaining({ outcome: "empty_text", thinkingChars: expect.any(Number) }),
+        expect.objectContaining({ outcome: "success", reasoningMode: "none" })
+      ]
+    });
+    expect(requests).toEqual([
+      expect.objectContaining({ max_tokens: 12_000 }),
+      expect.objectContaining({ max_tokens: 4_000, reasoning: { effort: "none" } })
+    ]);
 
     const fetchImpl = (_url: string, init: { signal: AbortSignal }) =>
       new Promise((_resolve, reject) => {

@@ -10,6 +10,16 @@ export const GENERATOR_CANDIDATES = 8;
 export const SUPPLEMENTAL_CANDIDATES = 4;
 export const FROZEN_VARIANTS = 4;
 export const EVALUATOR_CHECKS = ["clarity", "concept", "difficulty", "answerLeakage", "novelty", "equivalence"];
+export const GENERATOR_ATTEMPT_PLAN = Object.freeze([
+  { maxTokens: 12_000, reasoningMode: "default" },
+  { maxTokens: 24_000, reasoningMode: "default" },
+  { maxTokens: 12_000, reasoningMode: "none" }
+]);
+export const EVALUATOR_ATTEMPT_PLAN = Object.freeze([
+  { maxTokens: 4_000, reasoningMode: "default" },
+  { maxTokens: 8_000, reasoningMode: "default" },
+  { maxTokens: 4_000, reasoningMode: "none" }
+]);
 
 const CACHE_ORGANIZATION_SCHEMA = {
   oneOf: [
@@ -363,7 +373,8 @@ export function protocolDescriptor(cacheCore) {
       model: GENERATOR_MODEL,
       normalizedModel: models.generator,
       responseModelIdentityRequired: true,
-      candidates: GENERATOR_CANDIDATES
+      candidates: GENERATOR_CANDIDATES,
+      attemptPlan: GENERATOR_ATTEMPT_PLAN
     },
     evaluator: {
       model: EVALUATOR_MODEL,
@@ -371,7 +382,8 @@ export function protocolDescriptor(cacheCore) {
       responseModelIdentityRequired: true,
       sameSetEarlierCandidatesProvided: true,
       failClosed: true,
-      checks: EVALUATOR_CHECKS
+      checks: EVALUATOR_CHECKS,
+      attemptPlan: EVALUATOR_ATTEMPT_PLAN
     },
     supplementalBatch: {
       condition: `fewer than ${FROZEN_VARIANTS} approved unique candidates`,
@@ -439,12 +451,15 @@ async function ensureBatch({ checkpoint, blueprint, ordinal, count, generateBatc
     requestSha256: sha256(canonicalStringify(request.payload)),
     rawResponse: null,
     rawResponseSha256: null,
+    modelAttempts: [],
     error: null
   };
   if (!existing) state.batches.push(batch);
   await persist(checkpoint, saveCheckpoint);
   try {
-    const rawResponse = await generateBatch({ blueprint, seed, ordinal, count, request });
+    const modelResult = await generateBatch({ blueprint, seed, ordinal, count, request });
+    const rawResponse = typeof modelResult === "string" ? modelResult : modelResult.text;
+    batch.modelAttempts = typeof modelResult === "string" ? [] : (modelResult.attempts ?? []);
     const scenarios = parseGeneratorResponse(rawResponse, blueprint.id, count);
     Object.assign(batch, { rawResponse, rawResponseSha256: sha256(rawResponse), status: "completed" });
     for (const [candidateIndex, scenario] of scenarios.entries())
@@ -461,6 +476,7 @@ async function ensureBatch({ checkpoint, blueprint, ordinal, count, generateBatc
   } catch (error) {
     batch.status = "failed";
     batch.error = String(error?.message ?? error).slice(0, 1_000);
+    if (Array.isArray(error?.modelAttempts)) batch.modelAttempts = error.modelAttempts;
     await persist(checkpoint, saveCheckpoint);
     throw error;
   }
@@ -529,9 +545,15 @@ async function evaluatePending({ checkpoint, blueprint, cacheCore, evaluateCandi
         )
         .map((entry) => entry.candidate);
       const request = buildEvaluatorRequest(blueprint, record.candidate, sameSetEarlierCandidates);
-      const rawResponse = await evaluateCandidate({ blueprint, candidate: record.candidate, request });
+      const modelResult = await evaluateCandidate({ blueprint, candidate: record.candidate, request });
+      const rawResponse = typeof modelResult === "string" ? modelResult : modelResult.text;
       const verdict = parseEvaluatorResponse(rawResponse);
-      record.evaluator = { ...verdict, rawResponse, rawResponseSha256: sha256(rawResponse) };
+      record.evaluator = {
+        ...verdict,
+        rawResponse,
+        rawResponseSha256: sha256(rawResponse),
+        modelAttempts: typeof modelResult === "string" ? [] : (modelResult.attempts ?? [])
+      };
     } catch (error) {
       record.evaluator = {
         status: "error",
@@ -539,7 +561,8 @@ async function evaluatePending({ checkpoint, blueprint, cacheCore, evaluateCandi
         checks: null,
         reasons: [String(error?.message ?? error).slice(0, 1_000)],
         rawResponse: null,
-        rawResponseSha256: null
+        rawResponseSha256: null,
+        modelAttempts: Array.isArray(error?.modelAttempts) ? error.modelAttempts : []
       };
     }
     await persist(checkpoint, saveCheckpoint);
@@ -573,7 +596,8 @@ const publicVerdict = (record, selected) => ({
         verdict: record.evaluator.verdict,
         checks: record.evaluator.checks,
         reasons: record.evaluator.reasons,
-        rawResponseSha256: record.evaluator.rawResponseSha256
+        rawResponseSha256: record.evaluator.rawResponseSha256,
+        modelAttempts: record.evaluator.modelAttempts
       }
     : null,
   selected
@@ -681,6 +705,18 @@ export async function runCacheBankFreeze({
     throw new Error("Frozen bank requires 24 oracle-verified, evaluator-approved selected candidates");
   if (counts.evaluatorErrors || counts.evaluatorUnsure)
     throw new Error("Frozen bank requires zero evaluator errors and zero unsure verdicts");
+  const generatorBatches = PUBLIC_BLUEPRINT.flatMap((blueprint) =>
+    state.sets[blueprint.id].batches.map((batch) => ({
+      setId: blueprint.id,
+      ordinal: batch.ordinal,
+      count: batch.count,
+      seed: batch.seed,
+      status: batch.status,
+      requestSha256: batch.requestSha256,
+      rawResponseSha256: batch.rawResponseSha256,
+      modelAttempts: batch.modelAttempts
+    }))
+  );
   const manifest = {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
     bankVersion: BANK_VERSION,
@@ -704,6 +740,7 @@ export async function runCacheBankFreeze({
       finalBankSha256
     },
     counts,
+    generatorBatches,
     candidateVerdicts
   };
   return { checkpoint: state, bank, blueprint: PUBLIC_BLUEPRINT, protocol, manifest };
