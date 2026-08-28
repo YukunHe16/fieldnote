@@ -33,9 +33,9 @@ These skills are **not distributed with this repository**. Run `pnpm skills:offi
 
 They are not MIT-licensed: © Anthropic, PBC. Use is governed by your agreement with Anthropic (Consumer or Commercial Terms). Read the accompanying `LICENSE.txt` after installation.
 
-安装位置为 `data/.runtime-plugins/document-skills/`（已在 `.gitignore` 中，永不进入 git），可用环境变量 `FIELDNOTE_RUNTIME_PLUGINS` 覆盖安装根，`pnpm skills:office -- --force` 重新安装。未安装时，技能目录与系统提示词不会提及 pdf/docx/xlsx，Markdown 转 PDF/Word 仍由 daymade-docs 承担；`pnpm doctor` 会显示当前安装状态。
+安装位置为 `data/.runtime-plugins/document-skills/`（已在 `.gitignore` 中，永不进入 git），可用环境变量 `FIELDNOTE_RUNTIME_PLUGINS` 覆盖安装根，`pnpm skills:office -- --force` 重新安装。未安装时，技能目录与系统提示词不会提及 pdf/docx/xlsx，Markdown 转 PDF/Word 仍由 daymade-docs 承担；`pnpm run doctor` 会显示当前安装状态。
 
-They install into `data/.runtime-plugins/document-skills/` (gitignored, never committed). Override the root with `FIELDNOTE_RUNTIME_PLUGINS`; reinstall with `pnpm skills:office -- --force`. When absent, the skill catalog and system prompt omit pdf/docx/xlsx and Markdown→PDF/Word conversion falls back to daymade-docs; `pnpm doctor` reports the current state.
+They install into `data/.runtime-plugins/document-skills/` (gitignored, never committed). Override the root with `FIELDNOTE_RUNTIME_PLUGINS`; reinstall with `pnpm skills:office -- --force`. When absent, the skill catalog and system prompt omit pdf/docx/xlsx and Markdown→PDF/Word conversion falls back to daymade-docs; `pnpm run doctor` reports the current state.
 
 ## 运行时依赖 / Runtime dependencies
 

@@ -22,8 +22,8 @@ Initial public release. Fieldnote is a local-first Claude Agent workbench for ed
   *Feishu (Lark) bot channel over a local long connection with streaming CardKit replies, plus weekly and daily scheduled admissions reports (disabled by default).*
 - **Run Replay、工作区沙箱、文档技能与临时对话** — 冻结本地输入边界的可复核重放；每段对话独立的可写工作区；Markdown 导出为真实 DOCX/PDF；不写入记忆、结束即清理的临时对话。
   *Auditable Run Replay, per-conversation sandboxed workspaces, real DOCX/PDF export, and memory-free temporary chats.*
-- **本地安装与运行** — `npx fieldnote` 在 `127.0.0.1:8787` 启动本地服务并打开浏览器；也可从源码用 `pnpm setup` / `pnpm dev` 运行；`pnpm doctor` 检查认证、端口、目录与可选外部工具。
-  *Install paths: `npx fieldnote` for a loopback-only local server, or run from source with `pnpm setup` / `pnpm dev`; `pnpm doctor` checks configuration health.*
+- **本地安装与运行** — `npx fieldnote` 在 `127.0.0.1:8787` 启动本地服务并打开浏览器；也可从源码用 `pnpm setup` / `pnpm dev` 运行；`pnpm run doctor` 检查认证、端口、目录与可选外部工具。
+  *Install paths: `npx fieldnote` for a loopback-only local server, or run from source with `pnpm setup` / `pnpm dev`; `pnpm run doctor` checks configuration health.*
 - **公开仓库基础设施** — MIT 许可、安全策略与私密漏洞报告流程、贡献指南、Issue/PR 模板，以及在 Ubuntu（Node 20/24）与 macOS（Node 24）上运行 typecheck/test/build 的 CI。
   *Public-repository groundwork: MIT license, security policy, contributing guide, issue and PR templates, and CI across Ubuntu (Node 20/24) and macOS (Node 24).*
 

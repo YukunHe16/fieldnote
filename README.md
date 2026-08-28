@@ -14,7 +14,7 @@ A local-first Claude Agent workbench for education: an assistant that diagnoses 
 
 ## Features
 
-**Adaptive learning mode** — An educational on-call loop: set a goal → locate the specific difficulty → diagnose the cause → choose an explanation or exercise → collect verification evidence → you confirm the outcome. It covers 6 difficulty types, 8 teaching strategies, and 5 verification methods, with at most three intervention rounds per incident. The system may only *propose* an outcome; "understood / partly understood / still stuck" is always your call. The learner-facing conversation contains only teaching and practice — diagnosis, confidence, and strategy live in a separate learning panel. That panel now ships a metrics tab (resolution rates, intervention rounds, system-verdict calibration); research mode adds comparison conditions (adaptive loop vs a turns-matched continued-conversation baseline, or a one-shot baseline), an anonymized data export ([field reference](docs/RESEARCH_EXPORT.md)), and a rerunnable offline evaluation set ([design & sources](docs/internal/LEARNING_EVAL.md)). The loop also keeps watch on its own: resolved difficulties get +2d/+7d spaced-review revisits with fresh transfer tasks, exhausted incidents produce a structured handoff report (optionally paged to Feishu), and winning teaching moves are distilled into candidate approaches that trial and promote only through human review with host-attributed evidence. Outcome confirmation and a `/learn` command work over Feishu too.
+**Adaptive learning mode** — An educational on-call loop: set a goal → locate the specific difficulty → diagnose the cause → choose an explanation or exercise → collect verification evidence → you confirm the outcome. It covers 6 difficulty types, 8 teaching strategies, and 5 verification methods, with at most three intervention rounds per incident. The system may only *propose* an outcome; "understood / partly understood / still stuck" is always your call. The learner-facing conversation contains only teaching and practice — diagnosis, confidence, and strategy live in a separate learning panel. That panel now ships a metrics tab (resolution rates, intervention rounds, system-verdict calibration); research mode adds comparison conditions (adaptive loop vs a turns-matched continued-conversation baseline, or a one-shot baseline), an anonymized data export ([field reference](docs/RESEARCH_EXPORT.md)), and a rerunnable offline evaluation set ([design & sources](docs/internal/LEARNING_EVAL.md)). The loop also keeps watch on its own: resolved difficulties get +2d/+5d spaced-review revisits with fresh transfer tasks, exhausted incidents produce a structured handoff report (optionally paged to Feishu), and winning teaching moves are distilled into candidate approaches that trial and promote only through human review with host-attributed evidence. Outcome confirmation and a `/learn` command work over Feishu too.
 
 ![Learning mode with fixed case studies](docs/media/learning-mode.png)
 
@@ -42,7 +42,7 @@ Learning mode treats tutoring as an **educational on-call loop** rather than a o
 
 The candidate research questions this instrumentation exists for: *Can bounded, plan-aware scaffolding improve plan acquisition and transfer compared with one-shot planning feedback? Can uncertainty-aware verification reduce students' acceptance of incorrect AI feedback without excessive escalation? Can a conversation-first remediation loop reduce interventions-to-mastery for a well-defined misconception?*
 
-**Evidence status, stated honestly.** The screens above are real agent sessions over synthetic demo scenarios; nothing here is evidence about real students. In offline evaluation against scripted-misconception items, the loop's first diagnosis matched the scripted misconception in **166/176 sessions (94%)**; outcome comparisons (adaptive loop vs baselines) are retired until they can be run with real learners, because LLM-simulated students cannot fail believably — the full instrument post-mortem, with the evidence and the follow-up study designs, is in [docs/internal/EVAL_LESSONS.md](docs/internal/EVAL_LESSONS.md). Method and item sources: [docs/internal/LEARNING_EVAL.md](docs/internal/LEARNING_EVAL.md) · anonymized export: [docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md).
+**Evidence status, stated honestly.** The screens above are real agent sessions over synthetic demo scenarios; nothing here is evidence about real students. Across the archived evaluation cohort through 2026-08-25, under the earlier item and prompt protocol, the loop's first diagnosis matched the scripted misconception in **166/176 sessions (94%)**. That historical result does not describe the current HEAD. Outcome comparisons (adaptive loop vs baselines) are retired until they can be run with real learners, because LLM-simulated students cannot fail believably — the full instrument post-mortem, with the evidence and the follow-up study designs, is in [docs/internal/EVAL_LESSONS.md](docs/internal/EVAL_LESSONS.md). Method and item sources: [docs/internal/LEARNING_EVAL.md](docs/internal/LEARNING_EVAL.md) · anonymized export: [docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md).
 
 ## Quick start
 
@@ -74,12 +74,13 @@ Developing from source requires Node ≥ 22.13 (a pnpm 11 requirement; running `
 | Command | Purpose |
 | --- | --- |
 | `pnpm setup` | First-time initialisation; preserves existing configuration |
-| `pnpm doctor` | Safely check authentication, MCP, plugins, ports, directories, and external tools |
+| `pnpm run doctor` | Safely check authentication, MCP, plugins, ports, directories, and external tools |
 | `pnpm skills:office` | Install Anthropic's official pdf/docx/xlsx skills on demand (not distributed with this repository) |
 | `pnpm dev` | Start the web and API development servers |
 | `pnpm typecheck` | Check all TypeScript types |
 | `pnpm test` | Run server and web tests |
 | `pnpm build` | Produce a production build |
+| `pnpm audit:package` | Inspect the exact npm file list and reject retired feature artifacts |
 | `NODE_ENV=production pnpm start` | Run the built local production server |
 
 ## Tech stack and repository layout
@@ -96,7 +97,7 @@ scripts/workbench.mjs    Local setup, doctor, and on-demand skill installation
 data/                    Local data: SQLite, conversation workspaces, evolution artifacts (never committed)
 ```
 
-The quality gate is `pnpm lint && pnpm typecheck && pnpm test && pnpm build` — roughly 365 tests, all hermetic: no network access and no model quota consumed.
+The quality gate is `pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm audit:package` — roughly 400 tests, all hermetic: no network access and no model quota consumed.
 
 ## Configuration reference
 
@@ -133,7 +134,7 @@ Most users only need to run setup; the table below rarely needs manual edits. **
 | Linux | Works, export is conditional | DOCX export uses a built-in minimal writer (requires the `zip` command); PDF export requires LibreOffice (`soffice`); everything else works normally |
 | Windows | Untested | Running under WSL is recommended |
 
-Document skills optionally depend on external tools: `uv` / `python3` (PDF and Markdown conversion), `dotnet` (docx-creator), LibreOffice `soffice` (xlsx recalculation and PDF export off macOS), and `tesseract` (OCR). None of them block startup, and `pnpm doctor` reports each one.
+Document skills optionally depend on external tools: `uv` / `python3` (PDF and Markdown conversion), `dotnet` (docx-creator), LibreOffice `soffice` (xlsx recalculation and PDF export off macOS), and `tesseract` (OCR). None of them block startup, and `pnpm run doctor` reports each one.
 
 ## Project status and non-goals
 
@@ -154,12 +155,12 @@ The complete threat model and vulnerability reporting process is in [SECURITY.md
 
 ## Troubleshooting
 
-The first step is always `pnpm doctor` (or `npx fieldnote doctor`). It reports only whether configuration is usable and never prints a token or base URL.
+The first step from a source checkout is always `pnpm run doctor` (or `npx fieldnote doctor` for the published CLI). It reports only whether configuration is usable and never prints a token or base URL.
 
 - **The page will not open**: confirm both `pnpm dev` processes are still running; check whether `5173` / `8787` are already in use; the web app is on `5173` — do not use the API address as the page address.
 - **It says demo runtime**: check `Selected runtime` in doctor. With an existing Claude CLI setup, confirm `CLAUDE_SETTINGS_MODE` is not `isolated`, or save credentials in **Workspace → Model service** — the switch takes effect from your next message.
 - **It says “organization has disabled Claude subscription access” or “organization does not have access to Claude”**: the account behind the machine's `claude login` has Claude Code disabled by its organization — the credentials exist but cannot be used, and the plain `claude` command fails the same way. Doctor reports this as a failure. Use an Anthropic API key, or pick a compatible provider in **Workspace → Model service**; the credential you configure takes precedence over the machine login.
-- **The tutor never runs the learning loop** (no incident is opened and the reply still reads normally): tool search is on, which hides most of the agent's tools behind a search step. Fieldnote pins `ENABLE_TOOL_SEARCH=false` for the agent child, but Claude Code applies `~/.claude/settings.json`'s own `env` block over that in `inherit-user` mode — so remove `ENABLE_TOOL_SEARCH` from that file. Doctor reports this as `Tool surface`.
+- **The tutor never runs the learning loop** (no incident is opened and the reply still reads normally): tool search is on, which hides most of the agent's tools behind a search step. Fieldnote pins `ENABLE_TOOL_SEARCH=false` by default for the agent child, but Claude Code can override that pin from `~/.claude/settings.json` in `inherit-user` mode. Remove `ENABLE_TOOL_SEARCH` from that file. Doctor reports this exception as `Tool surface`, and the runtime canary logs when a tutor reaches for `ToolSearch` instead of the learning tools.
 - **MCP servers or plugins are missing**: confirm doctor discovers the name. Reusing local configuration requires `CLAUDE_SETTINGS_MODE=auto` or `inherit-user`. The project never copies MCP credentials into SQLite or the frontend.
 - **Feishu receives nothing**: confirm `Feishu long connection is ready` appears in the log; check that the app version published the latest permissions and events; in group chats the bot must be explicitly @-mentioned. See the [Feishu setup guide](docs/FEISHU_SETUP.md#6-故障排查) (Chinese).
 

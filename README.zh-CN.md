@@ -14,7 +14,7 @@
 
 ## 功能
 
-**对话式学习模式** — 一条 educational on-call 闭环：设定目标 → 定位具体困难 → 诊断原因 → 选一种讲法或练习 → 收集验证证据 → 由你确认结果。6 类困难、8 种教学策略、5 种验证方式，每个 incident 最多三轮干预。系统只能提出 outcome，"理解了 / 部分理解 / 仍未解决"必须由你确认。学生看到的对话只有讲解和练习，诊断与策略信息都在学习面板里。学习面板附带指标页签（解决率、干预轮数、系统判定校准）；开启研究模式后还可选择对照条件（自适应回路 vs 同轮数的持续对话基线，或一次性反馈基线）并导出匿名化研究数据（[字段说明](docs/RESEARCH_EXPORT.md)），配套一套可复跑的离线评测集（[设计与文献依据](docs/internal/LEARNING_EVAL.md)）。回路还会主动值守：解决后按 +2 天 / +7 天回访出新迁移练习；三轮未解决时生成结构化交接报告（并可推送飞书）；成功的讲法会被蒸馏成候选教学方式，人审试用、按归因数据考核后转正。学习确认与 `/learn` 指令同样可在飞书使用。
+**对话式学习模式** — 一条 educational on-call 闭环：设定目标 → 定位具体困难 → 诊断原因 → 选一种讲法或练习 → 收集验证证据 → 由你确认结果。6 类困难、8 种教学策略、5 种验证方式，每个 incident 最多三轮干预。系统只能提出 outcome，"理解了 / 部分理解 / 仍未解决"必须由你确认。学生看到的对话只有讲解和练习，诊断与策略信息都在学习面板里。学习面板附带指标页签（解决率、干预轮数、系统判定校准）；开启研究模式后还可选择对照条件（自适应回路 vs 同轮数的持续对话基线，或一次性反馈基线）并导出匿名化研究数据（[字段说明](docs/RESEARCH_EXPORT.md)），配套一套可复跑的离线评测集（[设计与文献依据](docs/internal/LEARNING_EVAL.md)）。回路还会主动值守：解决后按 +2 天 / +5 天回访出新迁移练习；三轮未解决时生成结构化交接报告（并可推送飞书）；成功的讲法会被蒸馏成候选教学方式，人审试用、按归因数据考核后转正。学习确认与 `/learn` 指令同样可在飞书使用。
 
 ![学习模式与固定案例](docs/media/learning-mode.png)
 
@@ -42,7 +42,7 @@
 
 这套仪器面向的候选研究问题:*有界的、计划感知的支架式辅导,相比一次性计划反馈,能否改善计划习得与迁移?不确定性感知的验证,能否在不过度升级的前提下降低学生对错误 AI 反馈的接受度?对话优先的补救回路,能否降低明确定义误概念的干预至掌握次数?*
 
-**证据状态,如实陈述。** 以上画面是真实 agent 会话跑在合成演示场景上;这里没有任何关于真实学生的证据。在脚本化误概念题目的离线评测中,回路的首次诊断与剧本误概念一致 **166/176(94%)**;结果对比(自适应回路 vs 基线)已搁置,直到能用真实学习者运行——因为 LLM 模拟学生无法可信地"学不会"。完整的仪器复盘、证据与后续研究设计见 [docs/internal/EVAL_LESSONS.md](docs/internal/EVAL_LESSONS.md)。方法与题目来源:[docs/internal/LEARNING_EVAL.md](docs/internal/LEARNING_EVAL.md) · 匿名导出:[docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md)。
+**证据状态,如实陈述。** 以上画面是真实 agent 会话跑在合成演示场景上;这里没有任何关于真实学生的证据。截至 2026-08-25 的存档评测 cohort 中,在旧题库与旧 prompt 协议下,回路的首次诊断与剧本误概念一致 **166/176(94%)**;这一历史结果不代表当前 HEAD。结果对比(自适应回路 vs 基线)已搁置,直到能用真实学习者运行——因为 LLM 模拟学生无法可信地"学不会"。完整的仪器复盘、证据与后续研究设计见 [docs/internal/EVAL_LESSONS.md](docs/internal/EVAL_LESSONS.md)。方法与题目来源:[docs/internal/LEARNING_EVAL.md](docs/internal/LEARNING_EVAL.md) · 匿名导出:[docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md)。
 
 ## 快速开始
 
@@ -74,12 +74,13 @@ pnpm dev
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm setup` | 首次初始化；保留已有配置 |
-| `pnpm doctor` | 安全检查认证、MCP、plugins、端口、目录与外部工具 |
+| `pnpm run doctor` | 安全检查认证、MCP、plugins、端口、目录与外部工具 |
 | `pnpm skills:office` | 按需安装 Anthropic 官方 pdf/docx/xlsx 技能（默认不随仓库分发） |
 | `pnpm dev` | 启动 Web 与 API 开发服务 |
 | `pnpm typecheck` | 检查全部 TypeScript 类型 |
 | `pnpm test` | 运行服务端与前端测试 |
 | `pnpm build` | 生成生产构建 |
+| `pnpm audit:package` | 检查 npm 实际文件清单并拒绝已退役功能的残留产物 |
 | `NODE_ENV=production pnpm start` | 运行已构建的本地生产版本 |
 
 ## 技术栈与项目结构
@@ -96,7 +97,7 @@ scripts/workbench.mjs    本地 setup、doctor 与按需技能安装
 data/                    本机数据：SQLite、会话工作区、自进化产物（不进 git）
 ```
 
-质量门为 `pnpm lint && pnpm typecheck && pnpm test && pnpm build`，共约 365 个测试，全部密闭运行——不联网、不消耗模型额度。
+质量门为 `pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm audit:package`，共约 400 个测试，全部密闭运行——不联网、不消耗模型额度。
 
 ## 配置参考
 
@@ -133,7 +134,7 @@ data/                    本机数据：SQLite、会话工作区、自进化产�
 | Linux | 可用，导出有条件 | DOCX 导出使用内置极简格式（需要 `zip` 命令）；PDF 导出需要安装 LibreOffice（`soffice`）；其余功能正常 |
 | Windows | 未测试 | 建议在 WSL 中运行 |
 
-文档技能可选依赖外部工具：`uv` / `python3`（PDF 与 Markdown 转换）、`dotnet`（docx-creator）、LibreOffice `soffice`（xlsx 重算、非 macOS 的 PDF 导出）、`tesseract`（OCR）。缺哪个不影响启动，`pnpm doctor` 会逐项报告。
+文档技能可选依赖外部工具：`uv` / `python3`（PDF 与 Markdown 转换）、`dotnet`（docx-creator）、LibreOffice `soffice`（xlsx 重算、非 macOS 的 PDF 导出）、`tesseract`（OCR）。缺哪个不影响启动，`pnpm run doctor` 会逐项报告。
 
 ## 项目状态与非目标
 
@@ -154,12 +155,12 @@ data/                    本机数据：SQLite、会话工作区、自进化产�
 
 ## 遇到问题
 
-第一步永远是 `pnpm doctor`（或 `npx fieldnote doctor`）。它只显示配置是否可用，不会输出 token 或 Base URL。
+从源码运行时，第一步永远是 `pnpm run doctor`（发布版 CLI 则用 `npx fieldnote doctor`）。它只显示配置是否可用，不会输出 token 或 Base URL。
 
 - **页面打不开**：确认 `pnpm dev` 的两个进程都没退出；检查 `5173` / `8787` 是否被占用；Web 用 `5173`，不要把 API 地址当页面地址。
 - **显示 Demo runtime**：看 doctor 的 `Selected runtime`；已有 Claude CLI 配置时确认 `CLAUDE_SETTINGS_MODE` 不是 `isolated`，或在“个人工作区 → 模型服务”保存认证，下一条消息即切换。
 - **提示“organization has disabled Claude subscription access”或“organization does not have access to Claude”**：本机 `claude login` 的账号被其组织禁用了 Claude Code —— 凭据存在但不可用，原生 `claude` 命令同样会失败。doctor 会直接报 FAIL。改用 Anthropic API Key，或在“个人工作区 → 模型服务”里选一个兼容服务商；你配置的凭据会优先于本机登录。
-- **辅导循环不再触发**（不开 incident，回复看起来却完全正常）：工具检索被打开了，它会把大部分工具藏到一次检索之后。Fieldnote 会为 Agent 子进程固定 `ENABLE_TOOL_SEARCH=false`，但 `inherit-user` 模式下 Claude Code 会用 `~/.claude/settings.json` 自己的 `env` 覆盖它 —— 请从该文件中删除 `ENABLE_TOOL_SEARCH`。doctor 的 `Tool surface` 会报这一项。
+- **辅导循环不再触发**（不开 incident，回复看起来却完全正常）：工具检索被打开了，它会把大部分工具藏到一次检索之后。Fieldnote 默认会为 Agent 子进程固定 `ENABLE_TOOL_SEARCH=false`，但 `inherit-user` 模式下 Claude Code 仍可从 `~/.claude/settings.json` 覆盖这个值——请从该文件中删除 `ENABLE_TOOL_SEARCH`。doctor 会以 `Tool surface` 报告这一例外；运行时 canary 也会在导师误用 `ToolSearch`、没有调用学习工具时写入日志。
 - **MCP 或 plugin 没出现**：确认 doctor 能发现对应名称；本地复用需要 `CLAUDE_SETTINGS_MODE=auto` 或 `inherit-user`。项目不会把 MCP 凭据复制进 SQLite 或前端。
 - **飞书收不到消息**：确认日志出现 `Feishu long connection is ready`；检查应用版本是否已发布最新权限和事件；群聊中必须明确 @机器人。详见 [飞书接入指南](docs/FEISHU_SETUP.md#6-故障排查)。
 

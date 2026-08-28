@@ -133,4 +133,4 @@ API：
 - unresolved 后不会重复已失败策略。
 - Demo/live/replay 数据严格隔离。
 - Policy proposal、preview、review、enable 和 rollback 可解释且可测试。
-- `pnpm typecheck`、`pnpm test`、`pnpm build` 和 `git diff --check` 全部通过。
+- `pnpm lint`、`pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm audit:package` 和 `git diff --check` 全部通过。

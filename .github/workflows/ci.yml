@@ -44,3 +44,6 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Audit package contents
+        run: pnpm audit:package
