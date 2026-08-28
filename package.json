@@ -14,7 +14,7 @@
     "doctor": "node scripts/workbench.mjs doctor",
     "run:local": "node scripts/workbench.mjs run-local",
     "dev": "pnpm --filter @fieldnote/contracts build && concurrently -n api,web -c green,cyan \"pnpm --filter @fieldnote/server dev\" \"pnpm --filter @fieldnote/web dev\"",
-    "build": "node scripts/clean-build-outputs.mjs && pnpm --filter @fieldnote/contracts build && pnpm --filter @fieldnote/server build && pnpm --filter @fieldnote/web build",
+    "build": "node scripts/clean-build-outputs.mjs && pnpm --filter @fieldnote/contracts build && pnpm --filter @fieldnote/server build && node scripts/write-build-info.mjs && pnpm --filter @fieldnote/web build",
     "test": "pnpm --filter @fieldnote/contracts build && pnpm --filter @fieldnote/server test && pnpm --filter @fieldnote/web test",
     "typecheck": "pnpm --filter @fieldnote/contracts build && pnpm --filter @fieldnote/server typecheck && pnpm --filter @fieldnote/web typecheck",
     "start": "pnpm --filter @fieldnote/server start",

@@ -86,12 +86,26 @@ describe("HTTP API", () => {
     const sessionStore = new SqliteSessionStore(database);
     const runtime = new ConfigurableAgentRuntime(config, sessionStore, memories);
     const orchestrator = new RunOrchestrator(config, store, events, runtime);
-    const app = await buildApp({ config, store, events, orchestrator, runtime, memories });
+    const app = await buildApp({
+      config,
+      store,
+      events,
+      orchestrator,
+      runtime,
+      memories,
+      buildInfo: { version: "0.1.0-test", gitSha: "abc123", gitDirty: false }
+    });
     cleanups.push(async () => {
       await orchestrator.stop();
       await app.close();
       database.close();
       await fs.rm(root, { recursive: true });
+    });
+
+    const health = await app.inject({ method: "GET", url: "/api/health" });
+    expect(health.json()).toMatchObject({
+      ok: true,
+      build: { version: "0.1.0-test", gitSha: "abc123", gitDirty: false }
     });
 
     const profiles = await app.inject({ method: "GET", url: "/api/agent-profiles" });

@@ -17,13 +17,14 @@
   评测的判分依据，写错不会报错，只会静默算错分。
 - 运行器：`scripts/learning-eval.mjs`，驱动本地运行中的服务的公开 HTTP API；学习会话使用
   `datasetKind=eval`（策略固定默认顺序、不写经验、不产策略修订，保证题目间独立）。正式运行默认
-  拒绝 dirty checkout；只有显式传 `--allow-dirty` 才能覆盖，报告会把该 run 标成不可精确复现。
+  拒绝 dirty checkout，也要求 `/api/health` 的 clean server build SHA 与 runner checkout 相同；只有
+  显式传 `--allow-dirty` / `--allow-server-mismatch` 才能覆盖，报告会把该 run 标成不可精确复现。
 - 模拟学习者：一个便宜模型按题目 persona 扮演学生；stubborn 层的"是否已巩固"由运行器
   按剧本条件判定后注入 persona，不留给模型自己推断。
 - 判分：judge（temperature 0）按概念清单评实质，正则清单作为每次判分随行记录的第二意见，
   报告写明两者一致率；同时报末轮与最优两种覆盖读数。
-- 产出：`data/eval-runs/<ts>/results.json` + `report.md`；每个结果带协议 fingerprint、runner Git SHA、
-  题库与 judge prompt SHA-256、选题清单、模型/provider 及判分失败记录。服务端聚合可看
+- 产出：`data/eval-runs/<ts>/results.json` + `report.md`；每个结果带协议 fingerprint、runner/server
+  Git SHA 与匹配状态、题库与 judge prompt SHA-256、选题清单、模型/provider 及判分失败记录。服务端聚合可看
   `GET /api/learning/metrics?datasetKind=eval`，但它可能包含同 participant 的早先运行，单次报告以自己的
   `records` 为准。
 

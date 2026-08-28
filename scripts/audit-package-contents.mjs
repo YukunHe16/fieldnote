@@ -42,6 +42,7 @@ const required = [
   "package.json",
   "bin/fieldnote.mjs",
   "server/dist/index.js",
+  "server/dist/build-info.json",
   "server/dist/config.js",
   "server/dist/doctor.js",
   "web/dist/index.html"

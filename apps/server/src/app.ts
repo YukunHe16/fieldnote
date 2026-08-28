@@ -14,6 +14,7 @@ import {
   type AppConfig,
   type LocalRuntimeSettings
 } from "./config.js";
+import { type BuildInfo, loadBuildInfo } from "./build-info.js";
 import type { EventStore } from "./event-store.js";
 import type { FeishuChannel } from "./feishu.js";
 import type { MemoryCoordinator } from "./memory-coordinator.js";
@@ -96,6 +97,7 @@ export interface AppDependencies {
   inputFiles?: InputFileManifestService;
   collaboration?: CollaborationStore;
   replay?: RunReplayStore;
+  buildInfo?: BuildInfo;
 }
 
 const participantCreateSchema = z.object({
@@ -197,6 +199,7 @@ const learningDemoStartSchema = z.object({
 
 export async function buildApp(dependencies: AppDependencies): Promise<FastifyInstance> {
   const { config, store, events, orchestrator, runtime, runtimeController, feishu } = dependencies;
+  const buildInfo = dependencies.buildInfo ?? loadBuildInfo();
   const memories = dependencies.memories ?? new MemoryStore(store.database);
   const evolution = dependencies.evolution ?? new EvolutionStore(store.database);
   const evolutionCoordinator =
@@ -314,6 +317,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     claudeAuthSource: config.claudeAuthSource,
     claudeSettingsMode: config.claudeSettingsMode,
     feishuConfigured: feishu?.isConfigured() ?? Boolean(config.feishu),
+    build: buildInfo,
     timestamp: new Date().toISOString()
   }));
 

@@ -11,6 +11,7 @@
  *     [--items pg-sum-nested,...] [--out data/eval-runs] [--dry-run]
  *     [--learner-model <id>] [--learner-base <url>] [--learner-key <key>]
  *     [--judge-model <id>] [--settle-timeout <seconds>]
+ *     [--allow-dirty] [--allow-server-mismatch]
  */
 
 import { execFileSync } from "node:child_process";
@@ -85,6 +86,24 @@ async function buildEvalProvenance(selectedItemIds) {
   };
 }
 
+function verifyServerBuild(protocol, serverBuild, allowMismatch = false) {
+  const build =
+    serverBuild && typeof serverBuild === "object"
+      ? {
+          version: String(serverBuild.version ?? "unknown"),
+          gitSha: String(serverBuild.gitSha ?? "unknown"),
+          gitDirty: typeof serverBuild.gitDirty === "boolean" ? serverBuild.gitDirty : null
+        }
+      : { version: "unknown", gitSha: "unknown", gitDirty: null };
+  const verified = build.gitSha === protocol.gitSha && build.gitDirty === false;
+  if (!verified && !allowMismatch) {
+    throw new Error(
+      `Running server build ${build.gitSha.slice(0, 12)}${build.gitDirty ? " (dirty)" : ""} does not match runner ${protocol.gitSha.slice(0, 12)}. Restart it from this clean checkout, or pass --allow-server-mismatch for a non-comparable smoke test.`
+    );
+  }
+  return { serverBuild: build, serverBuildVerified: verified };
+}
+
 function parseArgs(argv) {
   // The default pair is the one that isolates the loop: on-call against a baseline that gets
   // the same rounds without the strategy bookkeeping. one-shot remains available via
@@ -109,6 +128,7 @@ function parseArgs(argv) {
     else if (key === "--settle-timeout") args.settleTimeout = Number(next());
     else if (key === "--dry-run") args.dryRun = true;
     else if (key === "--allow-dirty") args.allowDirty = true;
+    else if (key === "--allow-server-mismatch") args.allowServerMismatch = true;
     else throw new Error(`Unknown argument: ${key}`);
   }
   for (const condition of args.conditions) {
@@ -780,7 +800,7 @@ ${trustRows.join("\n")}
       )} | ${pct(record.bestCoverage ?? null)} | ${record.incidentStatus ?? "—"} | ${record.status} |`
   );
   const protocolLine = meta.protocol
-    ? `- Protocol: \`${meta.protocol.protocolVersion}\` · run fingerprint \`${(meta.protocol.runFingerprint ?? meta.protocol.fingerprint).slice(0, 12)}\` · runner Git \`${meta.protocol.gitSha.slice(0, 12)}\`${meta.protocol.gitDirty ? " (**dirty checkout; not exactly reproducible**)" : ""} · item bank \`${meta.protocol.itemBankSha256.slice(0, 12)}\``
+    ? `- Protocol: \`${meta.protocol.protocolVersion}\` · run fingerprint \`${(meta.protocol.runFingerprint ?? meta.protocol.fingerprint).slice(0, 12)}\` · runner Git \`${meta.protocol.gitSha.slice(0, 12)}\`${meta.protocol.gitDirty ? " (**dirty checkout; not exactly reproducible**)" : ""} · server Git \`${meta.protocol.serverBuild?.gitSha?.slice(0, 12) ?? "unknown"}\`${meta.protocol.serverBuildVerified ? " (verified)" : " (**unverified**)"} · item bank \`${meta.protocol.itemBankSha256.slice(0, 12)}\``
     : "- Protocol: legacy result — code and item-bank versions were not recorded";
   return `# Learning-loop offline evaluation — ${meta.startedAt}
 
@@ -909,9 +929,13 @@ async function main() {
     );
   }
   if (!cfg.learnerKey) throw new Error("No learner credential: set ANTHROPIC_AUTH_TOKEN/--learner-key");
-  await api(cfg.base, "GET", "/api/health").catch(() => {
+  const health = await api(cfg.base, "GET", "/api/health").catch(() => {
     throw new Error(`Fieldnote server is not reachable at ${cfg.base} — start it first`);
   });
+  Object.assign(protocol, verifyServerBuild(protocol, health?.build, args.allowServerMismatch));
+  log(
+    `Server build: ${protocol.serverBuild.gitSha.slice(0, 12)}${protocol.serverBuildVerified ? " (verified)" : " (unverified)"}`
+  );
   // The tutor's model IS the treatment, so the report has to name it. Reading it from the
   // server beats trusting the local .env, which describes what the server was started with
   // rather than what it is running now.
@@ -928,7 +952,9 @@ async function main() {
       learnerBase: cfg.learnerBase,
       judgeModel: cfg.judgeModel,
       tutorModel: cfg.tutorModel,
-      tutorBase: cfg.tutorBase
+      tutorBase: cfg.tutorBase,
+      serverBuild: protocol.serverBuild,
+      serverBuildVerified: protocol.serverBuildVerified
     })
   );
   log(`Tutor under test: ${cfg.tutorModel} @ ${cfg.tutorBase}`);
@@ -979,7 +1005,16 @@ async function main() {
 // `aggregate` and `renderReport` are exported so a run that lost items to a network blip can
 // be repaired: re-run just those items, merge the records, and re-render one report rather
 // than paying for the whole bank again.
-export { gradeRegex, judgeGrade, gradeAnswer, loadItems, aggregate, renderReport, buildEvalProvenance };
+export {
+  gradeRegex,
+  judgeGrade,
+  gradeAnswer,
+  loadItems,
+  aggregate,
+  renderReport,
+  buildEvalProvenance,
+  verifyServerBuild
+};
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
