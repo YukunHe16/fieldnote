@@ -207,8 +207,9 @@ export const PUBLIC_BLUEPRINT = Object.freeze([
 ]);
 
 export const GENERATOR_SYSTEM_PROMPT = `Generate typed CacheScenario JSON for a frozen research item bank.
-Return JSON only. Do not write question prose, answers, hints, rubrics, explanations, learner data, tutoring history, experimental conditions, candidate ids, or scores.
-Use only the supplied public blueprint, seed, parameter ranges, and batch count. Each candidate is the CacheScenario union member whose kind exactly equals the blueprint id, with primary and transfer fields.`;
+Return one top-level JSON array whose length is exactly candidateCount. Do not wrap the array in an object and do not add prose or Markdown fences.
+Do not write question prose, answers, hints, rubrics, explanations, learner data, tutoring history, experimental conditions, candidate ids, or scores.
+Use only the supplied public blueprint, seed, parameter ranges, and batch count. Every array element is the CacheScenario union member whose kind exactly equals the blueprint id, with primary and transfer fields.`;
 
 export const EVALUATOR_SYSTEM_PROMPT = `You are the independent fail-closed reviewer for a frozen cache post-test bank.
 Judge only the supplied host-rendered candidate against its public blueprint and equivalence anchor.
@@ -269,7 +270,11 @@ export function buildGeneratorRequest(blueprint, seed, batchOrdinal, count) {
       seed,
       batchOrdinal,
       candidateCount: count,
-      responseShape: { candidates: [`exactly ${count} CacheScenario objects with kind ${blueprint.id}`] }
+      responseShape: {
+        topLevel: "JSON array; no wrapper object",
+        exactLength: count,
+        items: `CacheScenario objects with kind ${blueprint.id}`
+      }
     }
   };
 }
@@ -281,17 +286,10 @@ export function parseGeneratorResponse(text, expectedSetId, expectedCount) {
   } catch {
     throw new Error("Generator returned invalid JSON");
   }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    Array.isArray(parsed) ||
-    Object.keys(parsed).length !== 1 ||
-    !Array.isArray(parsed.candidates)
-  )
-    throw new Error("Generator response must contain only a candidates array");
-  if (parsed.candidates.length !== expectedCount)
+  if (!Array.isArray(parsed)) throw new Error("Generator response must be one top-level JSON array");
+  if (parsed.length !== expectedCount)
     throw new Error(`Generator must return exactly ${expectedCount} candidates for ${expectedSetId}`);
-  return parsed.candidates;
+  return parsed;
 }
 
 export function buildEvaluatorRequest(blueprint, candidate, sameSetEarlierCandidates = []) {
