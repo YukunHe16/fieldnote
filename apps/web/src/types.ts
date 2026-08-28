@@ -359,7 +359,20 @@ export interface LearningSessionDto {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  complianceEvents: LearningComplianceEventDto[];
   incidents: LearningIncidentDto[];
+}
+
+export interface LearningComplianceEventDto {
+  id: string;
+  sessionId: string;
+  incidentId: string | null;
+  signature: string;
+  phase: "none" | "diagnosed" | "intervening" | "verifying";
+  action: "compliance_miss" | "requested" | "recovered" | "gave_up";
+  sourceRunId: string | null;
+  repairRunId: string | null;
+  createdAt: string;
 }
 
 export interface LearningIncidentDto {

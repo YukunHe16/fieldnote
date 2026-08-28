@@ -69,6 +69,11 @@ concrete main/background model、effort 和 server timeout；宿主 shell 偷偷
 清理余量。若仍超时，runner 先 interrupt active/queued runs、确认 conversation 已空闲，再清理学习会话；
 `--fail-fast` 随后停止整个 batch 并返回非零，不会让上一题和下一题并发。
 
+eval 的 learning-tool compliance 由宿主按 tutor-owed 状态签名检查。普通 run 完成后签名仍未推进时，
+同一 signature 最多排队一次 `【学习回路修复】`；repair run 不算 learner turn，也不会进入模拟学习者的
+对话视图。repair 完成正确的 phase transition 记 `recovered`；失败、中断、错误终态或仍欠下一步记
+`gave_up`，runner 立即写 `tool_compliance_error` 并 fail-fast，不再用普通 learner nudge 催问。
+
 ### Post-test judge 稳定性门
 
 历史 27 个自由回答属于 `legacy-freeform`，只保留既有报告供读取；它们不能在 `evidence-v2` 下伪装成

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveTutorRuntime, shouldStopAfterRecord, waitForIdle } from "../../../scripts/learning-eval.mjs";
+import {
+  complianceRepairRunIds,
+  learnerView,
+  resolveTutorRuntime,
+  shouldStopAfterRecord,
+  throwIfToolComplianceError,
+  waitForIdle
+} from "../../../scripts/learning-eval.mjs";
 
 const response = (body: unknown, status = 200) => ({
   ok: status >= 200 && status < 300,
@@ -100,6 +107,52 @@ describe("learning eval fail-fast gate", () => {
     ).toBe(false);
     expect(shouldStopAfterRecord({ status: "error", measurementError: null }, false)).toBe(false);
     expect(shouldStopAfterRecord({ status: "completed", fatalError: true }, false)).toBe(true);
+  });
+});
+
+describe("learning eval compliance repair transcript", () => {
+  const session = {
+    complianceEvents: [
+      {
+        id: "event-1",
+        action: "requested",
+        signature: "intervening:1:0",
+        repairRunId: "repair-1"
+      }
+    ]
+  };
+
+  it("filters both sides of a repair run from the simulated learner transcript", () => {
+    const repairRunIds = complianceRepairRunIds(session);
+    expect([...repairRunIds]).toEqual(["repair-1"]);
+    expect(
+      learnerView(
+        [
+          { role: "assistant", content: "original tutor task", runId: "source" },
+          { role: "user", content: "【学习回路修复】", runId: "repair-1" },
+          { role: "assistant", content: "registered", runId: "repair-1" }
+        ],
+        repairRunIds
+      )
+    ).toEqual([{ role: "user", content: "original tutor task" }]);
+  });
+
+  it("maps a gave-up repair to a measurement error immediately", () => {
+    expect(() =>
+      throwIfToolComplianceError({
+        complianceEvents: [
+          ...session.complianceEvents,
+          { id: "event-2", action: "gave_up", signature: "intervening:1:0", repairRunId: "repair-1" }
+        ]
+      })
+    ).toThrow("compliance repair gave up");
+    try {
+      throwIfToolComplianceError({
+        complianceEvents: [{ id: "event-2", action: "gave_up", signature: "intervening:1:0" }]
+      });
+    } catch (error: any) {
+      expect(error.measurementCategory).toBe("tool_compliance_error");
+    }
   });
 });
 

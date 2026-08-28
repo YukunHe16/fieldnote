@@ -71,6 +71,8 @@ export type LearningInterventionStrategy = (typeof LEARNING_INTERVENTION_STRATEG
 export type LearningVerificationMethod = (typeof LEARNING_VERIFICATION_METHODS)[number];
 export type LearningOutcome = (typeof LEARNING_OUTCOMES)[number];
 export type LearningPolicyStatus = (typeof LEARNING_POLICY_STATUSES)[number];
+export type LearningComplianceAction = "compliance_miss" | "requested" | "recovered" | "gave_up";
+export type LearningCompliancePhase = "none" | "diagnosed" | "intervening" | "verifying";
 
 export class LearningConflictError extends Error {
   readonly statusCode = 409;
@@ -109,6 +111,26 @@ export interface LearningSessionDto {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+}
+
+export interface LearningComplianceEventDto {
+  id: string;
+  sessionId: string;
+  incidentId: string | null;
+  signature: string;
+  phase: LearningCompliancePhase;
+  action: LearningComplianceAction;
+  sourceRunId: string | null;
+  repairRunId: string | null;
+  createdAt: string;
+}
+
+export interface LearningComplianceObligation {
+  sessionId: string;
+  conversationId: string;
+  incidentId: string | null;
+  signature: string;
+  phase: LearningCompliancePhase;
 }
 
 export interface LearningIncidentDto {
@@ -600,6 +622,24 @@ CREATE INDEX IF NOT EXISTS idx_learning_watchdog_incident
 CREATE INDEX IF NOT EXISTS idx_learning_watchdog_session
   ON learning_watchdog_events(session_id, action);
 
+CREATE TABLE IF NOT EXISTS learning_compliance_events (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES learning_sessions(id) ON DELETE CASCADE,
+  incident_id TEXT REFERENCES learning_incidents(id) ON DELETE CASCADE,
+  signature TEXT NOT NULL,
+  phase TEXT NOT NULL CHECK (phase IN ('none', 'diagnosed', 'intervening', 'verifying')),
+  action TEXT NOT NULL CHECK (action IN ('compliance_miss', 'requested', 'recovered', 'gave_up')),
+  source_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+  repair_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_compliance_scope_action
+  ON learning_compliance_events(session_id, ifnull(incident_id, ''), signature, action);
+CREATE INDEX IF NOT EXISTS idx_learning_compliance_session
+  ON learning_compliance_events(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_learning_compliance_repair_run
+  ON learning_compliance_events(repair_run_id) WHERE repair_run_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS learning_variant_offers (
   incident_id TEXT NOT NULL REFERENCES learning_incidents(id) ON DELETE CASCADE,
   round INTEGER NOT NULL CHECK (round BETWEEN 1 AND 3),
@@ -707,6 +747,35 @@ export class LearningStore {
     private readonly evalPolicyEvolution = false
   ) {
     this.database.exec(LEARNING_STORE_SCHEMA);
+    const orphanedComplianceRequests = this.database
+      .prepare(
+        `SELECT session_id, incident_id, signature, phase, source_run_id
+           FROM learning_compliance_events requested
+          WHERE requested.action = 'requested' AND requested.repair_run_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM learning_compliance_events terminal
+               WHERE terminal.session_id = requested.session_id
+                 AND terminal.incident_id IS requested.incident_id
+                 AND terminal.signature = requested.signature
+                 AND terminal.action = 'gave_up'
+            )`
+      )
+      .all() as Array<{
+      session_id: string;
+      incident_id: string | null;
+      signature: string;
+      phase: LearningCompliancePhase;
+      source_run_id: string | null;
+    }>;
+    for (const row of orphanedComplianceRequests) {
+      this.database
+        .prepare(
+          `INSERT OR IGNORE INTO learning_compliance_events
+            (id, session_id, incident_id, signature, phase, action, source_run_id, repair_run_id, created_at)
+           VALUES (?, ?, ?, ?, ?, 'gave_up', ?, NULL, ?)`
+        )
+        .run(randomUUID(), row.session_id, row.incident_id, row.signature, row.phase, row.source_run_id, this.clock());
+    }
     const sessionColumns = this.database.pragma("table_info(learning_sessions)") as Array<{ name: string }>;
     if (!sessionColumns.some((column) => column.name === "execution_mode")) {
       this.database.exec(
@@ -2582,10 +2651,190 @@ export class LearningStore {
         `SELECT COUNT(*) AS n FROM runs r
           WHERE r.conversation_id = ? AND r.status = 'completed' AND r.created_at > ?
             AND NOT EXISTS(SELECT 1 FROM learning_watchdog_events w WHERE w.run_id = r.id)
+            AND NOT EXISTS(SELECT 1 FROM learning_compliance_events c WHERE c.repair_run_id = r.id)
             AND NOT EXISTS(SELECT 1 FROM learning_review_tasks task WHERE task.fired_run_id = r.id)`
       )
       .get(conversationId, timestamp) as { n: number };
     return row.n;
+  }
+
+  evalComplianceObligation(conversationId: string, pendingRunId?: string): LearningComplianceObligation | null {
+    const session = this.getSessionForConversation(conversationId);
+    if (session?.datasetKind !== "eval" || session.status !== "active" || session.executionMode !== "agent")
+      return null;
+    const incident = this.database
+      .prepare(
+        `SELECT id, status FROM learning_incidents
+          WHERE session_id = ? AND superseded_at IS NULL
+          ORDER BY created_at DESC LIMIT 1`
+      )
+      .get(session.id) as { id: string; status: string } | undefined;
+    if (!incident) {
+      return {
+        sessionId: session.id,
+        conversationId,
+        incidentId: null,
+        signature: "none:0:0",
+        phase: "none"
+      };
+    }
+    if (!["diagnosed", "intervening", "verifying"].includes(incident.status)) return null;
+    const counts = this.database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM learning_interventions WHERE incident_id = ?) AS interventions,
+          (SELECT COUNT(*) FROM learning_verifications WHERE incident_id = ?) AS verifications`
+      )
+      .get(incident.id, incident.id) as { interventions: number; verifications: number };
+    if (incident.status === "verifying") {
+      const verification = this.database
+        .prepare(
+          `SELECT system_verdict, response_after_run_created_at, created_at
+             FROM learning_verifications WHERE incident_id = ? ORDER BY created_at DESC LIMIT 1`
+        )
+        .get(incident.id) as
+        | { system_verdict: string | null; response_after_run_created_at: number | null; created_at: number }
+        | undefined;
+      if (!verification || verification.system_verdict !== null) return null;
+      const answerBoundary = verification.response_after_run_created_at ?? verification.created_at;
+      const pendingLearnerRun = pendingRunId
+        ? (
+            this.database
+              .prepare(
+                `SELECT COUNT(*) AS n FROM runs r
+                WHERE r.id = ? AND r.conversation_id = ? AND r.created_at > ?
+                  AND NOT EXISTS(SELECT 1 FROM learning_watchdog_events w WHERE w.run_id = r.id)
+                  AND NOT EXISTS(SELECT 1 FROM learning_compliance_events c WHERE c.repair_run_id = r.id)
+                  AND NOT EXISTS(SELECT 1 FROM learning_review_tasks task WHERE task.fired_run_id = r.id)`
+              )
+              .get(pendingRunId, conversationId, answerBoundary) as { n: number }
+          ).n > 0
+        : false;
+      if (this.completedLearnerRunsAfter(conversationId, answerBoundary) === 0 && !pendingLearnerRun) return null;
+    }
+    const phase = incident.status as Exclude<LearningCompliancePhase, "none">;
+    return {
+      sessionId: session.id,
+      conversationId,
+      incidentId: incident.id,
+      signature: `${phase}:${counts.interventions}:${counts.verifications}`,
+      phase
+    };
+  }
+
+  listComplianceEvents(sessionId: string): LearningComplianceEventDto[] {
+    const rows = this.database
+      .prepare("SELECT * FROM learning_compliance_events WHERE session_id = ? ORDER BY created_at ASC, rowid ASC")
+      .all(sessionId) as Record<string, unknown>[];
+    return rows.map((row) => this.toComplianceEvent(row));
+  }
+
+  recordComplianceEvent(input: {
+    obligation: LearningComplianceObligation;
+    action: LearningComplianceAction;
+    sourceRunId: string | null;
+    repairRunId?: string | null;
+  }): LearningComplianceEventDto {
+    const id = randomUUID();
+    this.database
+      .prepare(
+        `INSERT OR IGNORE INTO learning_compliance_events
+          (id, session_id, incident_id, signature, phase, action, source_run_id, repair_run_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.obligation.sessionId,
+        input.obligation.incidentId,
+        input.obligation.signature,
+        input.obligation.phase,
+        input.action,
+        input.sourceRunId,
+        input.repairRunId ?? null,
+        this.clock()
+      );
+    const row = this.database
+      .prepare(
+        `SELECT * FROM learning_compliance_events
+          WHERE session_id = ? AND incident_id IS ? AND signature = ? AND action = ? LIMIT 1`
+      )
+      .get(input.obligation.sessionId, input.obligation.incidentId, input.obligation.signature, input.action) as Record<
+      string,
+      unknown
+    >;
+    return this.toComplianceEvent(row);
+  }
+
+  attachComplianceRepairRun(eventId: string, runId: string): void {
+    this.database.prepare("UPDATE learning_compliance_events SET repair_run_id = ? WHERE id = ?").run(runId, eventId);
+  }
+
+  complianceRequestForRepairRun(runId: string): LearningComplianceEventDto | null {
+    const row = this.database
+      .prepare("SELECT * FROM learning_compliance_events WHERE action = 'requested' AND repair_run_id = ? LIMIT 1")
+      .get(runId) as Record<string, unknown> | undefined;
+    return row ? this.toComplianceEvent(row) : null;
+  }
+
+  complianceRepairSatisfied(request: LearningComplianceEventDto, repairRunId: string): boolean {
+    if (request.phase === "verifying") {
+      if (!request.incidentId) return false;
+      const row = this.database
+        .prepare(
+          `SELECT COUNT(*) AS n FROM learning_verifications verification
+             JOIN learning_incidents incident ON incident.id = verification.incident_id
+            WHERE verification.incident_id = ? AND verification.proposed_run_id = ?
+              AND verification.system_verdict IS NOT NULL AND incident.status = 'verifying'`
+        )
+        .get(request.incidentId, repairRunId) as { n: number };
+      return row.n > 0;
+    }
+    if (request.phase === "intervening") {
+      if (!request.incidentId) return false;
+      const row = this.database
+        .prepare(
+          `SELECT COUNT(*) AS n FROM learning_verifications verification
+             JOIN learning_incidents incident ON incident.id = verification.incident_id
+            WHERE verification.incident_id = ? AND verification.requested_run_id = ?
+              AND incident.status = 'verifying'`
+        )
+        .get(request.incidentId, repairRunId) as { n: number };
+      return row.n > 0;
+    }
+    const params = request.incidentId
+      ? [request.sessionId, request.incidentId, repairRunId, repairRunId]
+      : [request.sessionId, repairRunId, repairRunId];
+    const incidentClause = request.incidentId ? "AND incident.id = ?" : "";
+    const row = this.database
+      .prepare(
+        `SELECT COUNT(*) AS n FROM learning_incidents incident
+          WHERE incident.session_id = ? ${incidentClause} AND incident.status = 'verifying'
+            AND EXISTS (
+              SELECT 1 FROM learning_interventions intervention
+               WHERE intervention.incident_id = incident.id AND intervention.run_id = ?
+            )
+            AND EXISTS (
+              SELECT 1 FROM learning_verifications verification
+               WHERE verification.incident_id = incident.id AND verification.requested_run_id = ?
+            )`
+      )
+      .get(...params) as { n: number };
+    return row.n > 0;
+  }
+
+  complianceEvent(
+    obligation: LearningComplianceObligation,
+    action: LearningComplianceAction
+  ): LearningComplianceEventDto | null {
+    const row = this.database
+      .prepare(
+        `SELECT * FROM learning_compliance_events
+          WHERE session_id = ? AND incident_id IS ? AND signature = ? AND action = ? LIMIT 1`
+      )
+      .get(obligation.sessionId, obligation.incidentId, obligation.signature, action) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? this.toComplianceEvent(row) : null;
   }
 
   watchdogEvent(
@@ -3051,6 +3300,7 @@ export class LearningStore {
       runId: string | null;
       createdAt: string;
     }>;
+    complianceEvents: LearningComplianceEventDto[];
   } {
     // With a participant filter, every table is scoped through its own participant column
     // or its incident/session lineage, so a per-person export is self-consistent (joins
@@ -3111,7 +3361,8 @@ export class LearningStore {
           createdAt: iso(Number(row.created_at))!
         }),
         bySession
-      )
+      ),
+      complianceEvents: all("learning_compliance_events", (row) => this.toComplianceEvent(row), bySession)
     };
   }
 
@@ -3475,6 +3726,19 @@ export class LearningStore {
       createdAt: iso(Number(row.created_at))!,
       updatedAt: iso(Number(row.updated_at))!,
       completedAt: row.completed_at === null ? null : iso(Number(row.completed_at))
+    };
+  }
+  private toComplianceEvent(row: Record<string, unknown>): LearningComplianceEventDto {
+    return {
+      id: String(row.id),
+      sessionId: String(row.session_id),
+      incidentId: row.incident_id === null || row.incident_id === undefined ? null : String(row.incident_id),
+      signature: String(row.signature),
+      phase: String(row.phase) as LearningCompliancePhase,
+      action: String(row.action) as LearningComplianceAction,
+      sourceRunId: row.source_run_id === null || row.source_run_id === undefined ? null : String(row.source_run_id),
+      repairRunId: row.repair_run_id === null || row.repair_run_id === undefined ? null : String(row.repair_run_id),
+      createdAt: iso(Number(row.created_at))!
     };
   }
   private toIncident(row: IncidentRow): LearningIncidentDto {

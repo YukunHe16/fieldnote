@@ -261,10 +261,25 @@ export interface LearningSessionDto {
   datasetKind: LearningDatasetKind;
   condition: LearningCondition;
   suggestionReason: string | null;
+  complianceEvents: LearningComplianceEventDto[];
   incidents: LearningIncidentDto[];
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+}
+
+export type LearningComplianceAction = "compliance_miss" | "requested" | "recovered" | "gave_up";
+
+export interface LearningComplianceEventDto {
+  id: string;
+  sessionId: string;
+  incidentId: string | null;
+  signature: string;
+  phase: "none" | "diagnosed" | "intervening" | "verifying";
+  action: LearningComplianceAction;
+  sourceRunId: string | null;
+  repairRunId: string | null;
+  createdAt: string;
 }
 
 export interface LearningPolicyPreviewDto {

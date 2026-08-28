@@ -667,6 +667,30 @@ export function normalizeLearningSession(input: unknown): LearningSessionDto | n
     createdAt: string(raw.createdAt ?? raw.created_at, now()),
     updatedAt: string(raw.updatedAt ?? raw.updated_at, now()),
     completedAt: optionalDate(raw.completedAt ?? raw.completed_at),
+    complianceEvents: Array.isArray(raw.complianceEvents ?? raw.compliance_events)
+      ? ((raw.complianceEvents ?? raw.compliance_events) as unknown[]).flatMap((value) => {
+          const event = object(value);
+          const eventId = string(event.id);
+          if (!eventId) return [];
+          return [
+            {
+              id: eventId,
+              sessionId: string(event.sessionId ?? event.session_id),
+              incidentId: optionalString(event.incidentId ?? event.incident_id),
+              signature: string(event.signature),
+              phase: includes(["none", "diagnosed", "intervening", "verifying"] as const, event.phase, "none"),
+              action: includes(
+                ["compliance_miss", "requested", "recovered", "gave_up"] as const,
+                event.action,
+                "compliance_miss"
+              ),
+              sourceRunId: optionalString(event.sourceRunId ?? event.source_run_id),
+              repairRunId: optionalString(event.repairRunId ?? event.repair_run_id),
+              createdAt: string(event.createdAt ?? event.created_at, now())
+            }
+          ];
+        })
+      : [],
     incidents: Array.isArray(raw.incidents) ? raw.incidents.map(normalizeLearningIncident) : []
   };
 }

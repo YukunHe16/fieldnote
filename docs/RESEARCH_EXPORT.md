@@ -182,6 +182,13 @@ trial，平局取最老）写入投放台账（learning_variant_offers，按 inc
 （`nudged` 提醒已发 · `gave_up` 提醒后仍停摆）/ `runId`（提醒消息的 run）/ `createdAt`。
 会话健康指标全部可由本表复算。
 
+### complianceEvents
+
+eval-only learning-tool 恢复台账：`id` / `sessionId` / nullable `incidentId` /
+`signature` / `phase` / `action`（`compliance_miss`、`requested`、`recovered`、`gave_up`）/
+`sourceRunId` / `repairRunId` / `createdAt`。repair run 是框架动作，不计作学习者回答；`gave_up`
+在 eval 结果中对应 `tool_compliance_error`。普通 live/飞书会话仍使用 watchdog，不写本表。
+
 ### messages（可选）
 
 `includeMessages=true` 时附带：`id` / `conversationId` / `runId` / `role` / `content` / `createdAt`。
