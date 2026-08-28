@@ -135,14 +135,17 @@ const provenance = () => ({
 const generator = async ({
   blueprint,
   ordinal,
-  count
+  count,
+  slotIndex
 }: {
   blueprint: { id: string };
   ordinal: number;
   count: number;
+  slotIndex: number;
 }) => {
   const start = ordinal === 1 ? 0 : 8;
-  return JSON.stringify(Array.from({ length: count }, (_, index) => scenarioFor(blueprint.id, start + index)));
+  if (count !== 1) throw new Error("fixture expects one candidate per slot");
+  return JSON.stringify([scenarioFor(blueprint.id, start + slotIndex)]);
 };
 
 describe("cache bank freeze protocol", () => {
@@ -162,7 +165,7 @@ describe("cache bank freeze protocol", () => {
   it("freezes six SHA-selected sets of four from one eight-candidate batch", async () => {
     let checkpoint: unknown = null;
     let evaluatorSawSameSetContext = false;
-    const calls: Array<{ setId: string; ordinal: number; count: number }> = [];
+    const calls: Array<{ setId: string; ordinal: number; count: number; slotIndex: number }> = [];
     const result = await runCacheBankFreeze({
       checkpoint: null,
       seed: 7,
@@ -171,8 +174,18 @@ describe("cache bank freeze protocol", () => {
       saveCheckpoint: async (value: unknown) => {
         checkpoint = value;
       },
-      generateBatch: async (input: { blueprint: { id: string }; ordinal: number; count: number }) => {
-        calls.push({ setId: input.blueprint.id, ordinal: input.ordinal, count: input.count });
+      generateBatch: async (input: {
+        blueprint: { id: string };
+        ordinal: number;
+        count: number;
+        slotIndex: number;
+      }) => {
+        calls.push({
+          setId: input.blueprint.id,
+          ordinal: input.ordinal,
+          count: input.count,
+          slotIndex: input.slotIndex
+        });
         return generator(input);
       },
       evaluateCandidate: async ({ request }: { request: { payload: { sameSetEarlierCandidates: unknown[] } } }) => {
@@ -182,9 +195,13 @@ describe("cache bank freeze protocol", () => {
     });
 
     expect(checkpoint).not.toBeNull();
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(48);
     expect(evaluatorSawSameSetContext).toBe(true);
-    expect(calls.every((call) => call.ordinal === 1 && call.count === 8)).toBe(true);
+    expect(calls.every((call) => call.ordinal === 1 && call.count === 1)).toBe(true);
+    for (const setId of cacheCore.CACHE_BANK_SET_IDS)
+      expect(calls.filter((call) => call.setId === setId).map((call) => call.slotIndex)).toEqual([
+        0, 1, 2, 3, 4, 5, 6, 7
+      ]);
     expect(result.bank).toMatchObject({ bankVersion: "cache-v1", itemCount: 24, machineVerified: true });
     expect(result.manifest.counts).toMatchObject({
       sets: 6,
@@ -196,6 +213,8 @@ describe("cache bank freeze protocol", () => {
       evaluatorErrors: 0,
       evaluatorUnsure: 0
     });
+    expect(result.manifest.generatorSlots).toHaveLength(48);
+    expect(new Set(result.manifest.generatorSlots.map((slot: { seed: number }) => slot.seed)).size).toBe(48);
     for (const item of result.bank.items)
       expect(cacheCore.verifyCacheCandidate(item.candidate)).toMatchObject({ valid: true });
     expect(result.bank.finalBankSha256).toBe(sha256(cacheCore.stableCacheJson(result.bank.items)));
@@ -280,10 +299,15 @@ describe("cache bank freeze protocol", () => {
       provenance: provenance(),
       cacheCore,
       saveCheckpoint: async () => undefined,
-      generateBatch: async (input: { blueprint: { id: string }; ordinal: number; count: number }) => {
+      generateBatch: async (input: {
+        blueprint: { id: string };
+        ordinal: number;
+        count: number;
+        slotIndex: number;
+      }) => {
         const parsed = JSON.parse(await generator(input));
-        if (input.blueprint.id === target && input.ordinal === 1)
-          parsed[1].primary = structuredClone(parsed[0].primary);
+        if (input.blueprint.id === target && input.ordinal === 1 && input.slotIndex === 1)
+          parsed[0].primary = structuredClone(scenarioFor(target, 0).primary);
         return JSON.stringify(parsed);
       },
       evaluateCandidate: async () => evaluatorResponse()
@@ -300,15 +324,25 @@ describe("cache bank freeze protocol", () => {
 
   it("uses one fixed four-candidate supplement only when a set has fewer than four passes", async () => {
     const target = "trace-3c";
-    const calls: Array<{ setId: string; ordinal: number; count: number }> = [];
+    const calls: Array<{ setId: string; ordinal: number; count: number; slotIndex: number }> = [];
     const result = await runCacheBankFreeze({
       checkpoint: null,
       seed: 8,
       provenance: provenance(),
       cacheCore,
       saveCheckpoint: async () => undefined,
-      generateBatch: async (input: { blueprint: { id: string }; ordinal: number; count: number }) => {
-        calls.push({ setId: input.blueprint.id, ordinal: input.ordinal, count: input.count });
+      generateBatch: async (input: {
+        blueprint: { id: string };
+        ordinal: number;
+        count: number;
+        slotIndex: number;
+      }) => {
+        calls.push({
+          setId: input.blueprint.id,
+          ordinal: input.ordinal,
+          count: input.count,
+          slotIndex: input.slotIndex
+        });
         return generator(input);
       },
       evaluateCandidate: async ({ candidate }: { candidate: { setId: string; scenario: CacheScenario } }) => {
@@ -319,10 +353,10 @@ describe("cache bank freeze protocol", () => {
       }
     });
 
-    expect(calls.filter((call) => call.setId === target)).toEqual([
-      { setId: target, ordinal: 1, count: 8 },
-      { setId: target, ordinal: 2, count: 4 }
-    ]);
+    expect(calls.filter((call) => call.setId === target && call.ordinal === 1)).toHaveLength(8);
+    expect(calls.filter((call) => call.setId === target && call.ordinal === 2)).toEqual(
+      [0, 1, 2, 3].map((slotIndex) => ({ setId: target, ordinal: 2, count: 1, slotIndex }))
+    );
     expect(result.bank.items.filter((item: { setId: string }) => item.setId === target)).toHaveLength(4);
   });
 
@@ -372,10 +406,16 @@ describe("cache bank freeze protocol", () => {
     const saved = checkpoint as {
       sets: Record<
         string,
-        { batches: Array<{ status: string; rawResponse: string; rawResponseSha256: string; modelAttempts: unknown[] }> }
+        {
+          batches: Array<{
+            status: string;
+            slots: Array<{ status: string; rawResponse: string; rawResponseSha256: string; modelAttempts: unknown[] }>;
+          }>;
+        }
       >;
     };
-    expect(saved.sets["trace-3c"].batches[0]).toMatchObject({
+    expect(saved.sets["trace-3c"].batches[0].status).toBe("failed");
+    expect(saved.sets["trace-3c"].batches[0].slots[0]).toMatchObject({
       status: "failed",
       rawResponse,
       rawResponseSha256: sha256(rawResponse),
