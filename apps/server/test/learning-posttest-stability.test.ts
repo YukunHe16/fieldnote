@@ -59,7 +59,9 @@ describe("post-test stability summary and gates", () => {
       verdictAgreements: 26,
       exactConceptAgreements: 24,
       regexAgreements: 54,
-      regexComparable: 54
+      regexComparable: 54,
+      retriedGradings: 0,
+      noThinkingRecoveries: 0
     });
     expect(evaluateStabilityGate(summary)).toMatchObject({
       errorGate: true,
@@ -98,6 +100,24 @@ describe("post-test stability summary and gates", () => {
 
     expect(summary).toMatchObject({ completedGradings: 54, successfulGradings: 53, judgeErrors: 1 });
     expect(evaluateStabilityGate(summary)).toMatchObject({ errorGate: false, overallPass: false });
+  });
+
+  it("reports larger-budget retries and successful no-thinking recovery", () => {
+    const itemIds = answers().map((answer) => answer.itemId);
+    const gradings = itemIds.flatMap((itemId) => [grading(itemId, 1), grading(itemId, 2)]);
+    Object.assign(gradings[0], {
+      judgeAttemptUsed: 3,
+      judgeAttempts: [
+        { reasoningMode: "default", outcome: "empty_text" },
+        { reasoningMode: "default", outcome: "empty_text" },
+        { reasoningMode: "none", outcome: "success" }
+      ]
+    });
+
+    expect(summarizeStability(gradings, itemIds)).toMatchObject({
+      retriedGradings: 1,
+      noThinkingRecoveries: 1
+    });
   });
 });
 
@@ -171,7 +191,8 @@ describe("post-test stability report", () => {
         gitDirty: false,
         buildIdentity: { gitSha: "build", gitDirty: false },
         itemBankSha256: "items",
-        judgePromptSha256: "prompt"
+        judgePromptSha256: "prompt",
+        judgeRetryPolicy: "test-policy"
       },
       config: { judgeModel: "judge", learnerBase: "https://judge.invalid" },
       summary,
@@ -179,6 +200,7 @@ describe("post-test stability report", () => {
     });
 
     expect(report).toContain("## Result");
+    expect(report).toContain("Judge retry policy: `test-policy`");
     expect(report.split("\n").some((line) => line.startsWith("+"))).toBe(false);
   });
 });

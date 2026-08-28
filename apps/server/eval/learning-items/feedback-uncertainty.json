@@ -27,16 +27,19 @@
         "id": "grader-b-supported",
         "label": "concludes grader B's critique is the supported one",
         "credit": "Identifying the right grader by description (\"the stricter one\", \"the second reviewer\", \"the one who said the explanation restates the code\") counts. Naming the letter is not required.",
-        "patterns": ["grader b", "b is (right|correct|supported)", "the (strict|second) grader"]
+        "patterns": [
+          "grader b",
+          "b is (right|correct|supported)",
+          "(strict|second) grader.{0,80}(purpose|plain english|line.by.line)"
+        ]
       },
       {
         "id": "purpose-level",
         "label": "states the missing purpose: the function returns the maximum",
+        "credit": "This concept is about the original f(xs) worked example. Credit requires saying that f returns the maximum value or largest element itself. Saying it returns an index or position is incorrect, and describing only the fresh count_even case earns no credit.",
         "patterns": [
-          "maximum|largest|biggest",
-          "purpose",
-          "what it (does|accomplishes|computes) overall",
-          "high[- ]level"
+          "returns? (the )?(maximum|largest|biggest)( value| element)?",
+          "finds? (the )?(maximum|largest|biggest) (value|element)"
         ]
       },
       {
@@ -355,15 +358,15 @@
       },
       {
         "id": "empty-list-safe",
-        "label": "shows the empty list is already handled because range(-1) is empty",
-        "credit": "Credit requires working out that len(a) - 1 is -1, that range(-1) is empty, and that the function therefore returns True. Asserting 'empty lists are fine' without the trace earns no credit.",
-        "patterns": ["range\\(-1\\)", "-1", "empty range", "returns true"]
+        "label": "traces the original is_sorted loop on an empty list: range(-1) is empty and the function returns True",
+        "credit": "Credit requires tracing the original loop: len(a) - 1 is -1, range(-1) is empty, and the function therefore returns True. Tracing only the fresh range(1, len(a)) loop earns no credit.",
+        "patterns": ["empty.{0,80}range\\(-1\\)", "range\\(-1\\).{0,80}(empty|returns? true)"]
       },
       {
         "id": "code-is-correct",
-        "label": "concludes the code needs no change and both critiques fail",
-        "credit": "Credit requires rejecting both graders. Conceding either point, or appealing against only one of them, earns no credit.",
-        "patterns": ["both.{0,40}wrong", "no change", "neither", "code is correct"]
+        "label": "explicitly and unconditionally concludes that the original is_sorted code needs no change and that both graders A and B are wrong",
+        "credit": "This is the conclusion for the original appeal. Credit requires an unqualified rejection of both original graders. Rejecting only A, saying the appeal depends on first finding a failing input, or concluding only that the fresh loop is correct earns no credit.",
+        "patterns": ["both.{0,40}(wrong|fail)", "original.{0,40}(no change|correct)", "no change.{0,40}(both|grader)"]
       },
       {
         "id": "transfer-applied",
@@ -420,14 +423,22 @@
     "concepts": [
       {
         "id": "grader-a-supported",
-        "label": "concludes grader A's assessment is the supported one",
-        "credit": "Identifying the right grader by description (\"the one who agreed\", \"the first grader\") counts. Naming the letter is not required.",
-        "patterns": ["grader a", "a is (right|correct|supported)", "the (first|agreeing) grader"]
+        "label": "concludes that grader A is supported in the original count_up(3) case",
+        "credit": "Identifying grader A by description (\"the agreeing grader\", \"the first grader\") counts. Choosing grader D in the fresh range(0, 3) case does not satisfy this concept.",
+        "patterns": [
+          "grader a",
+          "a is (right|correct|supported)",
+          "(first|agreeing) grader.{0,80}(count_up|\\[1, ?2, ?3\\])"
+        ]
       },
       {
         "id": "range-endpoints",
-        "label": "states that range(1, n+1) produces 1 through n inclusive",
-        "patterns": ["1.{0,20}(through|to).{0,10}(n|3)", "\\[1, ?2, ?3\\]", "exclusive.{0,40}(n ?\\+ ?1|top|stop)"]
+        "label": "for the original count_up(3) case, states that range(1, n+1) produces 1 through n inclusive, specifically [1, 2, 3]",
+        "credit": "Credit requires evaluating the original range(1, n+1) or count_up(3) endpoints. Evaluating only the fresh range(0, 3) case earns no credit.",
+        "patterns": [
+          "count_up\\(3\\).{0,80}\\[1, ?2, ?3\\]",
+          "range\\(1, ?n ?\\+ ?1\\).{0,80}(1.{0,10}(through|to).{0,10}n|\\[1, ?2, ?3\\])"
+        ]
       },
       {
         "id": "evidence-not-stance",
@@ -624,17 +635,21 @@
     "concepts": [
       {
         "id": "grader-b-supported",
-        "label": "concludes grader B's assessment is the supported one",
-        "credit": "Identifying the right grader by description (\"the one who said worst case\", \"the half-credit grader\") counts.",
-        "patterns": ["grader b", "b is (right|correct|supported)", "the (second|half.credit|strict) grader"]
+        "label": "concludes that grader B is supported in the original Python-dict lookup case",
+        "credit": "Identifying grader B by description (\"the grader who answered the dict worst-case question\", \"the half-credit grader\") counts. Choosing grader F in the fresh list.append case does not satisfy this concept.",
+        "patterns": [
+          "grader b",
+          "b is (right|correct|supported)",
+          "(second|half.credit|strict) grader.{0,80}(dict|hash|collid)"
+        ]
       },
       {
         "id": "worst-case-vs-expected",
-        "label": "separates worst case from expected/amortised cost and names the all-collide input",
+        "label": "for the original Python-dict case, separates expected/amortised O(1) lookup from worst-case O(n) lookup when all keys collide",
+        "credit": "Credit requires all three original-case elements: Python dict or hash-table lookup, worst-case O(n) caused by all or every key colliding, and expected/amortised O(1) as a different claim. List.append resize reasoning belongs only to transfer-applied.",
         "patterns": [
-          "worst case.{0,50}(o\\(n\\)|linear|collid)",
-          "expected|amortis|amortiz",
-          "all.{0,20}collid|every key"
+          "(dict|hash).{0,100}worst case.{0,50}(o\\(n\\)|linear).{0,80}(all|every).{0,20}(key.{0,20})?collid",
+          "(all|every).{0,20}(key.{0,20})?collid.{0,100}(dict|hash).{0,100}(expected|amortis|amortiz)"
         ]
       },
       {
