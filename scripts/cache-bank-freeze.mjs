@@ -8,7 +8,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   BANK_VERSION,
   EVALUATOR_MODEL,
+  EVALUATOR_ATTEMPT_PLAN,
   GENERATOR_MODEL,
+  GENERATOR_ATTEMPT_PLAN,
   PUBLIC_BLUEPRINT,
   assertCacheCore,
   assertDistinctModelIds,
@@ -95,46 +97,100 @@ export async function requestModelText({
   payload,
   temperature,
   timeoutMs,
+  attemptPlan = GENERATOR_ATTEMPT_PLAN,
   fetchImpl = fetch
 }) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/v1/messages`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        authorization: `Bearer ${key}`,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 12_000,
-        temperature,
-        system,
-        messages: [{ role: "user", content: JSON.stringify(payload) }]
-      })
-    });
-    if (!response.ok)
-      throw new Error(`Model request failed: ${response.status} ${(await response.text()).slice(0, 300)}`);
-    const body = await response.json();
-    if (typeof body.model !== "string" || normalizeModelId(body.model) !== normalizeModelId(model))
-      throw new Error(`Model response identity does not match requested ${normalizeModelId(model)}`);
-    const text = (body.content ?? [])
-      .filter((block) => block?.type === "text")
-      .map((block) => String(block.text ?? ""))
-      .join("\n")
-      .trim();
-    if (!text) throw new Error("Model returned no text");
-    return text;
-  } catch (error) {
-    if (controller.signal.aborted) throw new Error(`Model request timed out after ${timeoutMs}ms`);
-    throw error;
-  } finally {
-    clearTimeout(timer);
+  const attempts = [];
+  let lastError = "Model returned no text";
+  for (const [index, plan] of attemptPlan.entries()) {
+    const ordinal = index + 1;
+    const started = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/v1/messages`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": key,
+          authorization: `Bearer ${key}`,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: plan.maxTokens,
+          temperature,
+          system,
+          messages: [{ role: "user", content: JSON.stringify(payload) }],
+          ...(plan.reasoningMode === "none" ? { reasoning: { effort: "none" } } : {})
+        })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+      const body = await response.json();
+      const blocks = Array.isArray(body.content) ? body.content : [];
+      const contentBlockCounts = {};
+      let text = "";
+      let thinkingChars = 0;
+      for (const block of blocks) {
+        const type = String(block?.type ?? "unknown");
+        contentBlockCounts[type] = (contentBlockCounts[type] ?? 0) + 1;
+        if (type === "text") text += `${String(block?.text ?? "")}\n`;
+        if (type === "thinking" || type === "redacted_thinking")
+          thinkingChars += String(block?.thinking ?? block?.text ?? block?.reasoning ?? "").length;
+      }
+      text = text.trim();
+      const attempt = {
+        ordinal,
+        maxTokens: plan.maxTokens,
+        reasoningMode: plan.reasoningMode,
+        durationMs: Date.now() - started,
+        responseId: body.id ? String(body.id) : null,
+        responseModel: typeof body.model === "string" ? body.model : null,
+        stopReason: body.stop_reason ?? body.stopReason ?? null,
+        usage: body.usage ?? null,
+        contentBlockCounts,
+        textChars: text.length,
+        thinkingChars,
+        outcome: text ? "success" : "empty_text"
+      };
+      if (typeof body.model !== "string" || normalizeModelId(body.model) !== normalizeModelId(model)) {
+        attempt.outcome = "model_identity_mismatch";
+        attempts.push(attempt);
+        const error = new Error(`Model response identity does not match requested ${normalizeModelId(model)}`);
+        error.modelAttempts = attempts;
+        throw error;
+      }
+      attempts.push(attempt);
+      if (text) return { text, attempts };
+      lastError = "Model returned no text";
+    } catch (error) {
+      if (Array.isArray(error?.modelAttempts)) throw error;
+      lastError = controller.signal.aborted
+        ? `Model request timed out after ${timeoutMs}ms`
+        : `Model request failed: ${error?.message ?? error}`;
+      attempts.push({
+        ordinal,
+        maxTokens: plan.maxTokens,
+        reasoningMode: plan.reasoningMode,
+        durationMs: Date.now() - started,
+        responseId: null,
+        responseModel: null,
+        stopReason: null,
+        usage: null,
+        contentBlockCounts: {},
+        textChars: 0,
+        thinkingChars: 0,
+        outcome: controller.signal.aborted ? "timeout" : "transport_error",
+        error: lastError.slice(0, 500)
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  const error = new Error(`${lastError} after ${attempts.length} bounded attempt(s)`);
+  error.modelAttempts = attempts;
+  throw error;
 }
 
 function gitIdentity() {
@@ -323,7 +379,8 @@ async function freeze(args) {
         system: request.system,
         payload: request.payload,
         temperature: 0.4,
-        timeoutMs: args.timeoutMs
+        timeoutMs: args.timeoutMs,
+        attemptPlan: GENERATOR_ATTEMPT_PLAN
       }),
     evaluateCandidate: ({ request }) =>
       requestModelText({
@@ -333,7 +390,8 @@ async function freeze(args) {
         system: request.system,
         payload: request.payload,
         temperature: 0,
-        timeoutMs: args.timeoutMs
+        timeoutMs: args.timeoutMs,
+        attemptPlan: EVALUATOR_ATTEMPT_PLAN
       })
   });
   const freezeResultFile = path.join(privateDir, "freeze-result.json");
