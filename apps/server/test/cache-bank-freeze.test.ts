@@ -398,7 +398,7 @@ describe("cache bank freeze protocol", () => {
         },
         generateBatch: async () => ({
           text: rawResponse,
-          attempts: [{ ordinal: 1, outcome: "success", responseModel: "deepseek-v4-pro" }]
+          attempts: [{ ordinal: 1, outcome: "success", responseModel: "glm-5.3-flash" }]
         }),
         evaluateCandidate: async () => evaluatorResponse()
       })
@@ -459,10 +459,10 @@ describe("cache bank freeze protocol", () => {
 
   it("pins model separation, cacheCore protocol, and resume provenance", () => {
     expect(assertDistinctModelIds()).toEqual({
-      generator: "deepseek-v4-pro",
+      generator: "glm-5.3-flash",
       evaluator: "deepseek-v4-flash-vision-exp"
     });
-    expect(() => assertDistinctModelIds("proxy/DEEPSEEK-V4-PRO[1M]", "deepseek-v4-pro")).toThrow("same model");
+    expect(() => assertDistinctModelIds("proxy/GLM-5.3-FLASH[1M]", "glm-5.3-flash")).toThrow("same model");
     const original = provenance();
     const checkpoint = newCheckpoint({ seed: 11, provenance: original, cacheCore });
     expect(() =>

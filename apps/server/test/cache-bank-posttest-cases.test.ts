@@ -125,7 +125,7 @@ function frozenFixture() {
     gitDirty: false,
     buildSha: "a".repeat(40),
     models: {
-      generator: { normalizedId: "deepseek-v4-pro" },
+      generator: { normalizedId: "glm-5.3-flash" },
       evaluator: { normalizedId: "deepseek-v4-flash-vision-exp" }
     },
     counts: {

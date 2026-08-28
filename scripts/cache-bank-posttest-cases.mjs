@@ -239,7 +239,7 @@ function validateFrozenArtifacts(bank, manifest) {
   )
     throw new Error("Cache bank manifest must pin one clean Git/build SHA");
   if (
-    manifest.models?.generator?.normalizedId !== "deepseek-v4-pro" ||
+    manifest.models?.generator?.normalizedId !== "glm-5.3-flash" ||
     manifest.models?.evaluator?.normalizedId !== "deepseek-v4-flash-vision-exp" ||
     manifest.models.generator.normalizedId === manifest.models.evaluator.normalizedId
   )
