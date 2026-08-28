@@ -484,7 +484,14 @@ describe("HTTP API", () => {
       authSource: "none",
       hasAuthToken: false,
       baseUrl: "",
-      model: "sonnet"
+      model: "sonnet",
+      modelDisplay: "sonnet",
+      backgroundModel: expect.any(String),
+      effectiveModel: expect.any(String),
+      effectiveBackgroundModel: expect.any(String),
+      effectiveModelMappings: expect.any(Object),
+      effort: "high",
+      runTimeoutMs: 20_000
     });
 
     const savedRuntimeConfig = await app.inject({

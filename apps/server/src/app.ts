@@ -10,7 +10,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
   applyLocalRuntimeSettings,
+  backgroundModelName,
+  effectiveModelMappings,
   MODEL_ALIAS_ENV_KEYS,
+  resolveEffectiveModel,
   type AppConfig,
   type LocalRuntimeSettings
 } from "./config.js";
@@ -379,6 +382,8 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
 
   const runtimeConfigStatus = () => {
     const stored = store.getSetting<LocalRuntimeSettings>("runtime.config");
+    const effectiveMappings = effectiveModelMappings(config);
+    const backgroundModel = backgroundModelName(config);
     return {
       runtime: runtime.kind,
       authConfigured: config.claudeAuthConfigured,
@@ -386,6 +391,13 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       hasAuthToken: Boolean(stored?.authToken || config.anthropicAuthToken),
       baseUrl: config.anthropicBaseUrl ?? "",
       model: config.model,
+      modelDisplay: config.modelDisplay,
+      backgroundModel,
+      effectiveModel: resolveEffectiveModel(config.model, effectiveMappings),
+      effectiveBackgroundModel: resolveEffectiveModel(backgroundModel, effectiveMappings),
+      effectiveModelMappings: effectiveMappings,
+      effort: config.effort,
+      runTimeoutMs: config.runTimeoutMs,
       provider: config.modelProvider ?? stored?.provider ?? "",
       modelMappings: config.modelAliasEnv ?? {}
     };

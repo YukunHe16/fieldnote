@@ -108,12 +108,43 @@ export const MODEL_ALIAS_ENV_KEYS = [
 ] as const;
 
 /** Model name Fieldnote asks for on background work (titles, memory upkeep). */
-export function backgroundModelName(config: AppConfig): string {
+export function backgroundModelName(config: AppConfig, processEnv: NodeJS.ProcessEnv = process.env): string {
   return (
     config.modelAliasEnv?.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME?.trim() ||
-    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME?.trim() ||
+    processEnv.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME?.trim() ||
     "sonnet"
   );
+}
+
+const MODEL_ALIAS_KEYS_BY_NAME: Record<string, (typeof MODEL_ALIAS_ENV_KEYS)[number]> = {
+  sonnet: "ANTHROPIC_DEFAULT_SONNET_MODEL",
+  haiku: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  opus: "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  fable: "ANTHROPIC_DEFAULT_FABLE_MODEL"
+};
+
+export function effectiveModelMappings(
+  config: AppConfig,
+  processEnv: NodeJS.ProcessEnv = process.env
+): Record<string, string> {
+  const mappings = Object.fromEntries(
+    MODEL_ALIAS_ENV_KEYS.flatMap((key) => (processEnv[key]?.trim() ? [[key, processEnv[key]!.trim()]] : []))
+  );
+  if (config.claudeSettingsMode === "inherit-user") {
+    const inherited = readClaudeUserSettingsEnv(config.claudeConfigDir);
+    for (const key of MODEL_ALIAS_ENV_KEYS) {
+      if (!mappings[key] && inherited[key]?.trim()) mappings[key] = inherited[key].trim();
+    }
+  }
+  for (const [key, value] of Object.entries(config.modelAliasEnv ?? {})) {
+    if ((MODEL_ALIAS_ENV_KEYS as readonly string[]).includes(key) && value.trim()) mappings[key] = value.trim();
+  }
+  return mappings;
+}
+
+export function resolveEffectiveModel(requestedModel: string, mappings: Record<string, string>): string {
+  const key = MODEL_ALIAS_KEYS_BY_NAME[requestedModel.trim().toLowerCase()];
+  return key ? (mappings[key]?.trim() ?? requestedModel) : requestedModel;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): AppConfig {
