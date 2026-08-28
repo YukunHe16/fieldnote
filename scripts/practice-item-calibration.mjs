@@ -24,6 +24,7 @@
  * pass | fail | unsure; human_overall takes approve | reject.
  */
 
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -181,7 +182,8 @@ async function runExport(args) {
   const parsed = await loadExport(args);
   const lookup = sessionLookup(parsed);
   let items = parsed.practiceItems ?? [];
-  const total = items.length;
+  const sourceItems = items.length;
+  const sourceSha256 = createHash("sha256").update(JSON.stringify(items)).digest("hex");
   if (args.dataset) {
     const wanted = new Set(
       args.dataset
@@ -196,6 +198,7 @@ async function runExport(args) {
       throw new Error("the export payload carries no sessions/incidents context — cannot filter by dataset");
     items = items.filter((item) => wanted.has(lookup.get(item.incidentId)?.datasetKind ?? ""));
   }
+  const eligibleItems = items.length;
   if (args.sample && args.sample < items.length) {
     const rng = mulberry32(args.seed);
     const shuffled = [...items];
@@ -239,10 +242,28 @@ async function runExport(args) {
   const out = args.out ?? "data/eval-runs/practice-calibration-sample.csv";
   await fs.mkdir(path.dirname(out), { recursive: true });
   await fs.writeFile(out, `${lines.join("\n")}\n`, "utf8");
+  await fs.writeFile(
+    `${out}.manifest.json`,
+    `${JSON.stringify(
+      {
+        createdAt: new Date().toISOString(),
+        seed: args.seed,
+        dataset: args.dataset ?? null,
+        requestedSample: args.sample ?? null,
+        sourceItems,
+        eligibleItems,
+        selectedItemIds: items.map((item) => item.id),
+        sourcePracticeItemsSha256: sourceSha256
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
   console.log(
-    `wrote ${items.length}/${total} practice items to ${out} (seed ${args.seed}${
+    `wrote ${items.length}/${eligibleItems} eligible practice items to ${out} (${sourceItems} before filtering; seed ${args.seed}${
       args.dataset ? `, dataset ${args.dataset}` : ""
-    }); fill the human_* columns with pass|fail|unsure and human_overall with approve|reject, then run the report command.`
+    }); manifest: ${out}.manifest.json. Fill the human_* columns with pass|fail|unsure and human_overall with approve|reject, then run the report command.`
   );
 }
 

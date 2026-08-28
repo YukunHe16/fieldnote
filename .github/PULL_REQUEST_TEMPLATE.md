@@ -13,9 +13,11 @@
 
 ## 质量门 / Quality gates
 
+- [ ] `pnpm lint` 通过
 - [ ] `pnpm typecheck` 通过
 - [ ] `pnpm test` 通过
 - [ ] `pnpm build` 通过
+- [ ] `pnpm audit:package` 通过
 - [ ] 新增测试是密闭的：不访问网络、不消耗模型额度、不需要真实飞书凭据
 - [ ] CI 全绿
 - [ ] 面向用户的行为变化已同步到 README / `docs/USER_GUIDE.md` / `docs/FEATURES.md`

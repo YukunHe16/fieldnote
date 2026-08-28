@@ -87,13 +87,15 @@ opened an incident:
 | feedback-uncertainty items | 59 | 50 (85%) | 8 | 1 |
 
 (Judge at temperature 0 against the scripted beliefs; both misses are sessions where the
-loop diagnosed a malformed learner message rather than the misconception. Reproduce with
-`node scripts/learning-diagnosis-accuracy.mjs`; the per-session audit trail is written
-next to the run data.)
+loop diagnosed a malformed learner message rather than the misconception. The original
+per-session audit trail is stored locally next to the run data. Because that historical
+176-session cohort predates frozen manifests, `node scripts/learning-diagnosis-accuracy.mjs --dry-run`
+should now be used to inspect the discovered scope before regrading; adding later runs changes
+the denominator.)
 
-This is a validity floor, not an outcome claim — it says the diagnoses shown in the demo
-recordings are representative, and that the "assessment before treatment" half of the
-loop works on scripted openings.
+For that archived protocol, this was a validity floor rather than an outcome claim: it suggested
+the diagnoses shown in the demo recordings were representative of those scripted openings. It
+does not validate the current prompt/schema, which changed after this cohort was measured.
 
 **Structural guarantees, auditable from code and data rather than from learner behavior:**
 eval sessions are isolated from live statistics (fixed strategy order, no experience

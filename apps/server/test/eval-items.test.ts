@@ -52,6 +52,19 @@ const items: EvalItem[] = fs
 const feedbackItems = items.filter((item) => item.difficultyType === "feedback_uncertainty");
 
 describe("learning eval item bank", () => {
+  it("pins the published family sizes so code and study docs change together", () => {
+    const familySizes = Object.fromEntries(
+      [...new Set(items.map((item) => item.difficultyType))]
+        .sort()
+        .map((family) => [family, items.filter((item) => item.difficultyType === family).length])
+    );
+    expect(familySizes).toEqual({
+      conceptual_misconception: 6,
+      feedback_uncertainty: 19,
+      planning_gap: 6
+    });
+  });
+
   it("loads every item with unique ids and compilable patterns", () => {
     expect(items.length).toBeGreaterThan(0);
     expect(new Set(items.map((item) => item.id)).size).toBe(items.length);
@@ -146,7 +159,7 @@ describe("learning eval item bank", () => {
     const dual = feedbackItems.filter((item) => item.persona.beliefs.length > 1);
     const single = feedbackItems.filter((item) => item.persona.beliefs.length === 1);
     expect(dual.length).toBe(6);
-    expect(single.length).toBeGreaterThanOrEqual(9);
+    expect(single.length).toBe(13);
     for (const item of feedbackItems) {
       expect(item.persona.beliefs.length, `${item.id} beliefs`).toBeGreaterThan(0);
       if (item.stubbornPersona)

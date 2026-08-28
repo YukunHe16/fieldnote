@@ -761,14 +761,14 @@ A completed run attempts to create a snapshot that freezes the original prompt a
 - 每个 Run、活动、工具调用、协作任务和学习状态都有持久状态，异常重启后可审计或恢复允许恢复的队列。
 - 用户可见的多数工具活动摘要与受控协作结果会按各自路径脱敏和截断；不能因此假定 SDK session 条目或 Thinking 流经过同样处理。
 - 主要回归测试覆盖 Orchestrator 队列/停止/补充竞态、附件 Manifest、Replay、专家 Child Query、协作 Store、学习状态机与策略、Web API/UI、飞书附件与卡片。
-- 全量质量门为 `pnpm typecheck`、`pnpm test`、`pnpm build` 和 `git diff --check`。
+- 全量质量门为 `pnpm lint`、`pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm audit:package` 和 `git diff --check`。
 
 **English**
 
 - Runs, activities, tool calls, collaboration tasks, and learning state have durable state, allowing post-crash auditing and recovery of queues that are safe to resume.
 - Most user-visible tool-activity summaries and governed collaboration results are redacted and truncated through their respective paths. This does not imply the same processing for SDK-session entries or the Thinking stream.
 - Major regression coverage includes orchestrator queue/stop/supplement races, attachment manifests, Replay, specialist child queries, the collaboration store, learning state and policy, Web API/UI, and Feishu attachments/cards.
-- Full quality gates are `pnpm typecheck`, `pnpm test`, `pnpm build`, and `git diff --check`.
+- Full quality gates are `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm audit:package`, and `git diff --check`.
 
 ## 14. 安全与隐私边界 / Security and privacy boundaries
 

@@ -14,7 +14,7 @@ pnpm setup                   # 创建 .env 与 data/workspaces，检测本地 Cl
 pnpm dev                     # Web http://127.0.0.1:5173 · API http://127.0.0.1:8787
 ```
 
-`pnpm doctor` 可以随时复查认证、端口、目录、plugins/MCP 与可选外部工具的状态；它只报告配置是否可用，不会打印任何密钥值。
+`pnpm run doctor` 可以随时复查认证、端口、目录、plugins/MCP 与可选外部工具的状态；它只报告配置是否可用，不会打印任何密钥值。
 
 没有 Claude 认证也可以开发：在 `.env` 中设置 `AGENT_RUNTIME=demo`，界面和流式状态都是真实的，只是不调用外部模型。
 
@@ -22,15 +22,17 @@ pnpm dev                     # Web http://127.0.0.1:5173 · API http://127.0.0.1
 
 ## 质量门
 
-提交前这三条必须全绿：
+提交前这些检查必须全绿：
 
 ```bash
+pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm audit:package
 ```
 
-CI 会在 Ubuntu（Node 20 与 24）和 macOS（Node 24）上跑同样的命令。请顺手检查 `git diff --check` 没有行尾空白。
+CI 会在 Ubuntu（Node 22 与 24）和 macOS（Node 24）上跑同样的命令。请顺手检查 `git diff --check` 没有行尾空白。
 
 ## 测试必须密闭
 

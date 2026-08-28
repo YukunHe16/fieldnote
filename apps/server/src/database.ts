@@ -180,8 +180,6 @@ CREATE TABLE IF NOT EXISTS event_log (
   UNIQUE(conversation_id, sequence)
 );
 
-CREATE INDEX IF NOT EXISTS idx_event_log_conversation_sequence ON event_log(conversation_id, sequence);
-
 CREATE TABLE IF NOT EXISTS session_store_entries (
   project_key TEXT NOT NULL,
   session_id TEXT NOT NULL,
@@ -330,6 +328,10 @@ export function openDatabase(databasePath: string): SqliteDatabase {
   database.pragma("journal_mode = WAL");
   database.pragma("synchronous = NORMAL");
   database.exec(schema);
+  // UNIQUE(conversation_id, sequence) already owns an index with this exact key.
+  // Older databases also created a named duplicate, which doubled write amplification
+  // and can consume hundreds of MB on token-delta-heavy eval runs.
+  database.exec("DROP INDEX IF EXISTS idx_event_log_conversation_sequence");
   const attachmentColumns = database.pragma("table_info(attachments)") as Array<{ name: string }>;
   if (!attachmentColumns.some((column) => column.name === "presented")) {
     database.exec("ALTER TABLE attachments ADD COLUMN presented INTEGER NOT NULL DEFAULT 1");

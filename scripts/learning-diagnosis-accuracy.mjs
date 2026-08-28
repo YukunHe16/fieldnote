@@ -12,6 +12,7 @@
  *
  *   node scripts/learning-diagnosis-accuracy.mjs [--db data/agent.db]
  *     [--runs data/eval-runs] [--judge-model <id>] [--out data/eval-runs/diagnosis-accuracy.md]
+ *     [--dry-run] [--allow-mixed-protocols]
  */
 
 import fs from "node:fs/promises";
@@ -38,9 +39,24 @@ function parseArgs(argv) {
     else if (key === "--runs") args.runs = next();
     else if (key === "--judge-model") args.judgeModel = next();
     else if (key === "--out") args.out = next();
+    else if (key === "--allow-mixed-protocols") args.allowMixedProtocols = true;
+    else if (key === "--dry-run") args.dryRun = true;
     else throw new Error(`Unknown argument: ${key}`);
   }
   return args;
+}
+
+async function findResultFiles(root) {
+  const files = [];
+  const walk = async (directory) => {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) await walk(target);
+      else if (entry.isFile() && entry.name === "results.json") files.push(target);
+    }
+  };
+  await walk(root);
+  return files.sort();
 }
 
 async function loadEnvFile(file) {
@@ -131,7 +147,7 @@ async function main() {
     key: env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "",
     model: args.judgeModel ?? env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? "claude-haiku-4-5-20251001"
   };
-  if (!cfg.key) throw new Error("No judge credential: set ANTHROPIC_AUTH_TOKEN in .env");
+  if (!cfg.key && !args.dryRun) throw new Error("No judge credential: set ANTHROPIC_AUTH_TOKEN in .env");
   const items = Object.fromEntries((await loadItems({})).map((item) => [item.id, item]));
 
   const database = new Database(args.db, { readonly: true });
@@ -144,27 +160,39 @@ async function main() {
      LIMIT 1`
   );
 
-  // One row per archived eval session. Conversations never repeat across run directories,
-  // so no dedup is needed; sessions that never opened an incident are counted separately —
-  // a run that produced no diagnosis is a loop-reliability failure, not a diagnosis error.
+  // One row per archived eval session. A repaired report may copy records from a nested run,
+  // so conversation ids — not directories — are the identity and duplicates are skipped.
+  // Sessions that never opened an incident are counted separately: a run that produced no
+  // diagnosis is a loop-reliability failure, not a diagnosis error.
   const rows = [];
   let noIncident = 0;
-  for (const dir of (await fs.readdir(args.runs)).sort()) {
+  let duplicates = 0;
+  const seenConversations = new Set();
+  const resultFiles = await findResultFiles(args.runs);
+  for (const resultFile of resultFiles) {
     let parsed;
     try {
-      parsed = JSON.parse(await fs.readFile(path.join(args.runs, dir, "results.json"), "utf8"));
+      parsed = JSON.parse(await fs.readFile(resultFile, "utf8"));
     } catch {
-      continue; // not a run directory
+      continue;
     }
+    const runDir = path.relative(args.runs, path.dirname(resultFile)) || ".";
+    const protocol = parsed.protocol?.runFingerprint ?? parsed.protocol?.fingerprint ?? "legacy-unversioned";
     for (const record of parsed.records ?? []) {
       if (!record.conversationId || !items[record.itemId]) continue;
+      if (seenConversations.has(record.conversationId)) {
+        duplicates += 1;
+        continue;
+      }
+      seenConversations.add(record.conversationId);
       const incident = firstIncident.get(record.conversationId);
       if (!incident) {
         noIncident += 1;
         continue;
       }
       rows.push({
-        runDir: dir,
+        runDir,
+        protocol,
         itemId: record.itemId,
         family: record.family,
         tier: record.tier ?? "mild",
@@ -174,6 +202,18 @@ async function main() {
     }
   }
   database.close();
+  const protocols = [...new Set(rows.map((row) => row.protocol))].sort();
+  if (protocols.length > 1 && !args.allowMixedProtocols) {
+    throw new Error(
+      `Archived results span ${protocols.length} protocols (${protocols.join(", ")}). Re-run with a version-specific results directory, or pass --allow-mixed-protocols for an explicitly mixed audit.`
+    );
+  }
+  if (args.dryRun) {
+    console.log(
+      `Diagnosis audit dry run: ${rows.length} diagnoses · ${noIncident} without incident · ${duplicates} duplicate records skipped · ${resultFiles.length} result files · protocol ${protocols.join(", ") || "none"}`
+    );
+    return;
+  }
   console.log(`Judging ${rows.length} diagnoses (${noIncident} session(s) never opened an incident) with ${cfg.model}`);
 
   let cursor = 0;
@@ -214,6 +254,7 @@ async function main() {
 > real students.
 
 - Sessions judged: ${judged.length}${errors ? ` · judge errors: ${errors}` : ""} · sessions that never opened an incident: ${noIncident} (loop-reliability failures, tracked separately)
+- Result files scanned: ${resultFiles.length} · duplicate conversation records skipped: ${duplicates} · protocol: \`${protocols.join(", ") || "none"}\`
 - Judge: \`${cfg.model}\` at temperature 0 · verdicts: **match** (names the scripted mechanism), **partial** (right area, core mechanism missed or overclaimed), **miss** (different difficulty)
 - Reproduce: \`node scripts/learning-diagnosis-accuracy.mjs\`
 

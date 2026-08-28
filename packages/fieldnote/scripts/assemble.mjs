@@ -7,7 +7,9 @@
  *   server/dist     — `<serverDist>/../../web/dist` finds the web bundle (app.ts)
  *   server/plugins  — `<serverDist>/../plugins` is BUNDLED_PLUGIN_ROOT (document-skills.ts)
  *   web/dist        — static site served in production single-port mode
- * Run by `prepack`, so `npm pack` / `npm publish` always ship a fresh copy.
+ * Every target is replaced wholesale so a direct `npm pack` / `npm publish` cannot
+ * retain files from an older assembly. The repository build separately cleans its
+ * source output directories before compiling.
  */
 import fs from "node:fs";
 import path from "node:path";

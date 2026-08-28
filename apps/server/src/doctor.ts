@@ -2,7 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AppConfig } from "./config.js";
+import { readClaudeUserSettingsEnv, type AppConfig } from "./config.js";
 import { probeExternalTools, type ExternalToolStatus } from "./capability-probe.js";
 
 export type DoctorStatus = "ok" | "warn" | "fail";
@@ -119,6 +119,38 @@ function checkSettingsMode(config: AppConfig): DoctorCheck {
     label: "设置模式：隔离（isolated）",
     labelEn: "Settings mode: isolated",
     detail: config.claudeConfigDir
+  };
+}
+
+/**
+ * Tool search hides most of the agent's tools behind a search step. Fieldnote pins it off for
+ * the child, but in inherit-user mode Claude Code reads ~/.claude/settings.json itself and
+ * applies that env block over the environment it was spawned with, so a flag set there wins.
+ * The failure is silent — the tutor simply stops running the learning loop — so name it here.
+ */
+function checkToolSurface(config: AppConfig): DoctorCheck {
+  const disabled = ["0", "false", "no", "off"];
+  const inherited =
+    config.claudeSettingsMode === "inherit-user"
+      ? readClaudeUserSettingsEnv(config.claudeConfigDir).ENABLE_TOOL_SEARCH?.trim().toLowerCase()
+      : undefined;
+  if (!inherited || disabled.includes(inherited)) {
+    return {
+      id: "tool-surface",
+      status: "ok",
+      label: "工具集：完整（未启用工具检索）",
+      labelEn: "Tool surface: complete (tool search off)"
+    };
+  }
+  return {
+    id: "tool-surface",
+    status: "warn",
+    label: "工具集：settings.json 启用了 ENABLE_TOOL_SEARCH，辅导循环可能静默失效",
+    labelEn: "Tool surface: settings.json enables ENABLE_TOOL_SEARCH; the learning loop may silently stop running",
+    detail: path.join(config.claudeConfigDir, "settings.json"),
+    hint: "从该文件的 env 中删除 ENABLE_TOOL_SEARCH（Fieldnote 无法覆盖这里的取值），或改用 CLAUDE_SETTINGS_MODE=isolated。",
+    hintEn:
+      "Remove ENABLE_TOOL_SEARCH from that file's env block — Fieldnote cannot override it there — or run with CLAUDE_SETTINGS_MODE=isolated."
   };
 }
 
@@ -275,6 +307,7 @@ export async function runDoctor(config: AppConfig, extras: DoctorExtras = {}): P
   const checks: DoctorCheck[] = [];
   checks.push(checkRuntime(config));
   checks.push(checkSettingsMode(config));
+  checks.push(checkToolSurface(config));
   checks.push(checkDataDir(config));
   checks.push(checkDatabase(config));
   if (extras.probePorts) checks.push(await checkPorts(config));

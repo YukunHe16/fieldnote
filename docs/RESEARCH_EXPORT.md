@@ -128,7 +128,9 @@ incident: diagnosed → intervening → verifying → (resolved | unresolved | e
 
 **校准协议**：`scripts/practice-item-calibration.mjs export` 从本导出生成标注表（CSV，空白人工列，
 `--sample N --seed S` 可复现抽样，`--dataset live,eval` 按数据集过滤——正式协议只标 live/eval，demo 是夹具噪声；
-表内附 `datasetKind`/`condition` 两列供标注者辨认样本归属）；人工填完后 `report --labels <csv> --labeler <who>` 输出
+表内附 `datasetKind`/`condition` 两列供标注者辨认样本归属）。导出同时写 `<csv>.manifest.json`，固定
+seed、筛选前后样本量、选中的 item IDs 和源 practice-items SHA-256；人工填完后
+`report --labels <csv> --labeler <who>` 输出
 evaluator-与-人工一致率报告（按 checks 维度的 fail-精确率/召回率 + 分歧分型）到
 `data/eval-runs/practice-calibration.md`。报告只讲质量审查一致率，不是学习效果证据；
 自标注版仅为协议烟测，标注者身份写在报告头。

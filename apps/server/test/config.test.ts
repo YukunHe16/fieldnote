@@ -81,6 +81,43 @@ describe("Claude user settings inheritance", () => {
   });
 });
 
+describe("agent tool surface", () => {
+  it("pins tool search off no matter how the host asks for it", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "claude-settings-"));
+    await fs.writeFile(
+      path.join(directory, "settings.json"),
+      JSON.stringify({
+        env: {
+          ANTHROPIC_AUTH_TOKEN: "test-token-never-log",
+          ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: "test-pro",
+          ENABLE_TOOL_SEARCH: "true"
+        }
+      })
+    );
+    const config = loadConfig(
+      { CLAUDE_CONFIG_DIR: directory, CLAUDE_SETTINGS_MODE: "auto", NODE_ENV: "test" },
+      directory
+    );
+    expect(config.claudeSettingsMode).toBe("inherit-user");
+
+    // Both ways in at once: the host process environment, and the env block Fieldnote
+    // inherits from ~/.claude/settings.json. Deferring the tutor's tools behind a search
+    // step costs it the learning MCP and reports nothing, so neither source may win.
+    const child = composeClaudeChildEnvironment(config, { NODE_ENV: "test", ENABLE_TOOL_SEARCH: "1" });
+    expect(child.ENABLE_TOOL_SEARCH).toBe("false");
+    // The rest of the inherited env still has to come through.
+    expect(child.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME).toBe("test-pro");
+
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  it("pins tool search off for an isolated runtime that never inherits settings", () => {
+    const config = loadConfig({ CLAUDE_SETTINGS_MODE: "isolated", NODE_ENV: "test" }, process.cwd());
+    const child = composeClaudeChildEnvironment(config, { NODE_ENV: "test", ENABLE_TOOL_SEARCH: "auto" });
+    expect(child.ENABLE_TOOL_SEARCH).toBe("false");
+  });
+});
+
 describe("credential precedence over a local Claude login", () => {
   it("drops a blank ANTHROPIC_API_KEY inherited from .env", () => {
     const config = loadConfig({ CLAUDE_SETTINGS_MODE: "isolated", NODE_ENV: "test" }, process.cwd());

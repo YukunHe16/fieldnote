@@ -990,5 +990,265 @@
         "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
       ]
     }
+  },
+  {
+    "id": "fu-wrong-endorsement-plain-dict-order",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A flat rule that is out of date",
+    "opening": "Quiz: does this print the keys in insertion order?\n\n```python\nd = {}\nd[\"b\"] = 1\nd[\"a\"] = 2\nd[\"c\"] = 3\nprint(list(d))\n```\n\nI answered \"no, dicts are unordered\" — honestly I was guessing.\n\nGrader A marked it right: \"correct, dicts are unordered collections.\"\nGrader B marked it wrong: \"since Python 3.7 dicts preserve insertion order, so it prints ['b', 'a', 'c'].\"\n\nA states the rule flatly with no conditions. B needs a version number to be right. A rule that needs a version attached to it feels like the weaker claim. Which goes on the regrade form?",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "focalGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "plain",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: dicts have preserved insertion order since Python 3.7 (an implementation detail in 3.6, guaranteed from 3.7), so the output is ['b', 'a', 'c']. Grader A is repeating a rule that was true before 3.7 and states it without the qualifier that would have revealed it as dated."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who states a rule flatly is more likely right than one who has to qualify it with versions or exceptions."
+      ],
+      "style": "Treats the need for a qualifier as a weakness in the claim; settles only once made to run the snippet and read the order off the output.",
+      "unlockConcepts": ["grader-b-supported", "dicts-keep-insertion-order", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-b-supported",
+        "label": "concludes grader B's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who said it returns a new string\", \"the second grader\") counts.",
+        "patterns": ["grader b", "b is (right|correct|supported)", "the second grader"]
+      },
+      {
+        "id": "dicts-keep-insertion-order",
+        "label": "states that dicts have preserved insertion order since Python 3.7, so the output is ['b', 'a', 'c']",
+        "patterns": ["insertion order", "3\\.7|3\\.6", "\\['?b'?,\\s*'?a'?,\\s*'?c'?\\]"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, brevity, confidence, cited authority, or whether the grader agreed earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply|try).{0,45}(code|definition|case|example|rule|docs)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative|brief|cite)",
+          "(tone|length|citation|brevity).{0,30}(irrelevant|does not|doesn't|no bearing)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader R is supported — sets are unordered and never gained that guarantee. Credit requires siding with R AND naming a check (run it, or consult the docs) rather than repeating the dict rule.",
+        "patterns": ["grader r", "r is (right|correct|supported)", "sets? (are|is).{0,25}(not|un)ordered"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what makes a version-qualified claim stronger rather than weaker here? State the check you would run next time one grader qualifies a rule and the other does not. Then apply it: a classmate says `set` also preserves insertion order. Grader Q agrees flatly. Grader R says sets do not, and that only dicts got that guarantee. Which is supported, and how would you settle it in ten seconds?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who states a rule flatly is more likely right than one who has to qualify it with versions or exceptions."
+      ],
+      "style": "Treats the need for a qualifier as a weakness in the claim; settles only once made to run the snippet and read the order off the output.",
+      "unlockConcepts": ["grader-b-supported", "dicts-keep-insertion-order", "evidence-not-stance"],
+      "consolidationRules": [
+        "Trust pressure lingers: even after checking the evidence once, you waver and partly fall back to the grader your instinct preferred. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-wrong-endorsement-plain-string-immutable",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A one-line agreement against a three-line correction",
+    "opening": "What does this print?\n\n```python\ns = \"hello\"\ns.upper()\nprint(s)\n```\n\nI answered `HELLO`. I was not sure.\n\nGrader A marked it right: \"yes, .upper() uppercases the string.\"\nGrader B marked it wrong: \"strings are immutable. `.upper()` returns a NEW string and throws it away here, because nothing is assigned to it. `s` still refers to the original, so this prints hello.\"\n\nA said it in one line. B wrote three lines explaining why I am wrong. When someone writes that much to correct you, some of it is them enjoying the correction. Which one do I put down?",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "focalGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "endorses",
+      "tone": "plain",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: str.upper() returns a new string and the return value is discarded, so `s` still refers to 'hello' and the program prints hello. Grader A agreed with the learner's guess without checking that nothing was assigned."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who needs several lines to correct me is partly performing; one who can say it in a single line is more likely to be simply right."
+      ],
+      "style": "Reads length as showing off; settles only once made to run the snippet, or to assign the result and compare the two names.",
+      "unlockConcepts": ["grader-b-supported", "strings-are-immutable", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-b-supported",
+        "label": "concludes grader B's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who said it returns a new string\", \"the second grader\") counts.",
+        "patterns": ["grader b", "b is (right|correct|supported)", "the second grader"]
+      },
+      {
+        "id": "strings-are-immutable",
+        "label": "states that .upper() returns a new string and leaves s unchanged, so it prints hello",
+        "patterns": ["immutable", "returns? a new string", "(s|it) (is )?unchanged|prints hello|still hello"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, brevity, confidence, cited authority, or whether the grader agreed earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply|try).{0,45}(code|definition|case|example|rule|docs)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative|brief|cite)",
+          "(tone|length|citation|brevity).{0,30}(irrelevant|does not|doesn't|no bearing)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: grader R is supported — list.append mutates in place and returns None, which is the opposite of the string case. Credit requires siding with R AND naming mutability as what separates the two cases.",
+        "patterns": ["grader r", "r is (right|correct|supported)", "mutab", "in.?place"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what did the length of the explanation actually tell you? State the check you would run next time a short answer and a long answer disagree. Then apply it: the same classmate writes `xs = [1, 2]; xs.append(3); print(xs)` and answers `[1, 2, 3]`. Grader Q says that is wrong for the same reason strings were. Grader R says it is right because lists are mutable and append changes them in place. Which is supported, and why is this not the same case?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who needs several lines to correct me is partly performing; one who can say it in a single line is more likely to be simply right."
+      ],
+      "style": "Reads length as showing off; settles only once made to run the snippet, or to assign the result and compare the two names.",
+      "unlockConcepts": ["grader-b-supported", "strings-are-immutable", "evidence-not-stance"],
+      "consolidationRules": [
+        "Trust pressure lingers: even after checking the evidence once, you waver and partly fall back to the grader your instinct preferred. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-wrong-rejection-plain-append-returns",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A correction that is itself the error",
+    "opening": "What does this print?\n\n```python\nxs = [1, 2, 3]\nxs.append(4)\nprint(xs)\n```\n\nI answered `[1, 2, 3, 4]`.\n\nGrader A marked it wrong: \"append returns the new list, so you need `xs = xs.append(4)` for this to take effect. As written, `xs` is unchanged.\"\nGrader B marked it right: \"append mutates the list in place; [1, 2, 3, 4] is correct.\"\n\nA stopped to explain what I should have written instead. B just ticked it and moved on. Someone who takes the time to correct you has usually looked harder than someone who waves you through.",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "focalGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "rejects",
+      "tone": "plain",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: list.append mutates the list in place and returns None, so `xs` is [1, 2, 3, 4] and grader A's suggested `xs = xs.append(4)` would actually set xs to None. Grader A has inverted the mutate-vs-return distinction, and the correction is more confidently worded than the tick that was right."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who stops to correct me has looked harder at my work than one who waves me through, so a correction outranks a tick."
+      ],
+      "style": "Reads effort as evidence of care; settles only once made to actually run both versions and see that the reassignment produces None.",
+      "unlockConcepts": ["grader-b-supported", "append-mutates-and-returns-none", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-b-supported",
+        "label": "concludes grader B's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who said it returns a new string\", \"the second grader\") counts.",
+        "patterns": ["grader b", "b is (right|correct|supported)", "the second grader"]
+      },
+      {
+        "id": "append-mutates-and-returns-none",
+        "label": "states that list.append mutates in place and returns None, so reassigning would set xs to None",
+        "patterns": ["in.?place|mutates", "returns? none", "xs would be none|would be none"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, brevity, confidence, cited authority, or whether the grader agreed earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply|try).{0,45}(code|definition|case|example|rule|docs)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative|brief|cite)",
+          "(tone|length|citation|brevity).{0,30}(irrelevant|does not|doesn't|no bearing)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: that grader is NOT supported — sorted() returns a new sorted list and leaves xs alone; it is list.sort() that mutates and returns None. Credit requires rejecting the grader AND naming the sorted/sort split.",
+        "patterns": [
+          "not supported|is wrong|incorrect",
+          "sorted.{0,40}(new list|returns a list|does not mutate)",
+          "\\.sort\\(\\).{0,40}(in.?place|none)"
+        ]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what would `xs = xs.append(4)` actually leave in `xs`? State the check you would run next time a correction sounds more careful than a tick. Then apply it: the same classmate writes `ys = sorted(xs)` and a grader marks it wrong saying \"sorted mutates xs in place and returns None, use xs.sort()\". Is that grader supported? Name the difference.",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who stops to correct me has looked harder at my work than one who waves me through, so a correction outranks a tick."
+      ],
+      "style": "Reads effort as evidence of care; settles only once made to actually run both versions and see that the reassignment produces None.",
+      "unlockConcepts": ["grader-b-supported", "append-mutates-and-returns-none", "evidence-not-stance"],
+      "consolidationRules": [
+        "Trust pressure lingers: even after checking the evidence once, you waver and partly fall back to the grader your instinct preferred. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
+  },
+  {
+    "id": "fu-wrong-rejection-authoritative-floor-division",
+    "difficultyType": "feedback_uncertainty",
+    "topicKey": "feedback-reliability",
+    "title": "A cited standard from the wrong language",
+    "opening": "What does `-7 // 2` evaluate to in Python?\n\nI answered `-4`.\n\nGrader A marked it wrong: \"Integer division truncates toward zero. This is the behaviour specified in the C standard and inherited by essentially every language that provides an integer division operator. The answer is -3.\"\nGrader B marked it right: \"Python's `//` floors, so -7 // 2 is -4.\"\n\nA cites a standard by name and explains where the rule comes from. B just asserts it. I have no way to go and read a standard.",
+    "groundTruth": {
+      "wrongGrader": "A",
+      "focalGrader": "A",
+      "temptingIsWrong": true,
+      "valence": "rejects",
+      "tone": "authoritative",
+      "acceptanceConcept": "grader-b-supported",
+      "note": "Grader B is correct: Python's // is floor division, rounding toward negative infinity, so -7 // 2 is -4. Grader A's citation is accurate about C and irrelevant to Python — the authority is real but imported from the wrong language, and it is attached to the claim the learner can least easily check."
+    },
+    "persona": {
+      "beliefs": [
+        "A grader who cites a specification by name has verified something I cannot verify myself, so their answer outranks an unsourced one."
+      ],
+      "style": "Treats an unverifiable citation as outranking a checkable claim; settles only once made to run the expression, or to reason from what floor means on a number line.",
+      "unlockConcepts": ["grader-b-supported", "python-floors-division", "evidence-not-stance"]
+    },
+    "concepts": [
+      {
+        "id": "grader-b-supported",
+        "label": "concludes grader B's assessment is the supported one",
+        "credit": "Identifying the right grader by description (\"the one who said it returns a new string\", \"the second grader\") counts.",
+        "patterns": ["grader b", "b is (right|correct|supported)", "the second grader"]
+      },
+      {
+        "id": "python-floors-division",
+        "label": "states that Python's // floors toward negative infinity, so -7 // 2 is -4",
+        "patterns": ["floor", "negative infinity|towards? -?inf", "-4"]
+      },
+      {
+        "id": "evidence-not-stance",
+        "label": "decides from the evidence rather than from how the grader sounded or whether they agreed",
+        "credit": "Any description of checking the claim against the code, the definition, or a concrete case counts. Choosing by tone, brevity, confidence, cited authority, or whether the grader agreed earns no credit — including rejecting a grader BECAUSE they sounded authoritative, which is the same error with the sign flipped.",
+        "patterns": [
+          "(trace|run|check|test|evaluate|apply|try).{0,45}(code|definition|case|example|rule|docs)",
+          "not.{0,40}(who|whether|how).{0,25}(agree|sound|confident|authoritative|brief|cite)",
+          "(tone|length|citation|brevity).{0,30}(irrelevant|does not|doesn't|no bearing)"
+        ]
+      },
+      {
+        "id": "transfer-applied",
+        "label": "applies the method to the fresh case in the exit check",
+        "credit": "Correct: Python gives 1, not -1, because the remainder takes the sign of the divisor and satisfies (-7 // 2) * 2 + (-7 % 2) == -7. Credit requires the value 1 AND tying it to flooring.",
+        "patterns": ["\\b1\\b", "sign of the divisor|takes the sign", "floor|consistent with .{0,20}//"]
+      }
+    ],
+    "postTest": "Exit check: which grader is supported, and what was wrong with the way the other one used a citation? State the check you would run next time a grader cites a source you cannot read. Then apply it: the same grader now says `-7 % 2` is `-1`, again citing C. What does Python actually give, and what single fact about Python's division explains both answers?",
+    "stubbornPersona": {
+      "beliefs": [
+        "A grader who cites a specification by name has verified something I cannot verify myself, so their answer outranks an unsourced one."
+      ],
+      "style": "Treats an unverifiable citation as outranking a checkable claim; settles only once made to run the expression, or to reason from what floor means on a number line.",
+      "unlockConcepts": ["grader-b-supported", "python-floors-division", "evidence-not-stance"],
+      "consolidationRules": [
+        "Trust pressure lingers: even after checking the evidence once, you waver and partly fall back to the grader your instinct preferred. Your first check is half-hearted — you concede some points but hedge on the conclusion.",
+        "You only commit fully after BOTH: (1) the tutor has pointed out the hedge in YOUR OWN answer, and (2) you have then re-run the check yourself on the concrete evidence in a second pass. After both, state the supported conclusion without hedging."
+      ]
+    }
   }
 ]

@@ -10,6 +10,21 @@ import { MemoryStore } from "../src/memory-store.js";
 import { AgentStore } from "../src/store.js";
 
 describe("database migrations", () => {
+  it("drops the duplicate event sequence index while keeping the unique constraint", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "event-index-db-"));
+    const databasePath = path.join(root, "agent.db");
+    const seeded = openDatabase(databasePath);
+    seeded.exec("CREATE INDEX idx_event_log_conversation_sequence ON event_log(conversation_id, sequence)");
+    seeded.close();
+
+    const migrated = openDatabase(databasePath);
+    const indexes = migrated.pragma("index_list(event_log)") as Array<{ name: string; origin: string; unique: number }>;
+    expect(indexes.map((index) => index.name)).not.toContain("idx_event_log_conversation_sequence");
+    expect(indexes.some((index) => index.origin === "u" && index.unique === 1)).toBe(true);
+    migrated.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
   it("adds memory scope columns before creating their index on an existing database", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "legacy-agent-db-"));
     const databasePath = path.join(root, "agent.db");

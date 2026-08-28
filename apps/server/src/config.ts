@@ -195,6 +195,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
 
 const BLANKABLE_AUTH_KEYS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
 
+/**
+ * Host flags that reshape the agent child's tool surface, pinned to the value Fieldnote needs.
+ *
+ * ENABLE_TOOL_SEARCH makes Claude Code hand the model a ToolSearch tool and withhold most
+ * builtins until it searches for them (measured on SDK 0.3.241: 25 tools sent become 13).
+ * Fieldnote's tool set is fixed and small and its learning MCP is mandatory, so there is
+ * nothing to gain and a whole failure mode to lose: a tutor that goes hunting through
+ * ToolSearch never opens a learning incident, the loop never runs, and the conversation
+ * still reads as an ordinary success. Pinned off rather than merely deleted so the child
+ * does not fall back on Claude Code's own default, which depends on whether the configured
+ * endpoint is recognised as first-party — Fieldnote also runs against third-party
+ * Anthropic-compatible gateways.
+ *
+ * This covers the host process environment and the `env` block Fieldnote itself inherits from
+ * ~/.claude/settings.json. It does NOT cover a settings.json that sets the flag while the child
+ * reads user settings directly (inherit-user mode): Claude Code applies that env block over the
+ * environment it was spawned with, so the value below loses. `doctor` reports that case.
+ */
+const PINNED_TOOL_SURFACE_ENV: Record<string, string> = { ENABLE_TOOL_SEARCH: "false" };
+
 /** Config directory Fieldnote owns when it supplies its own model credential. */
 export function fieldnoteClaudeHome(config: AppConfig): string {
   return path.join(path.dirname(config.workspaceRoot), "claude-home");
@@ -247,6 +267,7 @@ export function composeClaudeChildEnvironment(
       if (!childEnvironment[key]) childEnvironment[key] = value;
     }
   }
+  Object.assign(childEnvironment, PINNED_TOOL_SURFACE_ENV);
   const ownCredential = config.anthropicAuthToken ?? config.anthropicApiKey;
   if (config.anthropicAuthToken) {
     childEnvironment.ANTHROPIC_AUTH_TOKEN = config.anthropicAuthToken;

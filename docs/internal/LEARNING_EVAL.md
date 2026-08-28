@@ -6,25 +6,43 @@
 回答更窄的问题）。这是 computing-education 方向候选 RQ 的离线预演。
 
 > **2026-08-25 状态**：结果对比（解决率等）已搁置——LLM 模拟学习者无法可信地"学不会"，
-> 详见 [EVAL_LESSONS.md](EVAL_LESSONS.md)；诊断准确率仍然有效并已测量（见文末）。
+> 详见 [EVAL_LESSONS.md](EVAL_LESSONS.md)；诊断准确率只作为截至该日旧协议 cohort 的历史测量，
+> 不代表当前 HEAD（见文末）。
 
 ## 组成
 
-- 题目：`apps/server/eval/learning-items/*.json`，27 题 × 3 个 difficulty 家族（pg 6 · cm 6 · fu 15）；每题的出口检查带一个迁移任务（fresh case），概念清单附 judge 用的 `credit` 判分说明。结构不变量由 `apps/server/test/eval-items.test.ts` 在 CI 里守着——题库是评测的判分依据，写错不会报错，只会静默算错分。
-- 运行器：`scripts/learning-eval.mjs`，驱动本地运行中的服务的公开 HTTP API；
-  学习会话使用 `datasetKind=eval`（策略固定默认顺序、不写经验、不产策略修订，保证题目间独立）。
+- 题目：`apps/server/eval/learning-items/*.json`，当前共 31 题、3 个 difficulty 家族
+  （pg 6 · cm 6 · fu 19）；每题的出口检查带一个迁移任务（fresh case），概念清单附 judge 用的
+  `credit` 判分说明。结构不变量由 `apps/server/test/eval-items.test.ts` 在 CI 里守着——题库是
+  评测的判分依据，写错不会报错，只会静默算错分。
+- 运行器：`scripts/learning-eval.mjs`，驱动本地运行中的服务的公开 HTTP API；学习会话使用
+  `datasetKind=eval`（策略固定默认顺序、不写经验、不产策略修订，保证题目间独立）。正式运行默认
+  拒绝 dirty checkout，也要求 `/api/health` 的 clean server build SHA 与 runner checkout 相同；只有
+  显式传 `--allow-dirty` / `--allow-server-mismatch` 才能覆盖，报告会把该 run 标成不可精确复现。
 - 模拟学习者：一个便宜模型按题目 persona 扮演学生；stubborn 层的"是否已巩固"由运行器
   按剧本条件判定后注入 persona，不留给模型自己推断。
 - 判分：judge（temperature 0）按概念清单评实质，正则清单作为每次判分随行记录的第二意见，
   报告写明两者一致率；同时报末轮与最优两种覆盖读数。
-- 产出：`data/eval-runs/<ts>/results.json` + `report.md`；服务端聚合可看
-  `GET /api/learning/metrics?datasetKind=eval`。
+- 产出：`data/eval-runs/<ts>/results.json` + `report.md`；每个结果带协议 fingerprint、runner/server
+  Git SHA 与匹配状态、题库与 judge prompt SHA-256、选题清单、模型/provider 及判分失败记录。服务端聚合可看
+  `GET /api/learning/metrics?datasetKind=eval`，但它可能包含同 participant 的早先运行，单次报告以自己的
+  `records` 为准。
 
 ```bash
 node scripts/learning-eval.mjs --dry-run     # 校验题目与计划
-node scripts/learning-eval.mjs               # 全量 27 题 × 2 条件（on-call vs multi-turn）
+node scripts/learning-eval.mjs               # 当前全量 31 题 × 2 条件（on-call vs multi-turn）
 node scripts/learning-eval.mjs --items pg-sum-nested --conditions on-call
 ```
+
+正式评测不要复用日常数据库。先在一个终端用独立 data root 启动服务，再从另一个终端指向它：
+
+```bash
+FIELDNOTE_HOME=data/eval-runtime pnpm run:local -- --api-port 8790
+node scripts/learning-eval.mjs --base http://127.0.0.1:8790
+```
+
+这样 token delta、合成会话和校准记录不会继续膨胀日常 `data/agent.db`；不同冻结协议需要完全隔离时，
+给 `FIELDNOTE_HOME` 换一个新目录。
 
 ## 学习者顽固度分层（tier）
 
@@ -42,14 +60,20 @@ stubborn 规则的依据是概念转变与 worked-example 文献中的经典现�
 仍可能失败（换错策略、停滞、三轮升级），失败会如实计入。两层合起来构成交叉分析：
 自适应溢价随学习者顽固度的变化。
 
+历史归档截至 2026-08-25 包含 72 个 stubborn 会话；它们属于旧题库 / 旧 prompt 协议。
+当前 prompt 与当前 31 题版本尚未跑 stubborn，因此不能用那 72 个会话代表当前 HEAD，也不能说
+stubborn 从未运行过。
+
 ## 方法边界（对外表述必须带上）
 
 1. **模拟学习者不是学生。** persona 是"概念门控"式脚本：只有当导师明确讲到解锁概念时才改口。
    结果说明回路在模拟下的行为差异，不能推断真实学习效果。
-2. **判定是确定性的，且量尺跨条件一致。** 导师每次提出系统判定后，运行器把题目自带的
-   **固定 post-test（出口自解释题）**直接问模拟学习者（不进入导师对话），再用概念正则清单
-   对该回答打分（全中 resolved / 部分 partial / 全空 unresolved）。两个条件用同一把尺子，
-   不受导师自拟验证题形态的影响；系统判定与最终判定分开保存，正好用于校准分析。
+2. **post-test 固定，判分器必须单独校准。** 导师每次提出系统判定后，运行器把题目自带的
+   **固定 post-test（出口自解释题）**直接问模拟学习者（不进入导师对话）。temperature 0 的
+   judge 按概念清单判实质，正则清单只作为随行第二意见，绝不再充当最终 verdict；judge 遇到空响应、
+   坏 JSON 或缺项时用更大输出预算重试一次，仍失败则整条 run 记 measurement error。两个条件使用
+   同一 post-test 与判分配置，但在人工校准完成前不能把 judge 称为确定性或可信量尺；系统判定与
+   最终判定仍分开保存，供校准分析使用。
 3. **小样本，描述性呈现。** 不做显著性检验。
 4. 题面全部原创；文献只作为误解类别与设计依据（见下）。
 
@@ -70,7 +94,7 @@ looping model（把递归当单帧循环）而非 copies model；base case 的�
 looping model）、全局累加器泄漏（pg-reverse-accumulator，return-composition 缺失）、
 快速幂只有偶数分支（pg-power-halving，base case + 奇数归约缺失）。
 
-### feedback_uncertainty（15 题）— EiPE 式作答与冲突/含错评分
+### feedback_uncertainty（当前 19 题）— EiPE 式作答与冲突/含错评分
 
 对准 LLM grading reliability / 学生对错误反馈的接受度。EiPE（Explain in Plain English）
 要求目的层描述而非逐行复述，是该系列工作的核心 rubric 区分；自动评分会犯错，
@@ -85,7 +109,7 @@ looping model）、全局累加器泄漏（pg-reverse-accumulator，return-compo
 奇偶红鲱鱼（fu-binary-search-loop，B 对）、权威口吻的错误复杂度反馈（fu-complexity-triangle，
 学生原答案对——测"在权威压力下放弃正确答案"）。
 
-**因子矩阵与对照组。** 15 题（9 轻信 + 6 对照）按三个二值因子铺满 8 格：本格所描述的
+**因子矩阵与对照组。** 最初 15 题（9 轻信 + 6 对照）按三个二值因子铺满 8 格：本格所描述的
 那份反馈（`focalGrader`）**是否错** × 它**肯定还是否定**学习者 × 语气**朴素还是权威**。
 `sound-*` 那半边是对照——那里 focal 的反馈其实是**对的**，而 persona 的信念恰恰在推着
 学习者去推开它。没有这半边，指标分不清"轻信"和"一律不信"：一个把所有反馈都拒掉的
@@ -97,13 +121,36 @@ looping model）、全局累加器泄漏（pg-reverse-accumulator，return-compo
 （把对的推开）。`scripts/learning-eval.mjs` 因此按格报告并**分半边汇总**，绝不合并成
 单一"接受率"：合并会把"一律不信"读成好判断。
 
+当前题库在这 15 题之外又补了 4 道**单信念、非对照**题，用来把"信念数"和"是否对照"
+两个变量拆开；因此本家族当前是 19 题。下文的 15 题 / 27 题数字都是扩充前历史 run 的上下文，
+不是当前 31 题题库的结果。
+
 **单信念 vs 双信念（一个刻意保留的分组）。** 最早 6 题每题脚本了**两个**信念——一个关于
 学科内容、一个关于信谁——而 tutor 稳定地诊断出其中一个、漏掉另一个,judge 按整个信念列表
 打分于是判 partial。这正是本家族诊断准确率最低（85%，50/59，全部 8 条 partial 都在这里）
-的结构性原因，而 cm/pg 是单信念家族，分别 100% / 98%。后加的 9 题只脚本"信谁"这一条，
-学习者开场的错答是情境事实而非会去辩护的立场。**两组刻意不混**：如果单信念组的诊断准确率
-明显更高，上面那个结构性解释就得到了验证。注意这**不是**改评分口径——166/176（94%）
-那个数字的计算方式没有动，仍然可比。
+的结构性原因，而 cm/pg 是单信念家族，分别 100% / 98%。随后加入的 9 题（当时）只脚本
+"信谁"这一条，学习者开场的错答是情境事实而非会去辩护的立场。**两组刻意不混**：如果
+单信念组的诊断准确率明显更高，上面那个结构性解释就得到了验证。注意这**不是**改评分口径——
+截至 8 月 25 日旧协议 cohort 的 166/176（94%）计算方式没有动；但后续 prompt 与题库已经变化，
+这个数字不能代表当前 HEAD。
+
+> **2026-08-27 实测：这个解释没有成立。** 全 27 题 on-call 一轮（tutor / 模拟学习者 /
+> judge 全部 `deepseek-v4-flash-vision-exp`）测下来，fu 家族诊断准确率在每一种切分下
+> 都是同一个数：双信念 4/6、单信念 6/9、单信念对照 4/6、单信念轻信 2/3——**全部 67%**。
+> 去掉第二条信念没有带来任何改善。样本很小（3–9），四个 67% 有巧合成分，但方向明确：
+> 预测的"单信念应显著更高"没有出现。
+>
+> 逐条读 judge 的理由，真正的失败模式是另一回事，**不是"漏掉两条中的一条"，而是
+> 把诊断往学科内容上拉**。五个未达 match 的案例里：三个（`fu-eipe-max`、
+> `fu-both-graders-wrong`、`fu-sound-rejection-plain-mutable-default`）诊断了代码/概念
+> 本身而漏掉了"该信谁"；另外两个（`fu-sound-rejection-authoritative`、
+> `fu-wrong-endorsement-authoritative-purity`）抓住了信任判断，却**额外发明**了一条
+> 剧本里没有的内容误解。也就是说 tutor 把"这个学习者哪里不懂代码"当成了默认问题，
+> 而剧本写的困难是"这个学习者如何决定相信谁"——单信念题里它照样这么做。
+>
+> 这条比原假设更值得跟进，也更贴本家族的研究动机：系统识别"内容误解"明显强于识别
+> "认识论困难"。当时的下一步是补**单信念的非对照题**；当前题库已补 4 道，把两个变量
+> 分开，但尚未按当前 31 题 / 当前 prompt 协议重跑。
 
 ### conceptual_misconception（6 题）— cache 存储层级的 3C 误解
 
@@ -169,10 +216,15 @@ on-call 未解决则发"换种讲法"继续（宿主限 3 轮），one-shot 直�
 早期跑次的数字（含一度成立的"交叉"叙事）由此作废，仅存档于本地 `data/eval-runs/`，
 不得引用。
 
-仍然有效的测量是**诊断准确率**：剧本写死的误概念是标准答案，不依赖模拟学习者的演技。
-对全部 176 个开了 incident 的存档评测会话：**首次诊断与剧本误概念一致 166/176（94%）**，
-至少落在正确区域 99%（概念误解 100%、计划缺口 98%、反馈不确定性 85%）。复现：
-`node scripts/learning-diagnosis-accuracy.mjs`。
+在截至 2026-08-25 的**旧协议历史 cohort 内**，诊断准确率仍是可复查的描述性测量：剧本写死的
+误概念是标准答案，不依赖模拟学习者的演技。对全部 176 个开了 incident 的存档评测会话：
+**首次诊断与剧本误概念一致 166/176（94%）**，至少落在正确区域 99%（概念误解 100%、
+计划缺口 98%、反馈不确定性 85%）。`9e8a75f` 改变了诊断 prompt/schema，题库也已从 27 题
+扩到 31 题，因此这组数字不代表当前 HEAD。历史报告保存在本地
+`data/eval-runs/diagnosis-accuracy.md`；当时没有冻结 176-session manifest，而当前 dry run 已能发现更多
+存档会话，所以今天重新执行脚本不会精确复现同一个分母。先用
+`node scripts/learning-diagnosis-accuracy.mjs --dry-run` 审计发现范围；新协议结果必须按 fingerprint
+隔离目录后再判分。
 
 回路可靠性单独记账：177 个存档会话中 6.2% 中途停滞、出错或从未开 incident
 （on-call 7.9%，one-shot 4.5%）——机器越多，可失效点越多，这个数字必须与任何有效性
