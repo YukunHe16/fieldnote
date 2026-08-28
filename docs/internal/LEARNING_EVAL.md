@@ -21,9 +21,10 @@
   显式传 `--allow-dirty` / `--allow-server-mismatch` 才能覆盖，报告会把该 run 标成不可精确复现。
 - 模拟学习者：一个便宜模型按题目 persona 扮演学生；stubborn 层的"是否已巩固"由运行器
   按剧本条件判定后注入 persona，不留给模型自己推断。
-- 判分：judge（temperature 0）同时看到原 worked example、exit check 和回答；每个 concept 明确属于
-  原题/一般方法还是 fresh transfer，禁止拿 transfer 证据回填原题 concept。正则清单只作每次判分的
-  随行第二意见，报告写明两者一致率；同时报末轮与最优两种覆盖读数。
+- 判分：离线 post-test 使用 `structured-v1` 五栏回答；judge（temperature 0）同时看到原 worked
+  example、exit check 和回答，并按 `evidence-v2` 为每个 concept 返回栏位和逐字引用。宿主再验证引用
+  是该栏真实子串、且 concept 可以使用该栏；伪造引用或串栏确定性降为不计分，不重试、不让正则补分。
+  正则清单只作每次判分的随行第二意见，报告写明两者一致率；同时报末轮与最优两种覆盖读数。
 - 产出：`data/eval-runs/<ts>/results.json` + `report.md`；每个结果带协议 fingerprint、runner/server
   Git SHA 与匹配状态、题库与 judge prompt SHA-256、选题清单、模型/provider 及判分失败记录。服务端聚合可看
   `GET /api/learning/metrics?datasetKind=eval`，但它可能包含同 participant 的早先运行，单次报告以自己的
@@ -47,17 +48,50 @@ node scripts/learning-eval.mjs --base http://127.0.0.1:8790
 
 ### Post-test judge 稳定性门
 
-在重新调用 tutor / learner 之前，先对历史 run 保存的 27 个最终 post-test 答案各判两次：
+历史 27 个自由回答属于 `legacy-freeform`，只保留既有报告供读取；它们不能在 `evidence-v2` 下伪装成
+有原题/迁移栏位的新数据，也不能和 `structured-v1` 混在同一稳定性报告。
+
+当前门使用 4 道从未运行过的 feedback 题，每题冻结 complete、original-only、transfer-only 三个
+五栏答案，共 12 条；manifest 与每条答案都有 SHA-256，看到结果后不得修改。每条独立判两次：
 
 ```bash
-node scripts/learning-posttest-stability.mjs
+node scripts/learning-posttest-stability.mjs \
+  --input data/eval-runs/posttest-holdout-v1/manifest.json
 # 中断后：
-node scripts/learning-posttest-stability.mjs --resume data/eval-runs/posttest-stability-<ts>/results.json
+node scripts/learning-posttest-stability.mjs \
+  --input data/eval-runs/posttest-holdout-v1/manifest.json \
+  --resume data/eval-runs/posttest-stability-<ts>/results.json
 ```
 
-脚本固定默认并发 4，每条结果完成后原子 checkpoint；resume 按 `(itemId, repeat)` 跳过已经记录的
-成功或失败，不会重复消费模型。正式门槛是 54 次判分 0 error、verdict 至少 26/27 一致、精确概念
-集合至少 24/27 一致。正则只作第二意见。通过只表示**可重复**，不表示 judge 对人类标准是正确的。
+脚本固定默认并发 4，每条结果完成后原子 checkpoint；resume 按 `(answerId, repeat)` 跳过已经记录的
+成功或失败，不会重复消费模型。当前正式门槛是 12/12 格式解析、24 次判分 0 error、verdict
+12/12 一致、精确概念集合至少 11/12 一致，且所有实际获得 credit 的 concept 都有宿主验证通过的
+引用。正则只作第二意见。通过只表示**可重复**，不表示 judge 对人类标准是正确的。
+
+五栏固定为：
+
+```text
+ORIGINAL_CONCLUSION:
+ORIGINAL_EVIDENCE:
+GENERAL_METHOD:
+TRANSFER_CONCLUSION:
+TRANSFER_EVIDENCE:
+```
+
+五栏必须各出现一次且非空；格式失败记 `post_test_format_error`，不会让 judge 猜或自动修答案。
+`transfer-applied` 只能引用 transfer 两栏；`grader-*-supported` 只能引用
+`ORIGINAL_CONCLUSION`；其他 concept 只能引用 original/general 三栏。
+
+### 分阶段线上验证边界
+
+本协议目前只用于离线模拟评测，不改变 Web、飞书或日常学习对话。离线门通过后，线上按三步走：
+
+1. Web 研究模式保持自由回答，只在内部要求 judge 给逐字引用，先验证 evidence contract 能否处理自然语言。
+2. 在 Web 研究模式增加一个独立五栏条件，与自由回答并列，记录完成率、作答时间、格式错误、放弃率、
+   答案完整度和 judge 稳定性；五栏既可能改善测量，也可能成为教学支架，不能混为一谈。
+3. 只有可测性改善且完成/放弃指标可接受，才考虑普通 Web；飞书和 conversation-first 模式最后评估。
+
+没有真实参与者数据前，任何阶段都不能宣称五栏模板改善学习效果。
 
 新 eval record 同时保存 `incidentId`、`diagnosedDifficultyType`、`diagnosisHypothesis`；因此当前协议的
 诊断审计可只靠 `results.json` 完成。旧记录缺这些字段时，审计脚本仍回退读取原 SQLite。

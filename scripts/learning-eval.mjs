@@ -37,8 +37,19 @@ const MAX_LEARNER_TURNS = 8;
  */
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 const POLL_MS = 1_500;
-const PROTOCOL_VERSION = "learning-eval/v1";
+const PROTOCOL_VERSION = "learning-eval/v2";
+const ANSWER_FORMAT_STRUCTURED = "structured-v1";
+const ANSWER_FORMAT_LEGACY = "legacy-freeform";
+const JUDGE_CONTRACT_VERSION = "evidence-v2";
 const JUDGE_RETRY_POLICY_VERSION = "judge-v2-default-4k-default-8k-deepseek-none-4k";
+const STRUCTURED_SECTION_HEADERS = {
+  ORIGINAL_CONCLUSION: "original_conclusion",
+  ORIGINAL_EVIDENCE: "original_evidence",
+  GENERAL_METHOD: "general_method",
+  TRANSFER_CONCLUSION: "transfer_conclusion",
+  TRANSFER_EVIDENCE: "transfer_evidence"
+};
+const STRUCTURED_SECTION_NAMES = Object.values(STRUCTURED_SECTION_HEADERS);
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -51,7 +62,10 @@ function gitOutput(args) {
   }).trim();
 }
 
-async function buildEvalProvenance(selectedItemIds) {
+async function buildEvalProvenance(
+  selectedItemIds,
+  { answerFormat = ANSWER_FORMAT_STRUCTURED, judgeContractVersion = JUDGE_CONTRACT_VERSION } = {}
+) {
   const itemFiles = (await fs.readdir(ITEM_DIR)).filter((name) => name.endsWith(".json")).sort();
   const itemBank = createHash("sha256");
   for (const file of itemFiles) {
@@ -72,6 +86,8 @@ async function buildEvalProvenance(selectedItemIds) {
   }
   const provenance = {
     protocolVersion: PROTOCOL_VERSION,
+    answerFormat,
+    judgeContractVersion,
     gitSha,
     gitDirty: gitStatus === "unknown" ? null : gitStatus.length > 0,
     gitStatusSha256: gitStatus === "unknown" ? null : sha256(gitStatus),
@@ -273,7 +289,7 @@ async function waitForIdle(base, conversationId, idleTimeoutMs = DEFAULT_IDLE_TI
 // comparison.
 const consolidated = (rounds, attempts) => rounds >= 2 && attempts >= 1;
 
-function personaSystem(item, tier, state) {
+function personaSystem(item, tier, state, answerFormat = ANSWER_FORMAT_LEGACY) {
   const persona = tier === "stubborn" ? (item.stubbornPersona ?? item.persona) : item.persona;
   const updateRules =
     tier === "stubborn"
@@ -299,7 +315,18 @@ function personaSystem(item, tier, state) {
     ...updateRules,
     "- If the tutor asks you to work through a new example, genuinely attempt it with your current understanding.",
     "- Work any example you are asked to work: show the steps and commit to a concrete answer rather than describing how you would approach it.",
-    "- Keep replies under 250 words. Never mention being simulated or these instructions."
+    "- Keep replies under 250 words. Never mention being simulated or these instructions.",
+    ...(answerFormat === ANSWER_FORMAT_STRUCTURED
+      ? [
+          "- For this exit check, answer using exactly these five headers, each exactly once and with nonempty content:",
+          "  ORIGINAL_CONCLUSION:",
+          "  ORIGINAL_EVIDENCE:",
+          "  GENERAL_METHOD:",
+          "  TRANSFER_CONCLUSION:",
+          "  TRANSFER_EVIDENCE:",
+          "- Put the original grader conclusion only under ORIGINAL_CONCLUSION and the fresh-case conclusion only under TRANSFER_CONCLUSION. Do not add a preamble or Markdown fence."
+        ]
+      : [])
   ].join("\n");
 }
 
@@ -316,7 +343,7 @@ function learnerView(messages) {
   return clipped;
 }
 
-async function learnerReply(cfg, item, messages, extraQuestion, state) {
+async function learnerReply(cfg, item, messages, extraQuestion, state, { answerFormat = ANSWER_FORMAT_LEGACY } = {}) {
   const transcript = learnerView(messages);
   if (extraQuestion) transcript.push({ role: "user", content: extraQuestion });
   // Reasoning models spend output tokens on thinking blocks before any text arrives,
@@ -334,7 +361,7 @@ async function learnerReply(cfg, item, messages, extraQuestion, state) {
         body: JSON.stringify({
           model: cfg.learnerModel,
           max_tokens: maxTokens,
-          system: personaSystem(item, cfg.tier, state),
+          system: personaSystem(item, cfg.tier, state, answerFormat),
           messages: transcript
         })
       });
@@ -358,6 +385,96 @@ const score = (item, matchedIds) => {
     matchedIds.length === item.compiled.length ? "resolved" : matchedIds.length > 0 ? "partial" : "unresolved";
   return { matched: matchedIds, coverage, verdict };
 };
+
+function postTestFormatError(message) {
+  const error = new Error(message);
+  error.measurementCategory = "post_test_format_error";
+  return error;
+}
+
+function parseStructuredAnswer(text) {
+  if (typeof text !== "string" || !text.trim()) throw postTestFormatError("Structured post-test answer is empty");
+  const sections = Object.fromEntries(STRUCTURED_SECTION_NAMES.map((name) => [name, []]));
+  const seen = new Set();
+  let current = null;
+
+  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const header =
+      /^\s*(ORIGINAL_CONCLUSION|ORIGINAL_EVIDENCE|GENERAL_METHOD|TRANSFER_CONCLUSION|TRANSFER_EVIDENCE):\s*(.*)$/.exec(
+        line
+      );
+    if (header) {
+      const section = STRUCTURED_SECTION_HEADERS[header[1]];
+      if (seen.has(section)) throw postTestFormatError(`Structured post-test answer repeats ${header[1]}`);
+      seen.add(section);
+      current = section;
+      if (header[2]) sections[current].push(header[2]);
+      continue;
+    }
+    if (!current) {
+      if (line.trim()) throw postTestFormatError("Structured post-test answer has content before its first section");
+      continue;
+    }
+    sections[current].push(line);
+  }
+
+  const missing = STRUCTURED_SECTION_NAMES.filter((name) => !seen.has(name));
+  if (missing.length) throw postTestFormatError(`Structured post-test answer is missing: ${missing.join(", ")}`);
+  const parsedSections = Object.fromEntries(
+    Object.entries(sections).map(([name, lines]) => [name, lines.join("\n").trim()])
+  );
+  const empty = STRUCTURED_SECTION_NAMES.filter((name) => !parsedSections[name]);
+  if (empty.length) throw postTestFormatError(`Structured post-test answer has empty sections: ${empty.join(", ")}`);
+  return { answerFormat: ANSWER_FORMAT_STRUCTURED, raw: text, sections: parsedSections };
+}
+
+const normalizeEvidenceText = (value) =>
+  String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function allowedEvidenceSections(conceptId) {
+  if (conceptId === "transfer-applied") return ["transfer_conclusion", "transfer_evidence"];
+  if (/^grader-.+-supported$/.test(conceptId)) return ["original_conclusion"];
+  return ["original_conclusion", "original_evidence", "general_method"];
+}
+
+function validateConceptEvidence(concept, entry, answer) {
+  const judgeDemonstrated = entry?.demonstrated === true;
+  const section = typeof entry?.section === "string" ? entry.section : null;
+  const evidence = typeof entry?.evidence === "string" ? entry.evidence : "";
+  const why = String(entry?.why ?? "");
+  if (!judgeDemonstrated) {
+    return {
+      id: concept.id,
+      judgeDemonstrated: false,
+      demonstrated: false,
+      section,
+      evidence,
+      why,
+      evidenceValid: null,
+      validationError: null
+    };
+  }
+
+  let validationError = null;
+  if (!STRUCTURED_SECTION_NAMES.includes(section)) validationError = "unknown_section";
+  else if (!allowedEvidenceSections(concept.id).includes(section)) validationError = "section_not_allowed";
+  else if (!normalizeEvidenceText(evidence)) validationError = "empty_evidence";
+  else if (!normalizeEvidenceText(answer.sections[section]).includes(normalizeEvidenceText(evidence))) {
+    validationError = "evidence_not_found";
+  }
+  return {
+    id: concept.id,
+    judgeDemonstrated: true,
+    demonstrated: validationError === null,
+    section,
+    evidence,
+    why,
+    evidenceValid: validationError === null,
+    validationError
+  };
+}
 
 // Literal-pattern grading. Kept as a cheap second opinion on every grading, never as the
 // verdict: it cannot tell a paraphrase from a miss, and only the on-call arm answers in
@@ -385,27 +502,37 @@ const JUDGE_SYSTEM = [
   "- Grade only the answer text. Never assume the tutoring that came before it worked.",
   "- An exit check may contain a worked-example part and a fresh transfer part. Keep their evidence separate.",
   "- Evidence about the transfer case may satisfy only the transfer concept, never a concept about the worked example, even when the reasoning is analogous. Grader letters and scenario names are literal to their own case.",
+  "- For every demonstrated concept, copy one exact supporting quote from one named answer section.",
+  "- If demonstrated is false, use section null and evidence an empty string.",
   "",
-  'Reply with JSON only: {"concepts":[{"id":"<concept id>","demonstrated":true|false,"why":"<= 15 words"}]}',
+  'Reply with JSON only: {"concepts":[{"id":"<concept id>","demonstrated":true|false,"section":"original_conclusion"|"original_evidence"|"general_method"|"transfer_conclusion"|"transfer_evidence"|null,"evidence":"exact quote or empty string","why":"<= 15 words"}]}',
   "Include every concept id exactly once."
 ].join("\n");
 
-function buildJudgePrompt(item, text) {
+function conceptScope(conceptId) {
+  if (conceptId === "transfer-applied") return "transfer_conclusion or transfer_evidence only";
+  if (/^grader-.+-supported$/.test(conceptId)) return "original_conclusion only";
+  return "original_conclusion, original_evidence, or general_method only";
+}
+
+function buildJudgePrompt(item, answer) {
+  const parsed = typeof answer === "string" ? parseStructuredAnswer(answer) : answer;
   const checklist = item.compiled
     .map(
       (concept) =>
-        `- id: ${concept.id}\n  scope: ${
-          concept.id === "transfer-applied"
-            ? "fresh transfer case only"
-            : "original worked example or explicitly stated general method; transfer-only evidence does not count"
-        }\n  requires: ${concept.label}${concept.credit ? `\n  credit: ${concept.credit}` : ""}`
+        `- id: ${concept.id}\n  evidence section: ${conceptScope(concept.id)}\n  requires: ${concept.label}${
+          concept.credit ? `\n  credit: ${concept.credit}` : ""
+        }`
     )
     .join("\n");
+  const structuredAnswer = STRUCTURED_SECTION_NAMES.map((section) => `[${section}]\n${parsed.sections[section]}`).join(
+    "\n\n"
+  );
   return [
     `Worked example:\n${item.opening}`,
     `Exit-check question:\n${item.postTest}`,
     `\nConcept checklist:\n${checklist}`,
-    `\nStudent's answer:\n${text}`
+    `\nStudent's structured answer:\n${structuredAnswer}`
   ].join("\n");
 }
 
@@ -502,7 +629,28 @@ async function requestJudgeAttempt(cfg, prompt, { ordinal, maxTokens, reasoningM
   } catch (error) {
     throw judgeAttemptError(`Judge returned invalid JSON: ${error?.message ?? error}`, "invalid_json", attempt);
   }
-  const verdicts = new Map((parsed.concepts ?? []).map((entry) => [entry.id, entry]));
+  if (!Array.isArray(parsed.concepts)) {
+    throw judgeAttemptError("Judge response has no concepts array", "invalid_schema", attempt);
+  }
+  const expected = new Set(expectedConceptIds);
+  const verdicts = new Map();
+  for (const entry of parsed.concepts) {
+    const conceptId = typeof entry?.id === "string" ? entry.id : "";
+    if (!expected.has(conceptId)) {
+      throw judgeAttemptError(
+        `Judge returned unknown concept ${conceptId || "<missing id>"}`,
+        "invalid_schema",
+        attempt
+      );
+    }
+    if (verdicts.has(conceptId)) {
+      throw judgeAttemptError(`Judge repeated concept ${conceptId}`, "invalid_schema", attempt);
+    }
+    if (typeof entry.demonstrated !== "boolean" || typeof entry.why !== "string") {
+      throw judgeAttemptError(`Judge returned invalid fields for concept ${conceptId}`, "invalid_schema", attempt);
+    }
+    verdicts.set(conceptId, entry);
+  }
   for (const conceptId of expectedConceptIds) {
     if (!verdicts.has(conceptId)) {
       throw judgeAttemptError(`Judge omitted concept ${conceptId}`, "omitted_concept", attempt);
@@ -511,24 +659,28 @@ async function requestJudgeAttempt(cfg, prompt, { ordinal, maxTokens, reasoningM
   return { verdicts, attempt: { ...attempt, outcome: "success", error: null } };
 }
 
-function finalizeJudgeResult(item, result, attempts) {
+function finalizeJudgeResult(item, result, attempts, answer) {
+  const concepts = item.compiled.map((concept) =>
+    validateConceptEvidence(concept, result.verdicts.get(concept.id), answer)
+  );
   return {
     ...score(
       item,
-      item.compiled
-        .filter((concept) => result.verdicts.get(concept.id).demonstrated === true)
-        .map((concept) => concept.id)
+      concepts.filter((concept) => concept.demonstrated).map((concept) => concept.id)
     ),
-    reasons: Object.fromEntries(
-      item.compiled.map((concept) => [concept.id, String(result.verdicts.get(concept.id).why ?? "")])
-    ),
+    reasons: Object.fromEntries(concepts.map((concept) => [concept.id, concept.why])),
+    concepts,
     judgeAttempts: attempts,
     judgeAttemptUsed: result.attempt.ordinal
   };
 }
 
-async function judgeGrade(cfg, item, text) {
-  const prompt = buildJudgePrompt(item, text);
+async function judgeGrade(cfg, item, text, { answerFormat = ANSWER_FORMAT_STRUCTURED, parsedAnswer = null } = {}) {
+  if (answerFormat !== ANSWER_FORMAT_STRUCTURED) {
+    throw postTestFormatError(`${answerFormat} is read-only and cannot be graded with ${JUDGE_CONTRACT_VERSION}`);
+  }
+  const answer = parsedAnswer ?? parseStructuredAnswer(text);
+  const prompt = buildJudgePrompt(item, answer);
   const expectedConceptIds = item.compiled.map((concept) => concept.id);
   const attempts = [];
   let lastError;
@@ -541,11 +693,16 @@ async function judgeGrade(cfg, item, text) {
         expectedConceptIds
       );
       attempts.push(result.attempt);
-      return finalizeJudgeResult(item, result, attempts);
+      return finalizeJudgeResult(item, result, attempts, answer);
     } catch (error) {
       if (error.judgeAttempt) attempts.push(error.judgeAttempt);
       lastError = error;
-      if (!new Set(["empty_text", "no_json", "invalid_json", "omitted_concept"]).has(error.judgeCategory)) break;
+      if (
+        !new Set(["empty_text", "no_json", "invalid_json", "invalid_schema", "omitted_concept"]).has(
+          error.judgeCategory
+        )
+      )
+        break;
     }
   }
 
@@ -562,7 +719,7 @@ async function judgeGrade(cfg, item, text) {
         expectedConceptIds
       );
       attempts.push(result.attempt);
-      return finalizeJudgeResult(item, result, attempts);
+      return finalizeJudgeResult(item, result, attempts, answer);
     } catch (error) {
       if (error.judgeAttempt) attempts.push(error.judgeAttempt);
       lastError = error;
@@ -574,11 +731,23 @@ async function judgeGrade(cfg, item, text) {
 
 // The judge is the verdict; the regex checklist rides along only as a recorded second opinion.
 // A judge failure makes the run a measurement error rather than switching to a different ruler.
-async function gradeAnswer(cfg, item, text) {
+async function gradeAnswer(cfg, item, text, { answerFormat = ANSWER_FORMAT_STRUCTURED } = {}) {
+  if (answerFormat !== ANSWER_FORMAT_STRUCTURED) {
+    throw postTestFormatError(`${answerFormat} is read-only and cannot be graded with ${JUDGE_CONTRACT_VERSION}`);
+  }
+  const parsedAnswer = parseStructuredAnswer(text);
   const regex = gradeRegex(item, text);
-  const judged = await judgeGrade(cfg, item, text);
+  const judged = await judgeGrade(cfg, item, text, { answerFormat, parsedAnswer });
   const agreed = JSON.stringify([...judged.matched].sort()) === JSON.stringify([...regex.matched].sort());
-  return { ...judged, method: "judge", regexMatched: regex.matched, regexCoverage: regex.coverage, agreed };
+  return {
+    ...judged,
+    method: "judge",
+    answerFormat,
+    judgeContractVersion: JUDGE_CONTRACT_VERSION,
+    regexMatched: regex.matched,
+    regexCoverage: regex.coverage,
+    agreed
+  };
 }
 
 const VERDICT_RANK = { resolved: 3, partial: 2, unresolved: 1 };
@@ -631,6 +800,8 @@ async function runItem(cfg, item, condition, log) {
     bestVerdict: null,
     matchedConcepts: [],
     groundTruth: item.groundTruth ?? null,
+    answerFormat: ANSWER_FORMAT_STRUCTURED,
+    judgeContractVersion: JUDGE_CONTRACT_VERSION,
     ...initialDiagnosisRecordFields(),
     // Null unless the item labels the concept that names the supported reading;
     // set after grading, once matchedConcepts is known.
@@ -708,8 +879,11 @@ async function runItem(cfg, item, condition, log) {
         // learner, and the concept checklist grades that answer — the same instrument
         // for both conditions.
         const state = { consolidated: consolidated(incident.interventions.length, answered.size) };
-        lastPostAnswer = await learnerReply(cfg, item, detail.messages, item.postTest, state);
-        const graded = await gradeAnswer(cfg, item, lastPostAnswer);
+        lastPostAnswer = await learnerReply(cfg, item, detail.messages, item.postTest, state, {
+          answerFormat: ANSWER_FORMAT_STRUCTURED
+        });
+        record.finalPostTestAnswer = lastPostAnswer;
+        const graded = await gradeAnswer(cfg, item, lastPostAnswer, { answerFormat: ANSWER_FORMAT_STRUCTURED });
         lastGraded = graded;
         record.postTests.push({ round: incident.interventions.length, ...graded, ...state });
         record.confirmedVerdicts.push(graded.verdict);
@@ -779,7 +953,7 @@ async function runItem(cfg, item, condition, log) {
   } catch (error) {
     record.status = "error";
     record.error = String(error?.message ?? error).slice(0, 500);
-    record.measurementError = error?.judgeCategory ?? null;
+    record.measurementError = error?.measurementCategory ?? error?.judgeCategory ?? null;
     record.judgeAttempts = error?.judgeAttempts ?? null;
     try {
       const { session } = await api(cfg.base, "GET", `/api/conversations/${conversation.id}/learning-session`);
@@ -1048,7 +1222,9 @@ async function main() {
         : ` (configured as ${configuredModel}; the direct API rejects the suffix)`
     }`
   );
-  log(`Post-test judge: ${cfg.judgeModel} (literal patterns kept as a second opinion)`);
+  log(
+    `Post-test: ${protocol.answerFormat} · judge ${protocol.judgeContractVersion} · ${cfg.judgeModel} (literal patterns kept as a second opinion)`
+  );
   log(
     `Protocol: ${protocol.protocolVersion} · ${protocol.gitSha.slice(0, 12)}${protocol.gitDirty ? " (dirty)" : ""} · item bank ${protocol.itemBankSha256.slice(0, 12)}`
   );
@@ -1155,7 +1331,12 @@ export {
   buildEvalProvenance,
   verifyServerBuild,
   initialDiagnosisRecordFields,
-  captureDiagnosis
+  captureDiagnosis,
+  parseStructuredAnswer,
+  validateConceptEvidence,
+  ANSWER_FORMAT_STRUCTURED,
+  ANSWER_FORMAT_LEGACY,
+  JUDGE_CONTRACT_VERSION
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
