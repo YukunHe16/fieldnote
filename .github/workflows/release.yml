@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Existing release tag or commit to publish to npm
+        required: true
+        default: v0.2.0
 
 permissions:
   contents: write
@@ -10,6 +16,7 @@ permissions:
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -24,51 +31,35 @@ jobs:
 
   publish-npm:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Detect npm token
-        id: npm-token
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "NPM_TOKEN secret is not configured; skipping npm publish." >> "$GITHUB_STEP_SUMMARY"
-          fi
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
 
       - name: Setup pnpm
-        if: steps.npm-token.outputs.present == 'true'
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        if: steps.npm-token.outputs.present == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        if: steps.npm-token.outputs.present == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        if: steps.npm-token.outputs.present == 'true'
         run: pnpm build
 
       - name: Audit package contents
-        if: steps.npm-token.outputs.present == 'true'
         run: pnpm audit:package
 
       - name: Publish fieldnote to npm
-        if: steps.npm-token.outputs.present == 'true'
         working-directory: packages/fieldnote
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm publish --access public --no-git-checks
+        run: npm publish --access public
