@@ -351,6 +351,40 @@ describe("cache bank freeze protocol", () => {
     }
   });
 
+  it("checkpoints the exact Generator text and attempts before failing strict response parsing", async () => {
+    let checkpoint: unknown = null;
+    const rawResponse = JSON.stringify({ schemaVersion: "unexpected", candidates: [] });
+    await expect(
+      runCacheBankFreeze({
+        checkpoint: null,
+        seed: 91,
+        provenance: provenance(),
+        cacheCore,
+        saveCheckpoint: async (value: unknown) => {
+          checkpoint = value;
+        },
+        generateBatch: async () => ({
+          text: rawResponse,
+          attempts: [{ ordinal: 1, outcome: "success", responseModel: "deepseek-v4-pro" }]
+        }),
+        evaluateCandidate: async () => evaluatorResponse()
+      })
+    ).rejects.toThrow("only a candidates array");
+
+    const saved = checkpoint as {
+      sets: Record<
+        string,
+        { batches: Array<{ status: string; rawResponse: string; rawResponseSha256: string; modelAttempts: unknown[] }> }
+      >;
+    };
+    expect(saved.sets["trace-3c"].batches[0]).toMatchObject({
+      status: "failed",
+      rawResponse,
+      rawResponseSha256: sha256(rawResponse),
+      modelAttempts: [expect.objectContaining({ outcome: "success" })]
+    });
+  });
+
   it("resumes a complete checkpoint without another model call", async () => {
     let checkpoint: unknown = null;
     const common = {
