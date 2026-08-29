@@ -11,11 +11,7 @@ export const SUPPLEMENTAL_CANDIDATES = 4;
 export const FROZEN_VARIANTS = 4;
 export const EVALUATOR_CHECKS = ["clarity", "concept", "difficulty", "answerLeakage", "novelty", "equivalence"];
 export const GENERATOR_ATTEMPT_PLAN = Object.freeze([{ maxTokens: 20_000, reasoningMode: "high" }]);
-export const EVALUATOR_ATTEMPT_PLAN = Object.freeze([
-  { maxTokens: 4_000, reasoningMode: "default" },
-  { maxTokens: 8_000, reasoningMode: "default" },
-  { maxTokens: 4_000, reasoningMode: "none" }
-]);
+export const EVALUATOR_ATTEMPT_PLAN = Object.freeze([{ maxTokens: 20_000, reasoningMode: "high" }]);
 
 const CACHE_ORGANIZATION_SCHEMA = {
   oneOf: [
@@ -210,7 +206,7 @@ Use only the supplied public blueprint, seed, parameter ranges, and batch count.
 export const EVALUATOR_SYSTEM_PROMPT = `You are the independent fail-closed reviewer for a frozen cache post-test bank.
 Judge only the supplied host-rendered candidate against its public blueprint and equivalence anchor.
 Check clarity, target-concept fit, intended difficulty, answer leakage, substantive novelty, and equivalence to the anchor.
-Use sameSetEarlierCandidates to reject a candidate that is only a cosmetic or near-parameter copy of an earlier candidate in its set.
+Use approvedSameSetCandidateSummaries to reject a candidate that is only a cosmetic or near-parameter copy of an already-approved candidate in its set.
 Return JSON only. verdict must be pass, fail, or unsure. Use unsure whenever evidence is insufficient. A pass requires every check to pass.`;
 
 export const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -293,23 +289,82 @@ export function parseGeneratorResponse(text, expectedSetId, expectedCount) {
   return parsed;
 }
 
-export function buildEvaluatorRequest(blueprint, candidate, sameSetEarlierCandidates = []) {
+const normalizedPattern = (values) => {
+  const labels = new Map();
+  return values.map((value) => {
+    const key = String(value);
+    if (!labels.has(key)) labels.set(key, labels.size);
+    return labels.get(key);
+  });
+};
+
+function compactPartSummary(part) {
+  const parameterSha256 = sha256(canonicalStringify(part));
+  if (part?.optionA && part?.optionB)
+    return { parameterSha256, keyParameters: { optionA: part.optionA, optionB: part.optionB } };
+
+  const config = part?.config;
+  const lineSizeBytes = config?.lineSizeBytes;
+  const rawAccesses = Array.isArray(part?.addresses) ? part.addresses : part?.accesses;
+  const addresses = Array.isArray(rawAccesses)
+    ? rawAccesses.map((access) => (typeof access === "number" ? access : access?.address))
+    : [];
+  const blocks = addresses.map((address) => Math.floor(address / lineSizeBytes));
+  const setCount =
+    config?.kind === "direct" ? config.capacityLines : config?.kind === "set-associative" ? config.setCount : 1;
+  const keyParameters = {
+    config,
+    ...(typeof part?.writeMissPolicy === "string" ? { writeMissPolicy: part.writeMissPolicy } : {}),
+    ...(typeof part?.flushAtEnd === "boolean" ? { flushAtEnd: part.flushAtEnd } : {}),
+    accessCount: addresses.length,
+    blockReusePattern: normalizedPattern(blocks),
+    setReusePattern: normalizedPattern(blocks.map((block) => block % setCount))
+  };
+  if (Array.isArray(rawAccesses) && rawAccesses.some((access) => typeof access === "object"))
+    keyParameters.operationPattern = rawAccesses.map((access) => `${access.operation}:${access.sizeBytes}`);
+  return { parameterSha256, keyParameters };
+}
+
+export function compactCandidateSummary(candidate) {
+  return {
+    candidateSha256: candidate.candidateSha256,
+    parameterSignature: candidate.parameterSignature,
+    targetConcept: candidate.targetConcept,
+    primary: compactPartSummary(candidate.scenario.primary),
+    transfer: compactPartSummary(candidate.scenario.transfer)
+  };
+}
+
+function evaluatorCandidateView(candidate) {
+  const part = (value) => ({
+    prompt: value.prompt,
+    rubric: value.rubric,
+    canonicalAnswer: value.canonicalAnswer
+  });
+  return {
+    candidateSha256: candidate.candidateSha256,
+    parameterSignature: candidate.parameterSignature,
+    setId: candidate.setId,
+    targetConcept: candidate.targetConcept,
+    scenario: candidate.scenario,
+    primary: part(candidate.primary),
+    transfer: part(candidate.transfer),
+    machineVerified: candidate.machineVerified
+  };
+}
+
+export function buildEvaluatorRequest(blueprint, candidate, approvedSameSetCandidates = []) {
   return {
     system: EVALUATOR_SYSTEM_PROMPT,
     payload: {
-      schemaVersion: "cache-bank-evaluator-request/v1",
+      schemaVersion: "cache-bank-evaluator-request/v2",
       blueprint: {
         id: blueprint.id,
         targetConcept: blueprint.targetConcept,
         equivalenceAnchor: blueprint.equivalenceAnchor
       },
-      candidate,
-      sameSetEarlierCandidates: sameSetEarlierCandidates.map((entry) => ({
-        candidateSha256: entry.candidateSha256,
-        scenario: entry.scenario,
-        primaryPrompt: entry.primary.prompt,
-        transferPrompt: entry.transfer.prompt
-      })),
+      candidate: evaluatorCandidateView(candidate),
+      approvedSameSetCandidateSummaries: approvedSameSetCandidates.map(compactCandidateSummary),
       responseShape: {
         verdict: "pass | fail | unsure",
         checks: Object.fromEntries(EVALUATOR_CHECKS.map((check) => [check, "pass | fail | unsure"])),
@@ -380,7 +435,7 @@ export function protocolDescriptor(cacheCore) {
       model: EVALUATOR_MODEL,
       normalizedModel: models.evaluator,
       responseModelIdentityRequired: true,
-      sameSetEarlierCandidatesProvided: true,
+      sameSetContext: "compact summaries of earlier evaluator-approved candidates only",
       failClosed: true,
       checks: EVALUATOR_CHECKS,
       attemptPlan: EVALUATOR_ATTEMPT_PLAN
@@ -569,16 +624,17 @@ async function evaluatePending({ checkpoint, blueprint, cacheCore, evaluateCandi
     }
     if (record.hardGate.status !== "passed" || record.evaluator) continue;
     try {
-      const sameSetEarlierCandidates = records
+      const approvedSameSetCandidates = records
         .filter(
           (entry) =>
             entry !== record &&
             entry.candidate &&
+            entry.evaluator?.status === "approved" &&
             (entry.batchOrdinal < record.batchOrdinal ||
               (entry.batchOrdinal === record.batchOrdinal && entry.candidateIndex < record.candidateIndex))
         )
         .map((entry) => entry.candidate);
-      const request = buildEvaluatorRequest(blueprint, record.candidate, sameSetEarlierCandidates);
+      const request = buildEvaluatorRequest(blueprint, record.candidate, approvedSameSetCandidates);
       const modelResult = await evaluateCandidate({ blueprint, candidate: record.candidate, request });
       const rawResponse = typeof modelResult === "string" ? modelResult : modelResult.text;
       const verdict = parseEvaluatorResponse(rawResponse);
@@ -764,8 +820,8 @@ export async function runCacheBankFreeze({
     seed,
     provider: provenance.provider,
     models: {
-      generator: { id: GENERATOR_MODEL, normalizedId: normalizeModelId(GENERATOR_MODEL), effort: "default" },
-      evaluator: { id: EVALUATOR_MODEL, normalizedId: normalizeModelId(EVALUATOR_MODEL), effort: "default" }
+      generator: { id: GENERATOR_MODEL, normalizedId: normalizeModelId(GENERATOR_MODEL), effort: "high" },
+      evaluator: { id: EVALUATOR_MODEL, normalizedId: normalizeModelId(EVALUATOR_MODEL), effort: "high" }
     },
     hashes: {
       generatorPromptSha256: protocol.generatorPromptSha256,
