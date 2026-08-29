@@ -4,6 +4,34 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/). Public interfaces may still change during 0.x.
 
+## [0.3.0](https://github.com/YukunHe16/fieldnote/compare/v0.2.0...v0.3.0) (2026-08-29)
+
+
+### Features
+
+* add verifiable cache bank pipeline ([e9ab501](https://github.com/YukunHe16/fieldnote/commit/e9ab50119109bc2b303d261e12a6a4238a3160e9))
+* **eval:** add a post-test stability gate ([7f0d25a](https://github.com/YukunHe16/fieldnote/commit/7f0d25a16b33c2376e3d06e93c4a1916100b932b))
+* **eval:** add a post-test stability gate ([0f5377b](https://github.com/YukunHe16/fieldnote/commit/0f5377b8efa07d25b563cfac5395648b6fc4d10e))
+* **eval:** require structured evidence-backed post-tests ([15f22bb](https://github.com/YukunHe16/fieldnote/commit/15f22bb371ac03ad3ba794f77680880eb743294a))
+* **eval:** require structured evidence-backed post-tests ([02196b1](https://github.com/YukunHe16/fieldnote/commit/02196b1413ac354b5cfb94d2dd48e14fe5d554c1))
+
+
+### Bug Fixes
+
+* bound cache bank evaluator context ([#27](https://github.com/YukunHe16/fieldnote/issues/27)) ([5cabecf](https://github.com/YukunHe16/fieldnote/commit/5cabecf87a12a0ba95f79ffbca5ba99dc484e255))
+* **eval:** isolate rubric scopes and recover empty judges ([5aebc07](https://github.com/YukunHe16/fieldnote/commit/5aebc074c471d7dfccc754f4bfc9169e496b9845))
+* **eval:** isolate rubric scopes and recover empty judges ([30c32bd](https://github.com/YukunHe16/fieldnote/commit/30c32bde1cb895fa511870cabf593d1918e3281a))
+* **eval:** quiesce timed-out tutor runs ([31f2c6a](https://github.com/YukunHe16/fieldnote/commit/31f2c6a2eeb13a919878fe7b19bed951597e9f13))
+* **eval:** quiesce timed-out tutor runs ([4a5ab15](https://github.com/YukunHe16/fieldnote/commit/4a5ab1599dbb7e811627e35773e0fe7650771805))
+* generate cache candidates one per slot ([08884b1](https://github.com/YukunHe16/fieldnote/commit/08884b1423d950dafa615176e78a4c8696166f22))
+* **learning:** recover missing eval tool transitions ([8b37d2f](https://github.com/YukunHe16/fieldnote/commit/8b37d2f7d31f50a65c26cdd1a5e63ef9fbf4d26e))
+* **learning:** recover missing eval tool transitions ([931b109](https://github.com/YukunHe16/fieldnote/commit/931b109d4954baae46c3fe2ad911c4a5e8468af9))
+* make cache generator response an array ([4220836](https://github.com/YukunHe16/fieldnote/commit/4220836524898b8443de8e63376e710c2c87ebc7))
+* recover empty cache bank model responses ([dc520dc](https://github.com/YukunHe16/fieldnote/commit/dc520dcaa1006365ea3cc7fd01cefbf315e2a6cc))
+* retain invalid cache generator responses ([4599cff](https://github.com/YukunHe16/fieldnote/commit/4599cff3a8b3e401fa48f3f070dc9e279892a6c4))
+* set cache generator reasoning high at 20k ([bf76e1d](https://github.com/YukunHe16/fieldnote/commit/bf76e1da86c9f7e0ba18d00d2170900c692fe1d0))
+* switch cache generator to glm flash ([d7a2063](https://github.com/YukunHe16/fieldnote/commit/d7a2063fd0a7d06b42a68ade29d9e35175d3ad88))
+
 ## [0.2.0](https://github.com/YukunHe16/fieldnote/compare/v0.1.0...v0.2.0) (2026-08-28)
 
 
