@@ -6,10 +6,13 @@ import * as cacheCore from "../src/cache-bank.js";
 import type { CacheScenario } from "../src/cache-bank.js";
 import {
   EVALUATOR_CHECKS,
+  EVALUATOR_ATTEMPT_PLAN,
   GENERATOR_ATTEMPT_PLAN,
   PUBLIC_BLUEPRINT,
   assertCacheCore,
   assertDistinctModelIds,
+  buildEvaluatorRequest,
+  compactCandidateSummary,
   newCheckpoint,
   parseEvaluatorResponse,
   runCacheBankFreeze,
@@ -189,8 +192,12 @@ describe("cache bank freeze protocol", () => {
         });
         return generator(input);
       },
-      evaluateCandidate: async ({ request }: { request: { payload: { sameSetEarlierCandidates: unknown[] } } }) => {
-        if (request.payload.sameSetEarlierCandidates.length > 0) evaluatorSawSameSetContext = true;
+      evaluateCandidate: async ({
+        request
+      }: {
+        request: { payload: { approvedSameSetCandidateSummaries: unknown[] } };
+      }) => {
+        if (request.payload.approvedSameSetCandidateSummaries.length > 0) evaluatorSawSameSetContext = true;
         return evaluatorResponse();
       }
     });
@@ -213,6 +220,10 @@ describe("cache bank freeze protocol", () => {
       generatedCandidates: 48,
       evaluatorErrors: 0,
       evaluatorUnsure: 0
+    });
+    expect(result.manifest.models).toMatchObject({
+      generator: { effort: "high" },
+      evaluator: { effort: "high" }
     });
     expect(result.manifest.generatorSlots).toHaveLength(48);
     expect(new Set(result.manifest.generatorSlots.map((slot: { seed: number }) => slot.seed)).size).toBe(48);
@@ -481,6 +492,55 @@ describe("cache bank freeze protocol", () => {
     incoherent.checks.novelty = "fail";
     expect(parseEvaluatorResponse(JSON.stringify(incoherent))).toMatchObject({ status: "rejected", verdict: "fail" });
   });
+
+  it("gives the evaluator only compact summaries of earlier approved candidates", async () => {
+    const candidate = cacheCore.createCacheCandidate(scenarioFor("trace-3c", 0));
+    const summary = compactCandidateSummary(candidate);
+    expect(summary).toMatchObject({
+      candidateSha256: candidate.candidateSha256,
+      targetConcept: candidate.targetConcept,
+      primary: {
+        parameterSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        keyParameters: { accessCount: 5, blockReusePattern: [0, 1, 0, 2, 1] }
+      }
+    });
+    const request = buildEvaluatorRequest(PUBLIC_BLUEPRINT[0], candidate, [candidate]);
+    expect(request.payload.schemaVersion).toBe("cache-bank-evaluator-request/v2");
+    expect(request.payload.approvedSameSetCandidateSummaries).toEqual([summary]);
+    expect(request.payload.candidate).toMatchObject({
+      scenario: candidate.scenario,
+      primary: { prompt: candidate.primary.prompt, canonicalAnswer: candidate.primary.canonicalAnswer },
+      transfer: { prompt: candidate.transfer.prompt, canonicalAnswer: candidate.transfer.canonicalAnswer }
+    });
+    expect(JSON.stringify(request.payload.candidate)).not.toContain('"oracle"');
+    expect(JSON.stringify(request.payload.approvedSameSetCandidateSummaries)).not.toMatch(
+      /canonicalAnswer|oracle|prompt|rubric|scenario/
+    );
+
+    const contexts: Array<Array<{ candidateSha256: string }>> = [];
+    let targetCalls = 0;
+    await runCacheBankFreeze({
+      checkpoint: null,
+      seed: 72,
+      provenance: provenance(),
+      cacheCore,
+      saveCheckpoint: async () => undefined,
+      generateBatch: generator,
+      evaluateCandidate: async ({
+        candidate: current,
+        request: currentRequest
+      }: {
+        candidate: { setId: string };
+        request: { payload: { approvedSameSetCandidateSummaries: Array<{ candidateSha256: string }> } };
+      }) => {
+        if (current.setId !== "trace-3c") return evaluatorResponse();
+        contexts.push(currentRequest.payload.approvedSameSetCandidateSummaries);
+        targetCalls += 1;
+        return evaluatorResponse(targetCalls === 2 ? "fail" : "pass");
+      }
+    });
+    expect(contexts.map((context) => context.length).slice(0, 4)).toEqual([0, 1, 1, 2]);
+  });
 });
 
 describe("cache bank CLI gates", () => {
@@ -581,6 +641,23 @@ describe("cache bank CLI gates", () => {
     });
     expect(GENERATOR_ATTEMPT_PLAN).toEqual([{ maxTokens: 20_000, reasoningMode: "high" }]);
     expect(highRequest).toMatchObject({ max_tokens: 20_000, reasoning: { effort: "high" } });
+    let evaluatorRequest: { max_tokens?: number; reasoning?: { effort?: string } } = {};
+    await requestModelText({
+      baseUrl: "https://model.invalid",
+      key: "test",
+      model: "deepseek-v4-flash-vision-exp",
+      system: "json",
+      payload: {},
+      temperature: 0,
+      timeoutMs: 100,
+      attemptPlan: EVALUATOR_ATTEMPT_PLAN,
+      fetchImpl: async (_url: string, init: { body: string }) => {
+        evaluatorRequest = JSON.parse(init.body);
+        return responseFor("deepseek-v4-flash-vision-exp")();
+      }
+    });
+    expect(EVALUATOR_ATTEMPT_PLAN).toEqual([{ maxTokens: 20_000, reasoningMode: "high" }]);
+    expect(evaluatorRequest).toMatchObject({ max_tokens: 20_000, reasoning: { effort: "high" } });
     await expect(
       requestModelText({
         baseUrl: "https://model.invalid",
